@@ -43,7 +43,7 @@ The package is intentionally dependency-light and runs with the Python standard
 library.
 
 ```bash
-PYTHONPATH=src python -m manifold --generations 40 --population-size 32 --seed 7
+PYTHONPATH=src python3 -m manifold --generations 40 --population-size 32 --seed 7
 ```
 
 The command prints CSV-style generation metrics:
@@ -59,7 +59,7 @@ The command prints CSV-style generation metrics:
 ## Run tests
 
 ```bash
-PYTHONPATH=src python -m unittest discover -s tests
+PYTHONPATH=src python3 -m unittest discover -s tests
 ```
 
 ## Repository layout
