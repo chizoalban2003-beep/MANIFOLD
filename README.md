@@ -1,72 +1,78 @@
-# ![CI logo](https://codeinstitute.s3.amazonaws.com/fullstack/ci_logo_small.png)
+# MANIFOLD
 
-## Template Instructions
+**Multi-Agent Non-stationary Framework for Ontogenetic Learning and Dynamic valuation**
 
-Welcome,
+MANIFOLD explores how a population of agents discovers, preserves, and revises
+value in a changing grid. Earlier phases moved from fixed 9-box route geometry
+to multi-agent, multi-objective evolution. This repository now includes the
+Phase 5 baseline: ontogeny, or learning inside a single vector lifetime.
 
-This is the Code Institute student template for the Data Analytics capstone project. We have preinstalled all of the tools you need to get started. It's perfectly okay to use this template as the basis for your project submissions. Click the `Use this template` button above to get started.
+## Phase 5: finite energy armor
 
-You can safely delete the Template Instructions section of this README.md file and modify the remaining paragraphs for your own project. Please do read the Template Instructions at least once, though! It contains some important information about the IDE and the extensions we use.
+Each vector carries a finite battery:
 
-## How to use this repo
-
-1. Use this template to create your GitHub project repo. Click the **Use this template** button, then click **Create a new repository**.
-
-1. Copy the URL of your repository to your clipboard.
-
-1. In VS Code, select **File** -> **Open Folder**.
-
-1. Select your `vscode-projects` folder, then click the **Select Folder** button on Windows, or the **Open** button on Mac.
-
-1. From the top menu in VS Code, select **Terminal** > **New Terminal** to open the terminal.
-
-1. In the terminal, type `git clone` followed by the URL of your GitHub repository. Then hit **Enter**. This command will download all the files in your GitHub repository into your vscode-projects folder.
-
-1. In VS Code, select **File** > **Open Folder** again.
-
-1. This time, navigate to and select the folder for the project you just downloaded. Then, click **Select Folder**.
-
-1. A virtual environment is necessary when working with Python projects to ensure each project's dependencies are kept separate from each other. You need to create your virtual environment, also called a venv, and then ensure that it is activated any time you return to your workspace.
-Click the gear icon in the lower left-hand corner of the screen to open the Manage menu and select **Command Palette** to open the VS Code command palette.
-
-1. In the command palette, type: *create environment* and select **Python: Create Environment…**
-
-1. Choose **Venv** from the dropdown list.
-
-1. Choose the Python version you installed earlier. Currently, we recommend Python 3.12.8
-
-1. **DO NOT** click the box next to `requirements.txt`, as you need to do more steps before you can install your dependencies. Click **OK**.
-
-1. You will see a `.venv` folder appear in the file explorer pane to show that the virtual environment has been created.
-
-1. **Important**: Note that the `.venv` folder is in the `.gitignore` file so that Git won't track it.
-
-1. Return to the terminal by clicking on the TERMINAL tab, or click on the **Terminal** menu and choose **New Terminal** if no terminal is currently open.
-
-1. In the terminal, use the command below to install your dependencies. This may take several minutes.
-
- ```console
- pip3 install -r requirements.txt
- ```
-
-1. Open the `jupyter_notebooks` directory, and click on the notebook you want to open.
-
-1. Click the **kernel** button and choose **Python Environments**.
-
-Note that the kernel says `Python 3.12.8` as it inherits from the venv, so it will be Python-3.12.8 if that is what is installed on your PC. To confirm this, you can use the command below in a notebook code cell.
-
-```console
-! python --version
+```text
+E_max = 30
+C_total = C_base + risk_cost + energy_spent + survival_penalty
 ```
 
-## Deployment Reminders
+During traversal, a vector may spend energy on temporary armor:
 
-* Set the `.python-version` Python version to a [Heroku-22](https://devcenter.heroku.com/articles/python-support#supported-runtimes) stack currently supported version that closest matches what you used in this project.
-* The project can be deployed to Heroku using the following steps.
+- route risk above `max_risk` is lethal unless armor reduces effective risk;
+- armor costs energy every timestep;
+- `conserve_bias` controls how aggressively the vector spends its remaining
+  budget;
+- route selection compares total realized cost, so a vector may survive a spike
+  by boosting armor or avoid it by taking the scout detour.
 
-1. Log in to Heroku and create an App
-2. At the **Deploy** tab, select **GitHub** as the deployment method.
-3. Select your repository name and click **Search**. Once it is found, click **Connect**.
-4. Select the branch you want to deploy, then click **Deploy Branch**.
-5. The deployment process should happen smoothly if all deployment files are fully functional. Click the button **Open App** at the top of the page to access your App.
-6. If the slug size is too large, then add large files not required for the app to the `.slugignore` file.
+The default manifold contains three corridors:
+
+| Route | Length | Risk behavior |
+| --- | ---: | --- |
+| `tank` | 5 | constant risk 6 |
+| `scout` | 9 | constant risk 2 |
+| `flicker` | 6 | toggles risk 3/7 every 8 generations |
+
+Evolution still acts across generations through vector regret, conservative
+mutation, and light fitness sharing. Ontogeny adds a second pressure: policies
+must budget energy over the lifetime rather than only inherit good physics.
+
+## Run the simulation
+
+The package is intentionally dependency-light and runs with the Python standard
+library.
+
+```bash
+PYTHONPATH=src python -m manifold --generations 40 --population-size 32 --seed 7
+```
+
+The command prints CSV-style generation metrics:
+
+- average and best regret;
+- survival rate;
+- population diversity;
+- dominant route;
+- niche counts;
+- average energy spent;
+- average cognitive load.
+
+## Run tests
+
+```bash
+PYTHONPATH=src python -m unittest discover -s tests
+```
+
+## Repository layout
+
+```text
+src/manifold/ontogeny.py  Phase 5 model and experiment runner
+src/manifold/__main__.py  CLI entry point
+tests/test_ontogeny.py   Focused tests for energy budgeting and evolution
+```
+
+## Next experiment
+
+After the finite battery baseline, the next MANIFOLD extension is rechargeable
+sub-targets: introduce recharge cells as intermediate goals and measure whether
+vectors learn hierarchical plans that trade route length for future option
+value.
