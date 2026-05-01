@@ -1,4 +1,11 @@
-from manifold import SocialConfig, SocialGenome, SocialManifoldExperiment, config_for_preset, run_social_experiment
+from manifold import (
+    SocialConfig,
+    SocialGenome,
+    SocialManifoldExperiment,
+    compile_policy_audit,
+    config_for_preset,
+    run_social_experiment,
+)
 from manifold.social import recommended_prices, social_diversity
 
 
@@ -63,3 +70,33 @@ def test_social_diversity_uses_all_five_genes() -> None:
     ]
 
     assert social_diversity(genomes) > 1.0
+
+
+def test_policy_audit_compiles_deployable_recommendations() -> None:
+    config = config_for_preset("compute", generations=5, population_size=36, seed=2500)
+    history = run_social_experiment(config)
+
+    audit = compile_policy_audit(history, config)
+
+    assert 0.0 < audit.verification_threshold <= 1.0
+    assert audit.recommended_blacklist_after_lies == config.blacklist_after_lies
+    assert audit.recommended_forgiveness_window > 0
+    assert audit.robustness_score > 0
+    assert "force random audits" in audit.monopoly_controls
+
+
+def test_source_concentration_metrics_are_recorded() -> None:
+    history = run_social_experiment(
+        SocialConfig(
+            population_size=24,
+            generations=3,
+            seed=2500,
+            reputation_cap=0.2,
+            random_audit_rate=0.2,
+        )
+    )
+    final = history[-1]
+
+    assert 0.0 <= final.top_source_share <= 1.0
+    assert 0.0 <= final.source_hhi <= 1.0
+    assert final.monopoly_pressure >= 0.0
