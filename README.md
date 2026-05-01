@@ -1,72 +1,108 @@
-# ![CI logo](https://codeinstitute.s3.amazonaws.com/fullstack/ci_logo_small.png)
+# Project MANIFOLD
 
-## Template Instructions
+**MANIFOLD — Multi-Agent Non-stationary Framework for Ontogenetic Learning and Dynamic valuation**
 
-Welcome,
+MANIFOLD is an evolutionary simulation where route value is discovered by a competing population rather than hardcoded in geometry. The system starts from a classic 3x3, 8-route manifold and progressively introduces competition, environment mutation, and within-lifetime energy budgeting.
 
-This is the Code Institute student template for the Data Analytics capstone project. We have preinstalled all of the tools you need to get started. It's perfectly okay to use this template as the basis for your project submissions. Click the `Use this template` button above to get started.
+## Core Idea
 
-You can safely delete the Template Instructions section of this README.md file and modify the remaining paragraphs for your own project. Please do read the Template Instructions at least once, though! It contains some important information about the IDE and the extensions we use.
+Classical pathfinding treats center and corner utility as static heuristics.  
+MANIFOLD treats those utilities as hypotheses: vectors evolve beliefs from outcomes, and must re-adapt when the world changes.
 
-## How to use this repo
+The project moves intelligence across three levels:
 
-1. Use this template to create your GitHub project repo. Click the **Use this template** button, then click **Create a new repository**.
+1. **Geometry** (fixed route topology)
+2. **Agents** (evolving physics and route preferences)
+3. **Population × Non-stationary world** (teacher-induced adaptation pressure)
 
-1. Copy the URL of your repository to your clipboard.
+## Implemented Architecture
 
-1. In VS Code, select **File** -> **Open Folder**.
+`manifold/simulation.py` includes a full end-to-end model with four phases:
 
-1. Select your `vscode-projects` folder, then click the **Select Folder** button on Windows, or the **Open** button on Mac.
+1. `phase_1_static`
+   - fixed map
+   - no teacher, no flicker
+2. `phase_2_dual_niche`
+   - introduces scout/tank corridor asymmetry
+3. `phase_3_teacher_flicker`
+   - enables bored teacher spikes and flickering corridor risk
+4. `phase_4_ontogeny`
+   - keeps non-stationarity and adds finite per-agent energy budgeting
 
-1. From the top menu in VS Code, select **Terminal** > **New Terminal** to open the terminal.
+### Mechanisms Included
 
-1. In the terminal, type `git clone` followed by the URL of your GitHub repository. Then hit **Enter**. This command will download all the files in your GitHub repository into your vscode-projects folder.
+- Diverse seed population across `risk_multiplier` and `max_risk`
+- Conservative mutation (`sigma=0.05`) for local adaptation
+- Vector regret and grid regret proxy (population average regret)
+- Death pheromone feedback (deaths increase route danger signal)
+- Fitness sharing to reduce niche monoculture
+- Bored teacher:
+  - plateau-triggered every fixed interval
+  - 70% targeted route spikes, 30% random cell spikes
+- Flicker corridor with periodic risk toggle
+- Ontogeny:
+  - finite battery (`energy_max=30`)
+  - armor spending decision per cell/per timestep
+  - energy spend contributes directly to total route cost
 
-1. In VS Code, select **File** > **Open Folder** again.
+## Repository Structure
 
-1. This time, navigate to and select the folder for the project you just downloaded. Then, click **Select Folder**.
-
-1. A virtual environment is necessary when working with Python projects to ensure each project's dependencies are kept separate from each other. You need to create your virtual environment, also called a venv, and then ensure that it is activated any time you return to your workspace.
-Click the gear icon in the lower left-hand corner of the screen to open the Manage menu and select **Command Palette** to open the VS Code command palette.
-
-1. In the command palette, type: *create environment* and select **Python: Create Environment…**
-
-1. Choose **Venv** from the dropdown list.
-
-1. Choose the Python version you installed earlier. Currently, we recommend Python 3.12.8
-
-1. **DO NOT** click the box next to `requirements.txt`, as you need to do more steps before you can install your dependencies. Click **OK**.
-
-1. You will see a `.venv` folder appear in the file explorer pane to show that the virtual environment has been created.
-
-1. **Important**: Note that the `.venv` folder is in the `.gitignore` file so that Git won't track it.
-
-1. Return to the terminal by clicking on the TERMINAL tab, or click on the **Terminal** menu and choose **New Terminal** if no terminal is currently open.
-
-1. In the terminal, use the command below to install your dependencies. This may take several minutes.
-
- ```console
- pip3 install -r requirements.txt
- ```
-
-1. Open the `jupyter_notebooks` directory, and click on the notebook you want to open.
-
-1. Click the **kernel** button and choose **Python Environments**.
-
-Note that the kernel says `Python 3.12.8` as it inherits from the venv, so it will be Python-3.12.8 if that is what is installed on your PC. To confirm this, you can use the command below in a notebook code cell.
-
-```console
-! python --version
+```text
+.
+├── app.py                   # Streamlit viewer
+├── main.py                  # CLI entrypoint wrapper
+├── manifold/
+│   ├── __init__.py
+│   ├── cli.py               # argparse CLI
+│   └── simulation.py        # core engine
+└── tests/
+    └── test_simulation.py   # behavior tests
 ```
 
-## Deployment Reminders
+## Quickstart
 
-* Set the `.python-version` Python version to a [Heroku-22](https://devcenter.heroku.com/articles/python-support#supported-runtimes) stack currently supported version that closest matches what you used in this project.
-* The project can be deployed to Heroku using the following steps.
+Install dependencies:
 
-1. Log in to Heroku and create an App
-2. At the **Deploy** tab, select **GitHub** as the deployment method.
-3. Select your repository name and click **Search**. Once it is found, click **Connect**.
-4. Select the branch you want to deploy, then click **Deploy Branch**.
-5. The deployment process should happen smoothly if all deployment files are fully functional. Click the button **Open App** at the top of the page to access your App.
-6. If the slug size is too large, then add large files not required for the app to the `.slugignore` file.
+```bash
+pip install -r requirements.txt
+```
+
+Run a fast smoke simulation:
+
+```bash
+python main.py --quick
+```
+
+Run full simulation and save telemetry:
+
+```bash
+python main.py --seed 7 --output-json artifacts/manifold_seed7.json
+```
+
+Launch Streamlit app:
+
+```bash
+streamlit run app.py
+```
+
+## Tests
+
+Run tests with:
+
+```bash
+pytest -q
+```
+
+Current tests cover:
+
+- non-zero energy spend during ontogeny phase
+- teacher events in teacher-enabled phases
+- population size bounds across all generations
+
+## Notes on Extension
+
+The next research extension after this baseline is rechargeable sub-targets (hierarchical planning under dynamic budget replenishment), which can be integrated by:
+
+- introducing intermediate waypoints with local reward/charge mechanics
+- adding action choices beyond route selection (e.g., pause/recharge/advance)
+- tracking policy quality over delayed credit horizons
