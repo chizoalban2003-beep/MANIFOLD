@@ -318,8 +318,19 @@ def _compute_path_cost(
         required_armor = max(0.0, used_risk - agent.max_risk)
         armor_applied = 0.0
         if phase.ontogeny_enabled:
+            # Ontogeny: vectors can spend battery to lower expected risk even
+            # before survival pressure becomes critical.
+            proactive_fraction = _clip(
+                0.10 + 0.50 * agent.timing_bias + 0.15 * agent.risk_multiplier,
+                0.0,
+                0.85,
+            )
+            target_residual = max(0.0, used_risk * (1.0 - proactive_fraction))
+            desired_armor = max(0.0, used_risk - target_residual)
+            armor_budget_need = max(required_armor, desired_armor)
+
             affordable_armor = energy_remaining / agent.energy_per_armor
-            armor_applied = min(required_armor, affordable_armor)
+            armor_applied = min(armor_budget_need, affordable_armor)
             spent = armor_applied * agent.energy_per_armor
             energy_spent += spent
             energy_remaining -= spent
