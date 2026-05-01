@@ -1,72 +1,138 @@
-# ![CI logo](https://codeinstitute.s3.amazonaws.com/fullstack/ci_logo_small.png)
+# MANIFOLD
 
-## Template Instructions
+**Multi-Agent Non-stationary Framework for Ontogenetic Learning and Dynamic valuation**
 
-Welcome,
+---
 
-This is the Code Institute student template for the Data Analytics capstone project. We have preinstalled all of the tools you need to get started. It's perfectly okay to use this template as the basis for your project submissions. Click the `Use this template` button above to get started.
+## Core Thesis
 
-You can safely delete the Template Instructions section of this README.md file and modify the remaining paragraphs for your own project. Please do read the Template Instructions at least once, though! It contains some important information about the IDE and the extensions we use.
+Classical AI treats the 9-box grid as a fixed heuristic: the centre is worth **1/2** and corners **3/8** because they sit on 4 and 3 of the 8 winning routes. MANIFOLD treats those fractions as *hypotheses* that agents must discover, then *unlearn* when the world changes.
 
-## How to use this repo
+The project moves intelligence from the geometry into the agents, then into the interaction between agents and a changing geometry.
 
-1. Use this template to create your GitHub project repo. Click the **Use this template** button, then click **Create a new repository**.
+---
 
-1. Copy the URL of your repository to your clipboard.
+## Notebooks
 
-1. In VS Code, select **File** -> **Open Folder**.
+| Notebook | Description |
+|---|---|
+| [`MANIFOLD_V1_Static_Geometry.ipynb`](jupyter_notebooks/MANIFOLD_V1_Static_Geometry.ipynb) | 9-box grid, fixed cell values, A* pathfinder. Establishes the 1/2 and 3/8 fractions analytically. |
+| [`MANIFOLD_V2_MAMO.ipynb`](jupyter_notebooks/MANIFOLD_V2_MAMO.ipynb) | Multi-Agent Multi-Objective system. Congestion, risk, cost vectors. Shows value is subjective to agent physics. |
+| [`MANIFOLD_V3_Emergent.ipynb`](jupyter_notebooks/MANIFOLD_V3_Emergent.ipynb) | Full evolutionary engine. Agents discover 1/2 from selection alone. Bored Teacher prevents convergence. All 5 phases. |
+| [`MANIFOLD_Phase5_Ontogeny.ipynb`](jupyter_notebooks/MANIFOLD_Phase5_Ontogeny.ipynb) | Finite energy batteries, real-time armour budgeting, rechargeable sub-targets, hierarchical planning. |
 
-1. Select your `vscode-projects` folder, then click the **Select Folder** button on Windows, or the **Open** button on Mac.
+---
 
-1. From the top menu in VS Code, select **Terminal** > **New Terminal** to open the terminal.
+## Architecture Evolution
 
-1. In the terminal, type `git clone` followed by the URL of your GitHub repository. Then hit **Enter**. This command will download all the files in your GitHub repository into your vscode-projects folder.
+### V1 — Static Geometry
+- 9 boxes, 8 routes, fixed weights
+- Single agent, A\* pathfinder
+- Performance = shortest path
 
-1. In VS Code, select **File** > **Open Folder** again.
+### V2 — MAMO (Multi-Agent Multi-Objective)
+- Congestion, risk, and cost as independent objective axes
+- Multiple agents with different physics (`riskMultiplier`, `maxRisk`)
+- Performance = efficiency under competition
+- Pareto frontier is the true performance surface
 
-1. This time, navigate to and select the folder for the project you just downloaded. Then, click **Select Folder**.
+### V3 — Emergent (Phylogenetic Learning)
+- Hardcoded heuristics removed entirely
+- Agents spawn with random physics, evolve via selection pressure
+- Two regret signals drive the system:
+  - **Vector Regret**: individual cost minus optimal cost → death and reproduction
+  - **Grid Regret**: population average regret → Bored Teacher mutation
+- Value shifts from spatial to temporal: `V(s)` becomes `V(s|t)`
 
-1. A virtual environment is necessary when working with Python projects to ensure each project's dependencies are kept separate from each other. You need to create your virtual environment, also called a venv, and then ensure that it is activated any time you return to your workspace.
-Click the gear icon in the lower left-hand corner of the screen to open the Manage menu and select **Command Palette** to open the VS Code command palette.
+### Phase 5 — Ontogeny (Within-Lifetime Learning)
+- Each agent carries a finite energy battery `E_max = 30`
+- Boosting armour costs energy per cell, per timestep
+- Real-time budgeting decision at every step: armour vs detour
+- Performance shifts from path length to *cognitive load*
+- Rechargeable sub-targets enable hierarchical planning
 
-1. In the command palette, type: *create environment* and select **Python: Create Environment…**
+---
 
-1. Choose **Venv** from the dropdown list.
+## Key Mechanisms
 
-1. Choose the Python version you installed earlier. Currently, we recommend Python 3.12.8
+### 1. Diverse Seed + Conservative Mutation
+- Generation 0: 20–40 agents spanning the full physics space (`riskMultiplier` 0.1–2.5, `maxRisk` 2–9.5)
+- σ = 0.04–0.05: children stay close to parents, forcing earned efficiency over lucky jumps
 
-1. **DO NOT** click the box next to `requirements.txt`, as you need to do more steps before you can install your dependencies. Click **OK**.
+### 2. Sacrifice as Data Acquisition
+- A dead vector paints high-cost pheromone on the grid
+- The cost of death is the price of mapping *P(s'|s,a)*
 
-1. You will see a `.venv` folder appear in the file explorer pane to show that the virtual environment has been created.
+### 3. Fitness Sharing
+- Light penalty for crowding a niche prevents monoculture
+- Maintains diversity around 1.1–1.3 instead of collapsing to 0.2
 
-1. **Important**: Note that the `.venv` folder is in the `.gitignore` file so that Git won't track it.
+### 4. Bored Teacher
+- 70% targeted spikes on the dominant niche
+- 30% random environment mutations
+- Triggers every 15 generations when Grid Regret plateaus
+- Transforms value from spatial to temporal
 
-1. Return to the terminal by clicking on the TERMINAL tab, or click on the **Terminal** menu and choose **New Terminal** if no terminal is currently open.
+---
 
-1. In the terminal, use the command below to install your dependencies. This may take several minutes.
+## Experimental Results
 
- ```console
- pip3 install -r requirements.txt
- ```
+| Phase | Finding |
+|---|---|
+| 1–3 (Baseline) | Agents discover centre-weighting (1/2) from selection alone in ~8 generations |
+| 3 (Regret) | Grid regret drops ~18 → 0.34; best regret = 0 |
+| 4 (Dual-niche) | Stable coexistence ~27 Tanks / ~6 Scouts; diversity 1.15 |
+| 5 (Flicker) | Scouts extinct by gen 20; Tanks/Hybrids enter predator-prey cycles with 25–30 gen period |
+| 5 (Diversity) | Oscillates 0.25–1.0, never flatlines — continuous adaptation |
+| Ontogeny | Adaptive energy strategy recovers faster from risk spikes than phylogenetic adaptation alone |
 
-1. Open the `jupyter_notebooks` directory, and click on the notebook you want to open.
+---
 
-1. Click the **kernel** button and choose **Python Environments**.
+## The Diversity Tax
 
-Note that the kernel says `Python 3.12.8` as it inherits from the venv, so it will be Python-3.12.8 if that is what is installed on your PC. To confirm this, you can use the command below in a notebook code cell.
+Maintaining diversity at 1.15 instead of converging to monoculture at 0.19 costs:
 
-```console
-! python --version
+```
+Diversity tax = H_maintained − H_monoculture = 1.15 − 0.19 = 0.96
 ```
 
-## Deployment Reminders
+This tax buys a **genetic library for futures not yet seen**.
 
-* Set the `.python-version` Python version to a [Heroku-22](https://devcenter.heroku.com/articles/python-support#supported-runtimes) stack currently supported version that closest matches what you used in this project.
-* The project can be deployed to Heroku using the following steps.
+---
 
-1. Log in to Heroku and create an App
-2. At the **Deploy** tab, select **GitHub** as the deployment method.
-3. Select your repository name and click **Search**. Once it is found, click **Connect**.
-4. Select the branch you want to deploy, then click **Deploy Branch**.
-5. The deployment process should happen smoothly if all deployment files are fully functional. Click the button **Open App** at the top of the page to access your App.
-6. If the slug size is too large, then add large files not required for the app to the `.slugignore` file.
+## Value as a Manifold
+
+Each phase adds a dimension to the value function:
+
+```
+V(s)                    — V1: pure geometry
+V(s, agent)             — V2: physics-dependent
+V(s, agent, t)          — V3: time-dependent (non-stationary world)
+V(s, agent, t, E)       — Phase 5: energy-dependent
+```
+
+The grid is no longer a container. It is a training signal on a manifold where each point's value depends on **who is measuring it, when, and how much energy they have left**.
+
+---
+
+## Requirements
+
+```
+numpy==1.26.1
+pandas==2.1.1
+matplotlib==3.8.0
+```
+
+(Full list in `requirements.txt`)
+
+---
+
+## Running the Notebooks
+
+```bash
+pip install -r requirements.txt
+jupyter notebook jupyter_notebooks/
+```
+
+Open each notebook in sequence: V1 → V2 → V3 → Phase 5.
+All cells should be run top-to-bottom. Each notebook is self-contained.
