@@ -189,3 +189,90 @@ def test_memory_market_generates_positive_revenue() -> None:
     config = ManifoldConfig(seed=73, phases=(production_phase,))
     result = run_manifold(config=config)
     assert any(metric.average_memory_revenue > 0.0 for metric in result.metrics)
+
+
+def test_event_indexing_toggle_keeps_behavior_consistent() -> None:
+    base_phase = PhaseConfig(
+        name="indexing_parity",
+        generations=8,
+        dual_niche=True,
+        teacher_enabled=True,
+        flicker_enabled=True,
+        ontogeny_enabled=True,
+        recharge_enabled=True,
+        multi_layer_enabled=True,
+        adaptive_rules_enabled=True,
+        memory_market_enabled=True,
+        predator_auto_tuning=True,
+        rule_targets_enabled=True,
+        energy_budget=12.0,
+    )
+    base = ManifoldConfig(seed=91, phases=(base_phase,))
+    no_index = replace(base, use_event_indexing=False)
+
+    result_index = run_manifold(config=base)
+    result_no_index = run_manifold(config=no_index)
+
+    assert len(result_index.metrics) == len(result_no_index.metrics)
+    for left, right in zip(result_index.metrics, result_no_index.metrics):
+        assert abs(left.avg_regret - right.avg_regret) < 1e-9
+        assert abs(left.average_memory_revenue - right.average_memory_revenue) < 1e-9
+        assert left.action_counts == right.action_counts
+
+
+def test_generation_cache_toggle_keeps_behavior_consistent() -> None:
+    phase = PhaseConfig(
+        name="cache_parity",
+        generations=7,
+        dual_niche=True,
+        teacher_enabled=True,
+        flicker_enabled=True,
+        ontogeny_enabled=True,
+        recharge_enabled=True,
+        multi_layer_enabled=True,
+        adaptive_rules_enabled=True,
+        memory_market_enabled=True,
+        predator_auto_tuning=True,
+        rule_targets_enabled=True,
+        energy_budget=12.0,
+    )
+    base = ManifoldConfig(seed=92, phases=(phase,))
+    no_cache = replace(base, use_generation_cache=False)
+
+    result_cache = run_manifold(config=base)
+    result_no_cache = run_manifold(config=no_cache)
+
+    assert len(result_cache.metrics) == len(result_no_cache.metrics)
+    for left, right in zip(result_cache.metrics, result_no_cache.metrics):
+        assert abs(left.avg_regret - right.avg_regret) < 1e-9
+        assert abs(left.average_recharge_gained - right.average_recharge_gained) < 1e-9
+        assert left.route_usage == right.route_usage
+
+
+def test_vectorized_toggle_keeps_behavior_consistent() -> None:
+    phase = PhaseConfig(
+        name="vectorized_parity",
+        generations=6,
+        dual_niche=True,
+        teacher_enabled=True,
+        flicker_enabled=True,
+        ontogeny_enabled=True,
+        recharge_enabled=True,
+        multi_layer_enabled=True,
+        adaptive_rules_enabled=True,
+        memory_market_enabled=True,
+        predator_auto_tuning=True,
+        rule_targets_enabled=True,
+        energy_budget=12.0,
+    )
+    base = ManifoldConfig(seed=93, phases=(phase,))
+    no_vectorized = replace(base, use_vectorized_scoring=False)
+
+    result_vec = run_manifold(config=base)
+    result_no_vec = run_manifold(config=no_vectorized)
+
+    assert len(result_vec.metrics) == len(result_no_vec.metrics)
+    for left, right in zip(result_vec.metrics, result_no_vec.metrics):
+        assert abs(left.avg_regret - right.avg_regret) < 1e-9
+        assert abs(left.predator_spawn_rate - right.predator_spawn_rate) < 1e-9
+        assert left.confidence_distribution == right.confidence_distribution

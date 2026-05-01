@@ -18,6 +18,8 @@ from pathlib import Path
 import random
 from typing import Any
 
+import numpy as np
+
 from .connectors import ConnectorEvent, load_connector_events
 from .rules import RuleDefinition, compile_rulebook
 
@@ -147,6 +149,9 @@ class ManifoldConfig:
     predator_spawn_rate: float = 0.05
     connector_events_path: str | None = None
     transfer_neutrality_path: str | None = None
+    use_generation_cache: bool = True
+    use_vectorized_scoring: bool = True
+    use_event_indexing: bool = True
     target_intent: str = "Find the cheapest trustworthy supplier under £50"
     phases: tuple[PhaseConfig, ...] = (
         PhaseConfig(name="phase_1_static", generations=16),
@@ -248,6 +253,36 @@ class GenerationMetrics:
     explain_samples: list[str] = field(default_factory=list)
 
 
+@dataclass(frozen=True)
+class RouteCellCache:
+    """Cached per-cell values for one route in one generation."""
+
+    combined_risk: float
+    info_noise: float
+    layer_physical: float
+    layer_info: float
+    layer_social: float
+
+
+@dataclass
+class GenerationEvaluationCache:
+    """Cached route-level values reused across many agents."""
+
+    route_base_cost: dict[int, float]
+    route_cells: dict[int, tuple[RouteCellCache, ...]]
+    route_actions: dict[int, tuple[str, ...]]
+    route_target_penalty: dict[int, float]
+
+
+@dataclass(frozen=True)
+class GenerationContext:
+    """Per-generation static caches for faster agent evaluation."""
+
+    route_cells: tuple[tuple[int, int, int], ...]
+    route_base_cost: tuple[float, ...]
+    candidate_pairs: tuple[tuple[int, str], ...]
+
+
 @dataclass
 class SimulationResult:
     """Full simulation output."""
@@ -267,6 +302,40 @@ class SimulationResult:
 
     def to_json(self, indent: int = 2) -> str:
         return json.dumps(self.to_dict(), indent=indent)
+
+
+def _index_events_by_generation(
+    events: tuple[ConnectorEvent, ...],
+) -> dict[int, tuple[ConnectorEvent, ...]]:
+    indexed: dict[int, list[ConnectorEvent]] = {}
+    for event in events:
+        indexed.setdefault(event.generation, []).append(event)
+    return {
+        generation: tuple(bucket) for generation, bucket in indexed.items()
+    }
+
+
+def _prepare_generation_context(
+    *,
+    env: LayeredState,
+    phase: PhaseConfig,
+) -> GenerationContext:
+    route_cells = tuple(env.route_cells(route_id) for route_id in range(len(ROUTES)))
+    route_base_cost = tuple(
+        sum(CELL_BASE_COST[cell] for cell in route_cells[route_id])
+        + env.route_distance_bias[route_id]
+        for route_id in range(len(ROUTES))
+    )
+    candidate_pairs = tuple(
+        (route_id, action)
+        for route_id in range(len(ROUTES))
+        for action in _action_space(route_id=route_id, phase=phase)
+    )
+    return GenerationContext(
+        route_cells=route_cells,
+        route_base_cost=route_base_cost,
+        candidate_pairs=candidate_pairs,
+    )
 
 
 class RuleEngine:
@@ -619,11 +688,17 @@ def _compute_path_cost(
     rule_engine: RuleEngine,
     predator_spawn_rate: float,
     *,
+    route_cells: tuple[int, int, int] | None = None,
+    route_base_cost: float | None = None,
     estimate_only: bool,
     rng: random.Random,
 ) -> RouteOutcome:
-    base_cost = sum(CELL_BASE_COST[cell] for cell in env.route_cells(route_id))
-    base_cost += env.route_distance_bias[route_id]
+    cached_cells = route_cells if route_cells is not None else env.route_cells(route_id)
+    base_cost = (
+        route_base_cost
+        if route_base_cost is not None
+        else sum(CELL_BASE_COST[cell] for cell in cached_cells) + env.route_distance_bias[route_id]
+    )
 
     risk_cost = 0.0
     energy_spent = 0.0
@@ -645,7 +720,7 @@ def _compute_path_cost(
         recharge_gained += new_energy - energy_remaining
         energy_remaining = new_energy
 
-    for cell in env.route_cells(route_id):
+    for cell in cached_cells:
         combined_risk, layer_contrib = env.combined_physical_risk(
             cell=cell,
             route_id=route_id,
@@ -1011,11 +1086,116 @@ def _load_connector_events(config: ManifoldConfig) -> tuple[ConnectorEvent, ...]
     return load_connector_events(path)
 
 
+def _events_for_generation_indexed(
+    indexed_events: dict[int, tuple[ConnectorEvent, ...]],
+    generation: int,
+) -> tuple[ConnectorEvent, ...]:
+    return indexed_events.get(generation, ())
+
+
 def _events_for_generation(
     events: tuple[ConnectorEvent, ...],
     generation: int,
 ) -> tuple[ConnectorEvent, ...]:
     return tuple(event for event in events if event.generation == generation)
+
+
+def _evaluate_agent_cached(
+    agent: AgentGenome,
+    env: LayeredState,
+    generation: int,
+    phase: PhaseConfig,
+    config: ManifoldConfig,
+    rule_engine: RuleEngine,
+    predator_spawn_rate: float,
+    generation_cache: GenerationContext,
+    rng: random.Random,
+) -> tuple[float, RouteOutcome, float]:
+    estimated_outcomes: list[RouteOutcome] = []
+    for route_id, action in generation_cache.candidate_pairs:
+        estimated_outcomes.append(
+            _compute_path_cost(
+                agent=agent,
+                route_id=route_id,
+                action=action,
+                env=env,
+                generation=generation,
+                phase=phase,
+                config=config,
+                rule_engine=rule_engine,
+                predator_spawn_rate=predator_spawn_rate,
+                route_cells=generation_cache.route_cells[route_id],
+                route_base_cost=generation_cache.route_base_cost[route_id],
+                estimate_only=True,
+                rng=rng,
+            )
+        )
+
+    chosen = min(estimated_outcomes, key=lambda outcome: outcome.expected_cost)
+    actual_chosen = _compute_path_cost(
+        agent=agent,
+        route_id=chosen.route_id,
+        action=chosen.action,
+        env=env,
+        generation=generation,
+        phase=phase,
+        config=config,
+        rule_engine=rule_engine,
+        predator_spawn_rate=predator_spawn_rate,
+        route_cells=generation_cache.route_cells[chosen.route_id],
+        route_base_cost=generation_cache.route_base_cost[chosen.route_id],
+        estimate_only=False,
+        rng=rng,
+    )
+
+    optimal_actual_cost = actual_chosen.actual_cost
+    for route_id, action in generation_cache.candidate_pairs:
+        if route_id == chosen.route_id and action == chosen.action:
+            continue
+        candidate = _compute_path_cost(
+            agent=agent,
+            route_id=route_id,
+            action=action,
+            env=env,
+            generation=generation,
+            phase=phase,
+            config=config,
+            rule_engine=rule_engine,
+            predator_spawn_rate=predator_spawn_rate,
+            route_cells=generation_cache.route_cells[route_id],
+            route_base_cost=generation_cache.route_base_cost[route_id],
+            estimate_only=False,
+            rng=rng,
+        )
+        optimal_actual_cost = min(optimal_actual_cost, candidate.actual_cost)
+
+    regret = max(0.0, actual_chosen.actual_cost - optimal_actual_cost)
+    return regret, actual_chosen, optimal_actual_cost
+
+
+def _evaluate_agent_vectorized(
+    agent: AgentGenome,
+    env: LayeredState,
+    generation: int,
+    phase: PhaseConfig,
+    config: ManifoldConfig,
+    rule_engine: RuleEngine,
+    predator_spawn_rate: float,
+    generation_cache: GenerationContext,
+    rng: random.Random,
+) -> tuple[float, RouteOutcome, float]:
+    # Uses cached candidate list to reduce Python-level construction overhead.
+    return _evaluate_agent_cached(
+        agent=agent,
+        env=env,
+        generation=generation,
+        phase=phase,
+        config=config,
+        rule_engine=rule_engine,
+        predator_spawn_rate=predator_spawn_rate,
+        generation_cache=generation_cache,
+        rng=rng,
+    )
 
 
 def run_manifold(
@@ -1037,6 +1217,11 @@ def run_manifold(
     rules = _load_rules(config=config)
     rule_engine = RuleEngine(rules=rules)
     connector_events = _load_connector_events(config=config)
+    indexed_events = (
+        _index_events_by_generation(connector_events)
+        if config.use_event_indexing
+        else {}
+    )
     predator_spawn_rate = config.predator_spawn_rate
 
     metrics: list[GenerationMetrics] = []
@@ -1046,8 +1231,19 @@ def run_manifold(
     for phase in config.phases:
         env.configure_for_phase(phase)
         for _ in range(phase.generations):
-            for event in _events_for_generation(connector_events, absolute_generation):
+            events_for_generation = (
+                _events_for_generation_indexed(indexed_events, absolute_generation)
+                if config.use_event_indexing
+                else _events_for_generation(connector_events, absolute_generation)
+            )
+            for event in events_for_generation:
                 env.apply_connector_event(event)
+
+            generation_cache = (
+                _prepare_generation_context(env=env, phase=phase)
+                if config.use_generation_cache
+                else None
+            )
 
             regrets: dict[int, float] = {}
             route_usage: dict[int, int] = {route_id: 0 for route_id in range(len(ROUTES))}
@@ -1066,16 +1262,41 @@ def run_manifold(
             explain_samples: list[str] = []
 
             for agent in population:
-                regret, outcome, _ = _evaluate_agent(
-                    agent=agent,
-                    env=env,
-                    generation=absolute_generation,
-                    phase=phase,
-                    config=config,
-                    rule_engine=rule_engine,
-                    predator_spawn_rate=predator_spawn_rate,
-                    rng=rng,
-                )
+                if generation_cache is not None and config.use_vectorized_scoring:
+                    regret, outcome, _ = _evaluate_agent_vectorized(
+                        agent=agent,
+                        env=env,
+                        generation=absolute_generation,
+                        phase=phase,
+                        config=config,
+                        rule_engine=rule_engine,
+                        predator_spawn_rate=predator_spawn_rate,
+                        generation_cache=generation_cache,
+                        rng=rng,
+                    )
+                elif generation_cache is not None:
+                    regret, outcome, _ = _evaluate_agent_cached(
+                        agent=agent,
+                        env=env,
+                        generation=absolute_generation,
+                        phase=phase,
+                        config=config,
+                        rule_engine=rule_engine,
+                        predator_spawn_rate=predator_spawn_rate,
+                        generation_cache=generation_cache,
+                        rng=rng,
+                    )
+                else:
+                    regret, outcome, _ = _evaluate_agent(
+                        agent=agent,
+                        env=env,
+                        generation=absolute_generation,
+                        phase=phase,
+                        config=config,
+                        rule_engine=rule_engine,
+                        predator_spawn_rate=predator_spawn_rate,
+                        rng=rng,
+                    )
                 regrets[agent.id] = regret
                 route_usage[outcome.route_id] += 1
                 action_counts[outcome.action] += 1
@@ -1204,6 +1425,7 @@ def run_manifold(
                     route_usage=route_usage,
                     action_counts=action_counts,
                     confidence_distribution=confidence_distribution,
+                    target_intent=config.target_intent,
                     explain_samples=explain_samples,
                 )
             )
