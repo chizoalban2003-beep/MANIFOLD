@@ -1,17 +1,19 @@
 """Project MANIFOLD simulation package."""
 
 from .simulation import (
-    ExperimentConfig,
-    ExperimentResult,
-    GridWorld,
-    VectorAgent,
+    GenerationSummary,
+    LifeResult,
+    ManifoldExperiment,
+    SimulationConfig,
+    VectorGenome,
     run_experiment,
 )
 
 __all__ = [
-    "ExperimentConfig",
-    "ExperimentResult",
-    "GridWorld",
-    "VectorAgent",
+    "GenerationSummary",
+    "LifeResult",
+    "ManifoldExperiment",
+    "SimulationConfig",
+    "VectorGenome",
     "run_experiment",
 ]

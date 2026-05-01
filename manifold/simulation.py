@@ -216,8 +216,9 @@ class ManifoldExperiment:
             remaining = energy - spend
             failure_penalty = 0.0 if spend + 1e-9 >= shortage else 50.0
             if self.config.recharge_enabled and cell in self.config.recharge_cells:
-                remaining = min(self.config.energy_max, remaining + self.config.recharge_amount)
-                recharge_reward = -0.8 * genome.recharge_bias
+                restored = min(self.config.recharge_amount, self.config.energy_max - remaining)
+                remaining += restored
+                recharge_reward = -0.45 * restored * genome.recharge_bias
             else:
                 recharge_reward = 0.0
             cognitive_load = spend * (1.0 + genome.conserve_bias)

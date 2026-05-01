@@ -28,12 +28,13 @@ def test_recharge_bias_makes_subtarget_attractive() -> None:
         recharge_enabled=True,
         recharge_cells=((1, 1),),
         recharge_amount=8.0,
+        energy_max=5.0,
     )
     experiment = ManifoldExperiment(config)
     genome = VectorGenome(
         risk_multiplier=0.1,
-        max_risk=9.0,
-        armor_bias=0.0,
+        max_risk=2.0,
+        armor_bias=1.0,
         conserve_bias=0.0,
         recharge_bias=1.0,
     )
