@@ -181,7 +181,7 @@ class SocialManifoldExperiment:
     def __post_init__(self) -> None:
         self.rng = random.Random(self.config.seed)
         self.grid = (
-            load_problem_grid_csv(self.config.data_path, self.config.grid_size)
+            load_grid_from_csv(self.config.data_path, self.config.grid_size)
             if self.config.data_path
             else build_problem_grid(self.config)
         )
