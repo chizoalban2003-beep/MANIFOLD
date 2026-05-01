@@ -1,2 +1,2 @@
-jupyter_notebooks/*
-README.md
+.pytest_cache/*
+__pycache__/*
