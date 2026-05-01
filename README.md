@@ -2,92 +2,177 @@
 
 **Multi-Agent Non-stationary Framework for Ontogenetic Learning and Dynamic valuation**
 
-MANIFOLD is an evolutionary simulation testing how intelligence emerges when
-survival depends on budgeting finite energy against a changing environment. It
-separates two learning timescales:
+MANIFOLD should keep its name. The project has grown from a fixed 3x3
+Tic-Tac-Toe geometry into a manifold of problem spaces: any domain can be
+translated into a grid of priced states, then populated by agents whose social
+rules evolve from economics rather than being hand-coded.
 
-- **Phylogeny**: slow evolution of body parameters such as `risk_multiplier` and
-  `max_risk`.
-- **Ontogeny**: fast evolution of behavior parameters such as energy aversion,
-  charger use, path choice, signalling, and verification.
+A more current subtitle is:
 
-The core cost equation is:
+> **An evolutionary engine for growing social rules from priced action.**
+
+## Core thesis
+
+Do not tell agents to be honest, verify sources, gossip, blacklist liars, or
+forgive. Give them:
+
+1. finite energy,
+2. a vector grid,
+3. priced actions,
+4. brutal selection.
+
+Then let social intelligence emerge.
+
+## Universal mapper
+
+Every cell is a four-component vector:
 
 ```text
-C_total = C_terrain + C_teacher + C_waste
+[cost, risk, neutrality, asset]
 ```
 
-`C_terrain` is static risk, `C_teacher` is dynamic spike pressure, and `C_waste`
-is energy spent inefficiently.
+- **Cost**: fuel, tokens, compute, money, user patience, or time.
+- **Risk**: traffic, hallucination, market crash, server failure, deception.
+- **Neutrality**: low-information or low-pressure space.
+- **Asset**: reward, target density, credibility, order value, job reward.
 
-## Current implementation
+The social engine runs on a 31x31 grid by default. The earlier path/teacher
+engine remains available for 11x11, 21x21, and 31x31 transfer experiments.
 
-- 11x11 default world, with scalable 21x21 and 31x31 transfer worlds
-- Start `(0, 5)`, target `(10, 5)` in the default grid
-- Genome traits:
-  - `risk_multiplier` (`rm`) from 0.1 to 1.0
-  - `max_risk` (`max_r`) from 4.0 to 6.5
-  - `energy_aversion` from 0.5 to 2.5
-  - charger, honesty, and verification policies
-- Energy model: `E_MAX = 8`
-- Boost rule: if `risk > max_r`, energy cost is `(risk - max_r) * 2`
-- Two chargers at `(3, 5)` and `(7, 5)`, restoring `+4` energy by default
-- Teacher modes: periodic, reactive, random, adversarial, and multi-teacher
-- Optional 2-bit communication channel with deception and verification pressure
-- Streamlit dashboard plus CLI runner
-- Focused pytest coverage for energy, chargers, dual-rate mutation,
-  communication metrics, and transfer scaling
+## Social genome
 
-## Quick start
+Each social agent has five genes:
+
+```text
+deception     probability of lying when signalling
+verification  probability of checking before trusting
+gossip        probability of sharing verified risk information
+memory        how long betrayal is remembered before forgiveness
+energy        starting budget
+```
+
+No moral rules are programmed. Fitness is:
+
+```text
+fitness = energy_left + assets_collected - penalties
+```
+
+The top 20% reproduce; the bottom 80% die. Children inherit mutated genes.
+
+## Emergent phases
+
+### Generations 0-800: honeymoon
+Low deception survives as random mutation. Cooperation works because lying is not
+yet profitable enough to dominate.
+
+### Generations 800-1,200: liar explosion
+A deceptive mutant can get social benefit while externalizing risk. Deception can
+spread until blind trust becomes expensive.
+
+### Generations 1,200-1,456: verification phase transition
+Verification becomes adaptive when:
+
+```text
+risk * penalty > verification_cost * risk_reduction
+```
+
+Using the trust-world numbers:
+
+```text
+0.45 * 0.50 = 0.225 expected loss
+0.30 * 0.70 = 0.210 effective check cost
+```
+
+At that point, checking is cheaper than blind trust.
+
+### Generation 2,000+: stable trust economy
+A seeded Gen-2000 population starts near:
+
+- deception around 32%
+- verification around 54%
+- gossip around 67%
+- finite memory with forgiveness
+
+Deception does not go to zero because low-stakes deception can remain cheaper
+than universal checking. The stable system is not perfectly honest; it is priced.
+
+## Blacklisting and rehabilitation
+
+Agents remember repeated betrayal, blacklist after repeated detected lies, and
+forget after a memory window. Permanent grudges are not privileged. They survive
+only if they improve fitness.
+
+Rehabilitation is priced as:
+
+```text
+forgive when expected future value > expected deception loss + verification cost
+```
+
+In practice, memory evolves into a temporary exclusion window rather than a moral
+sentence. Mercy is adaptive risk pricing.
+
+## Engines in this repo
+
+### 1. Social intelligence engine
+
+Run the current MANIFOLD model:
 
 ```bash
-pip install -r requirements.txt
-python3 -m manifold --generations 60 --population 36 --seed 7
-python3 -m manifold --teacher-mode multi --communication --generations 120
+python3 -m manifold --mode social --generations 120 --population 180 --seed 2500
+```
+
+Run domain presets:
+
+```bash
+python3 -m manifold --mode social --preset birmingham
+python3 -m manifold --mode social --preset misinformation
+python3 -m manifold --mode social --preset compute
+```
+
+### 2. Path / teacher engine
+
+The earlier energy-budgeting world is still available:
+
+```bash
+python3 -m manifold --mode path --generations 60 --population 36 --grid-size 11
+```
+
+### Dashboard
+
+```bash
 streamlit run app.py
 ```
 
-## Experiment map
+The dashboard lets you switch between the social engine and the path/teacher
+engine.
 
-### Phase 1-2: Baseline and low battery
-High battery settings produce easy survival. Reducing `E_MAX` to 8 creates
-pressure, exposing the difference between conservative risk avoidance and true
-budgeting.
+## Application presets
 
-### Phase 3: Bottleneck corridor
-The center corridor has calm risk around 5 and teacher spikes that push effective
-risk toward 9. Agents must either evolve higher `max_risk`, spend energy, route
-through chargers, or die.
+### Birmingham delivery
 
-### Phase 4: Fixed physics test
-Locking body traits while keeping teacher pressure demonstrates the project
-thesis: ontogenetic policy cannot rescue a body that cannot physically cross the
-world.
+- cost = fuel + time
+- risk = traffic/weather
+- asset = order value
 
-### Phase 5: Dual-track evolution
-Body mutation (`max_r_sigma = 0.02`) is slow while policy mutation
-(`aversion_sigma = 0.12`) is fast. This lets body tolerance move gradually while
-energy aversion, charger use, and path policy adapt quickly.
+Expected behavior: selective verification for high-value orders and gossip hubs
+around high-information locations.
 
-### Phase 5c: Rechargeable chargers
-Chargers at `(3, 5)` and `(7, 5)` allow conditional routing. Calm periods should
-favor direct travel; spike periods make charger harvesting valuable enough to
-support survival.
+### Misinformation
 
-### Phase 6-7: Adversarial and multi-teacher pressure
-Teacher modes can spike when charger dependence is visible, react to high
-survival, or inject random spikes. Multi-teacher mode tracks competing teacher
-strengths so unpredictability can dominate learned schedules.
+- cost = time to check
+- risk = believing false information
+- asset = credibility
 
-### Phase 8: Transfer learning
-Use `transfer_population(source, target_grid_size=21)` to seed a larger world
-with an evolved population. Hybrid timing strategies should transfer better than
-geometry-specific routes.
+Expected behavior: high verification, muted deception, credibility as currency.
 
-### Phase 9-12: Communication, deception, verification
-When `communication_enabled=True`, agents emit 2-bit signals at an energy cost.
-Signal `10` represents an upcoming spike window. Low honesty creates false spike
-messages; verification bias models receiver skepticism.
+### Compute allocation
+
+- cost = energy
+- risk = server failure
+- asset = job reward
+
+Expected behavior: near-perfect health checking and load sharing when failure
+penalties dwarf checking costs.
 
 ## Repository layout
 
@@ -95,12 +180,17 @@ messages; verification bias models receiver skepticism.
 app.py                  Streamlit dashboard
 manifold/
   __main__.py           CLI entry point
-  cli.py                CLI argument parsing and summary output
-  simulation.py         MANIFOLD simulation engine
+  cli.py                CLI modes for social and path engines
+  simulation.py         Path/teacher MANIFOLD engine
+  social.py             31x31 social-intelligence engine
 tests/
-  test_simulation.py    Focused regression tests
+  test_simulation.py    Path/teacher regression tests
+  test_social.py        Social-evolution regression tests
 ```
 
-The important metric is not one shortest path. It is whether the population can
-maintain body diversity, behavioral plasticity, and social verification under
-changing teacher pressure.
+## Why the name still fits
+
+MANIFOLD no longer names a grid. It names the space of possible mappings. A city,
+a conversation, a market, or a compute cluster can all be projected onto the same
+cost/risk/neutrality/asset manifold. The engine does not output one perfect path.
+It outputs the social contract implied by the prices.

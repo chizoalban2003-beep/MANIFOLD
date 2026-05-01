@@ -8,6 +8,7 @@ import pandas as pd
 import streamlit as st
 
 from manifold import ManifoldExperiment, SimulationConfig
+from manifold.social import SocialConfig, config_for_preset, run_social_experiment
 
 
 st.set_page_config(
@@ -17,8 +18,8 @@ st.set_page_config(
 )
 
 
-@st.cache_data(show_spinner="Running MANIFOLD experiment...")
-def run_cached(config: SimulationConfig) -> tuple[pd.DataFrame, dict[str, object]]:
+@st.cache_data(show_spinner="Running MANIFOLD path experiment...")
+def run_path_cached(config: SimulationConfig) -> tuple[pd.DataFrame, dict[str, object]]:
     experiment = ManifoldExperiment(config)
     history = experiment.run()
     rows = []
@@ -41,87 +42,147 @@ def run_cached(config: SimulationConfig) -> tuple[pd.DataFrame, dict[str, object
     return pd.DataFrame(rows), overlays
 
 
+@st.cache_data(show_spinner="Running MANIFOLD social experiment...")
+def run_social_cached(config: SocialConfig) -> pd.DataFrame:
+    rows = []
+    for item in run_social_experiment(config):
+        row = asdict(item)
+        row.update(
+            {
+                "verifiers": item.niche_counts["Verifier"],
+                "deceivers": item.niche_counts["Deceiver"],
+                "gossips": item.niche_counts["Gossip"],
+                "pragmatists": item.niche_counts["Pragmatist"],
+            }
+        )
+        del row["niche_counts"]
+        rows.append(row)
+    return pd.DataFrame(rows)
+
+
 st.title("Project MANIFOLD")
-st.caption("Multi-Agent Non-stationary Framework for Ontogenetic Learning and Dynamic valuation")
+st.caption("A priced-action engine for evolving social intelligence on vector grids")
 st.markdown(
-    "MANIFOLD tests whether intelligence emerges when agents must budget finite "
-    "energy against terrain risk, teacher spikes, and waste."
+    "MANIFOLD keeps the name: the project is now a manifold of problem spaces. "
+    "The subtitle changes from routing to social rules that evolve from economics."
 )
 
 with st.sidebar:
     st.header("Experiment controls")
-    population_size = st.slider("Population", 12, 120, 52, step=4)
-    generations = st.slider("Generations", 10, 300, 200, step=10)
-    seed = st.number_input("Seed", value=13, step=1)
-    grid_size = st.select_slider("Grid size", options=[11, 21, 31], value=11)
-    teacher_mode = st.selectbox(
-        "Teacher mode", ["periodic", "reactive", "random", "adversarial", "multi"]
+    mode = st.radio("Engine", ["Social intelligence", "Path / teacher"], horizontal=True)
+    population_size = st.slider("Population", 12, 240, 180 if mode == "Social intelligence" else 52, step=4)
+    generations = st.slider("Generations", 5, 500, 120 if mode == "Social intelligence" else 200, step=5)
+    seed = st.number_input("Seed", value=2500 if mode == "Social intelligence" else 13, step=1)
+
+if mode == "Social intelligence":
+    with st.sidebar:
+        preset = st.selectbox("Problem preset", ["trust", "birmingham", "misinformation", "compute"])
+        grid_size = st.select_slider("Grid size", options=[11, 21, 31], value=31)
+    if preset == "trust":
+        config = SocialConfig(
+            population_size=population_size,
+            generations=generations,
+            seed=int(seed),
+            grid_size=grid_size,
+            preset=preset,
+        )
+    else:
+        config = config_for_preset(
+            preset,
+            generations=generations,
+            population_size=population_size,
+            seed=int(seed),
+        )
+    history = run_social_cached(config)
+    latest = history.iloc[-1]
+
+    cols = st.columns(6)
+    cols[0].metric("Fitness", f"{latest.average_fitness:.2f}")
+    cols[1].metric("Deception", f"{latest.average_deception:.0%}")
+    cols[2].metric("Verification", f"{latest.average_verification:.0%}")
+    cols[3].metric("Gossip", f"{latest.average_gossip:.0%}")
+    cols[4].metric("Memory", f"{latest.average_memory_ticks:.0f} ticks")
+    cols[5].metric("Diversity", f"{latest.diversity:.2f}")
+
+    left, right = st.columns(2)
+    with left:
+        st.subheader("Social genes")
+        st.line_chart(
+            history.set_index("generation")[[
+                "average_deception",
+                "average_verification",
+                "average_gossip",
+            ]]
+        )
+    with right:
+        st.subheader("Trust economy")
+        st.line_chart(
+            history.set_index("generation")[[
+                "lie_rate",
+                "verification_rate",
+                "trusted_lie_rate",
+                "honest_correlation",
+            ]]
+        )
+
+    left, right = st.columns(2)
+    with left:
+        st.subheader("Reputation dynamics")
+        st.line_chart(history.set_index("generation")[["blacklist_rate", "forgiveness_rate"]])
+    with right:
+        st.subheader("Niches")
+        st.area_chart(
+            history.set_index("generation")[["verifiers", "deceivers", "gossips", "pragmatists"]]
+        )
+
+    with st.expander("Raw social generation data"):
+        st.dataframe(history, use_container_width=True)
+else:
+    with st.sidebar:
+        grid_size = st.select_slider("Grid size", options=[11, 21, 31], value=11)
+        teacher_mode = st.selectbox(
+            "Teacher mode", ["periodic", "reactive", "random", "adversarial", "multi"]
+        )
+        energy_max = st.slider("Energy battery", 4.0, 20.0, 8.0, step=1.0)
+        recharge_enabled = st.toggle("Chargers", value=True)
+        communication_enabled = st.toggle("2-bit communication", value=False)
+    config = SimulationConfig(
+        population_size=population_size,
+        generations=generations,
+        seed=int(seed),
+        grid_size=grid_size,
+        teacher_mode=teacher_mode,
+        energy_max=energy_max,
+        recharge_enabled=recharge_enabled,
+        communication_enabled=communication_enabled,
     )
-    energy_max = st.slider("Energy battery", 4.0, 20.0, 8.0, step=1.0)
-    recharge_enabled = st.toggle("Chargers", value=True)
-    communication_enabled = st.toggle("2-bit communication", value=False)
+    history, overlays = run_path_cached(config)
+    latest = history.iloc[-1]
 
-config = SimulationConfig(
-    population_size=population_size,
-    generations=generations,
-    seed=int(seed),
-    grid_size=grid_size,
-    teacher_mode=teacher_mode,
-    energy_max=energy_max,
-    recharge_enabled=recharge_enabled,
-    communication_enabled=communication_enabled,
-)
+    metric_cols = st.columns(6)
+    metric_cols[0].metric("Survival", f"{latest.survival_rate:.0%}")
+    metric_cols[1].metric("Average regret", f"{latest.average_regret:.2f}")
+    metric_cols[2].metric("Energy spent", f"{latest.average_energy_spent:.2f}")
+    metric_cols[3].metric("Charger visits", f"{latest.average_recharge_visits:.2f}")
+    metric_cols[4].metric("max_r", f"{latest.average_max_risk:.2f}")
+    metric_cols[5].metric("Aversion", f"{latest.average_energy_aversion:.2f}")
 
-history, overlays = run_cached(config)
-latest = history.iloc[-1]
+    left, right = st.columns(2)
+    with left:
+        st.subheader("Survival, regret, and waste")
+        st.line_chart(
+            history.set_index("generation")[["survival_rate", "average_regret", "average_energy_spent"]]
+        )
+    with right:
+        st.subheader("Phylogeny vs ontogeny")
+        st.line_chart(
+            history.set_index("generation")[["average_max_risk", "average_energy_aversion"]]
+        )
 
-metric_cols = st.columns(6)
-metric_cols[0].metric("Survival", f"{latest.survival_rate:.0%}")
-metric_cols[1].metric("Average regret", f"{latest.average_regret:.2f}")
-metric_cols[2].metric("Energy spent", f"{latest.average_energy_spent:.2f}")
-metric_cols[3].metric("Charger visits", f"{latest.average_recharge_visits:.2f}")
-metric_cols[4].metric("max_r", f"{latest.average_max_risk:.2f}")
-metric_cols[5].metric("Aversion", f"{latest.average_energy_aversion:.2f}")
+    with st.expander("Current overlays and teacher strengths"):
+        st.write("Teacher spikes", overlays["teacher_spikes"] or "none")
+        st.write("Death pheromones", overlays["pheromone"] or "none")
+        st.write("Teacher strengths", overlays["teacher_strengths"])
 
-left, right = st.columns(2)
-with left:
-    st.subheader("Survival, regret, and waste")
-    st.line_chart(
-        history.set_index("generation")[["survival_rate", "average_regret", "average_energy_spent"]]
-    )
-
-with right:
-    st.subheader("Phylogeny vs ontogeny")
-    st.line_chart(
-        history.set_index("generation")[["average_max_risk", "average_energy_aversion"]]
-    )
-
-left, right = st.columns(2)
-with left:
-    st.subheader("Niche ecology")
-    st.area_chart(history.set_index("generation")[["body", "planners", "hybrids"]])
-
-with right:
-    st.subheader("Communication and deception")
-    st.line_chart(
-        history.set_index("generation")[["signal_spike_correlation", "lie_rate"]]
-    )
-
-st.subheader("Planning pressure")
-st.line_chart(history.set_index("generation")[["average_recharge_visits", "diversity", "teacher_strength"]])
-
-teacher_events = history[history["teacher_mutated"]]
-if not teacher_events.empty:
-    st.info(
-        "Teacher spikes occurred at generations: "
-        + ", ".join(str(int(value)) for value in teacher_events["generation"].head(20))
-        + ("..." if len(teacher_events) > 20 else "")
-    )
-
-with st.expander("Current overlays and teacher strengths"):
-    st.write("Teacher spikes", overlays["teacher_spikes"] or "none")
-    st.write("Death pheromones", overlays["pheromone"] or "none")
-    st.write("Teacher strengths", overlays["teacher_strengths"])
-
-with st.expander("Raw generation data"):
-    st.dataframe(history, use_container_width=True)
+    with st.expander("Raw path generation data"):
+        st.dataframe(history, use_container_width=True)
