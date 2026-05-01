@@ -2,44 +2,92 @@
 
 **Multi-Agent Non-stationary Framework for Ontogenetic Learning and Dynamic valuation**
 
-MANIFOLD turns a fixed 3x3 route puzzle into a non-stationary learning substrate.
-The grid starts as geometry, becomes an evolutionary pressure, and now asks each
-agent to learn within its own lifetime by budgeting a finite energy battery.
+MANIFOLD is an evolutionary simulation testing how intelligence emerges when
+survival depends on budgeting finite energy against a changing environment. It
+separates two learning timescales:
 
-## What is implemented
+- **Phylogeny**: slow evolution of body parameters such as `risk_multiplier` and
+  `max_risk`.
+- **Ontogeny**: fast evolution of behavior parameters such as energy aversion,
+  charger use, path choice, signalling, and verification.
 
-- **Phase 5 ontogeny simulation** with finite energy (`E_max = 30`)
-- Evolving vector population with risk multiplier, armor tolerance, recharge bias,
-  and conservation bias
-- Flickering corridor risk (`3 <-> 7`) and Bored Teacher targeted mutations
-- Death pheromones as negative data acquisition signals
-- Optional rechargeable sub-targets for hierarchical planning experiments
-- Streamlit dashboard plus a command-line runner
-- Focused tests for energy budgeting, recharge behavior, and experiment output
+The core cost equation is:
+
+```text
+C_total = C_terrain + C_teacher + C_waste
+```
+
+`C_terrain` is static risk, `C_teacher` is dynamic spike pressure, and `C_waste`
+is energy spent inefficiently.
+
+## Current implementation
+
+- 11x11 default world, with scalable 21x21 and 31x31 transfer worlds
+- Start `(0, 5)`, target `(10, 5)` in the default grid
+- Genome traits:
+  - `risk_multiplier` (`rm`) from 0.1 to 1.0
+  - `max_risk` (`max_r`) from 4.0 to 6.5
+  - `energy_aversion` from 0.5 to 2.5
+  - charger, honesty, and verification policies
+- Energy model: `E_MAX = 8`
+- Boost rule: if `risk > max_r`, energy cost is `(risk - max_r) * 2`
+- Two chargers at `(3, 5)` and `(7, 5)`, restoring `+4` energy by default
+- Teacher modes: periodic, reactive, random, adversarial, and multi-teacher
+- Optional 2-bit communication channel with deception and verification pressure
+- Streamlit dashboard plus CLI runner
+- Focused pytest coverage for energy, chargers, dual-rate mutation,
+  communication metrics, and transfer scaling
 
 ## Quick start
 
 ```bash
 pip install -r requirements.txt
-python -m manifold --generations 60 --population 36 --seed 7
+python3 -m manifold --generations 60 --population 36 --seed 7
+python3 -m manifold --teacher-mode multi --communication --generations 120
 streamlit run app.py
 ```
 
-## Core idea
+## Experiment map
 
-Classical heuristics value a cell by fixed route geometry. MANIFOLD asks agents to
-discover those values, lose them when the world changes, and preserve enough
-diversity to recover capabilities that are temporarily useless.
+### Phase 1-2: Baseline and low battery
+High battery settings produce easy survival. Reducing `E_MAX` to 8 creates
+pressure, exposing the difference between conservative risk avoidance and true
+budgeting.
 
-Phase 5 moves part of that adaptation from **phylogeny** to **ontogeny**:
+### Phase 3: Bottleneck corridor
+The center corridor has calm risk around 5 and teacher spikes that push effective
+risk toward 9. Agents must either evolve higher `max_risk`, spend energy, route
+through chargers, or die.
 
-```text
-C_total = C_base + integral(E(delta armor_t) dt)
-```
+### Phase 4: Fixed physics test
+Locking body traits while keeping teacher pressure demonstrates the project
+thesis: ontogenetic policy cannot rescue a body that cannot physically cross the
+world.
 
-Each vector has a battery. When a route spikes, it must decide whether to spend
-energy boosting armor or conserve energy and take a detour. Performance is no
-longer just path length; it is also cognitive load and budget discipline.
+### Phase 5: Dual-track evolution
+Body mutation (`max_r_sigma = 0.02`) is slow while policy mutation
+(`aversion_sigma = 0.12`) is fast. This lets body tolerance move gradually while
+energy aversion, charger use, and path policy adapt quickly.
+
+### Phase 5c: Rechargeable chargers
+Chargers at `(3, 5)` and `(7, 5)` allow conditional routing. Calm periods should
+favor direct travel; spike periods make charger harvesting valuable enough to
+support survival.
+
+### Phase 6-7: Adversarial and multi-teacher pressure
+Teacher modes can spike when charger dependence is visible, react to high
+survival, or inject random spikes. Multi-teacher mode tracks competing teacher
+strengths so unpredictability can dominate learned schedules.
+
+### Phase 8: Transfer learning
+Use `transfer_population(source, target_grid_size=21)` to seed a larger world
+with an evolved population. Hybrid timing strategies should transfer better than
+geometry-specific routes.
+
+### Phase 9-12: Communication, deception, verification
+When `communication_enabled=True`, agents emit 2-bit signals at an energy cost.
+Signal `10` represents an upcoming spike window. Low honesty creates false spike
+messages; verification bias models receiver skepticism.
 
 ## Repository layout
 
@@ -47,18 +95,12 @@ longer just path length; it is also cognitive load and budget discipline.
 app.py                  Streamlit dashboard
 manifold/
   __main__.py           CLI entry point
+  cli.py                CLI argument parsing and summary output
   simulation.py         MANIFOLD simulation engine
 tests/
   test_simulation.py    Focused regression tests
 ```
 
-## Experiments to try
-
-1. Run the default simulation and watch hybrids appear as the flickering corridor
-   punishes pure efficiency.
-2. Enable rechargeable sub-targets and compare route shares: agents with higher
-   recharge bias should accept a longer route when it restores budget.
-3. Increase the teacher interval pressure and observe diversity oscillations.
-
-The important metric is not a single shortest path. It is whether the population
-keeps a genetic and behavioral library broad enough to survive future geometries.
+The important metric is not one shortest path. It is whether the population can
+maintain body diversity, behavioral plasticity, and social verification under
+changing teacher pressure.

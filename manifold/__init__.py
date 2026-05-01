@@ -7,6 +7,7 @@ from .simulation import (
     SimulationConfig,
     VectorGenome,
     run_experiment,
+    transfer_population,
 )
 
 __all__ = [
@@ -16,4 +17,5 @@ __all__ = [
     "SimulationConfig",
     "VectorGenome",
     "run_experiment",
+    "transfer_population",
 ]
