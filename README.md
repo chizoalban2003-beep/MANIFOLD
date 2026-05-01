@@ -134,6 +134,44 @@ while making monopoly capture unstable.
 
 ## Engines in this repo
 
+### 0. GridMapper OS
+
+GridMapper OS is the reusable intelligent-system layer. It lets you define a
+problem directly as cells, targets, and rules, then drops in the gen-2000
+population:
+
+```python
+from manifold import AgentPopulation, GridWorld
+
+world = GridWorld(size=31)
+world.load_from_traffic_csv("Birmingham_Real_Grid.csv")
+world.add_dynamic_targets([
+    {"id": "order_1", "pos": (12, 8), "asset": 45, "moves": "random_walk"},
+    {"id": "order_2", "pos": (24, 19), "asset": 22, "moves": "static"},
+])
+world.add_rule("late_delivery", penalty=8.2, triggers="miss_target")
+world.add_rule("false_traffic_report", penalty=0.5, triggers="deception_detected")
+
+result = AgentPopulation(seed="gen2000", n=200, predators=0.05).optimize(
+    world,
+    generations=300,
+)
+print(result.verification)
+print(result.reputation_cap)
+```
+
+The CLI can run the same layer:
+
+```bash
+python3 -m manifold \
+  --mode gridmapper \
+  --grid-size 31 \
+  --data-path data/birmingham_week.csv \
+  --target order_1,12,8,45,random_walk \
+  --target order_2,24,19,22,static \
+  --rule late_delivery,8.2,miss_target
+```
+
 ### 1. Social intelligence engine
 
 Run the current MANIFOLD model:
@@ -222,9 +260,11 @@ app.py                  Streamlit dashboard
 manifold/
   __main__.py           CLI entry point
   cli.py                CLI modes for social and path engines
+  gridmapper.py         Reusable problem-to-grid optimizer
   simulation.py         Path/teacher MANIFOLD engine
   social.py             31x31 social-intelligence engine
 tests/
+  test_gridmapper.py    GridMapper OS regression tests
   test_simulation.py    Path/teacher regression tests
   test_social.py        Social-evolution regression tests
 ```

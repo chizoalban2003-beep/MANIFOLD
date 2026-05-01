@@ -7,7 +7,7 @@ from dataclasses import asdict
 import pandas as pd
 import streamlit as st
 
-from manifold import ManifoldExperiment, SimulationConfig
+from manifold import AgentPopulation, GridWorld, ManifoldExperiment, SimulationConfig
 from manifold.social import (
     SocialConfig,
     compile_policy_audit,
@@ -66,6 +66,68 @@ def run_social_cached(config: SocialConfig) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+@st.cache_data(show_spinner="Running GridMapper OS optimization...")
+def run_gridmapper_cached(
+    size: int,
+    generations: int,
+    population_size: int,
+    seed: int,
+    data_path: str,
+    target_specs: tuple[str, ...],
+    rule_specs: tuple[str, ...],
+) -> tuple[pd.DataFrame, dict[str, object]]:
+    world = GridWorld(size=size, seed=seed)
+    if data_path:
+        world.load_from_csv(data_path)
+    for spec in target_specs:
+        target_id, row, col, asset, *rest = spec.split(",")
+        world.add_dynamic_targets(
+            [
+                {
+                    "id": target_id.strip(),
+                    "pos": (int(row), int(col)),
+                    "asset": float(asset),
+                    "moves": rest[0].strip() if rest else "static",
+                }
+            ]
+        )
+    for spec in rule_specs:
+        name, penalty, trigger = spec.split(",")
+        world.add_rule(name.strip(), float(penalty), trigger.strip())
+    if not world.targets:
+        center = size // 2
+        world.add_dynamic_targets(
+            [{"id": "default_target", "pos": (center, center), "asset": 1.0}]
+        )
+
+    result = AgentPopulation(seed=str(seed), n=population_size).optimize(
+        world, generations=generations
+    )
+    rows = []
+    for item in result.history:
+        row = asdict(item)
+        row.update(
+            {
+                "scouts": item.niche_counts["Scout"],
+                "verifiers": item.niche_counts["Verifier"],
+                "deceivers": item.niche_counts["Deceiver"],
+                "gossips": item.niche_counts["Gossip"],
+                "pragmatists": item.niche_counts["Pragmatist"],
+            }
+        )
+        del row["niche_counts"]
+        rows.append(row)
+    metadata = {
+        "verification": result.verification,
+        "gossip": result.gossip,
+        "reputation_cap": result.reputation_cap,
+        "robustness": result.audit.robustness_score,
+        "rule_penalty_budget": result.rule_penalty_budget,
+        "targets": result.target_snapshots.get(len(result.history) - 1, ()),
+    }
+    return pd.DataFrame(rows), metadata
+
+
 st.title("Project MANIFOLD")
 st.caption("A priced-action engine for evolving social intelligence on vector grids")
 st.markdown(
@@ -75,12 +137,89 @@ st.markdown(
 
 with st.sidebar:
     st.header("Experiment controls")
-    mode = st.radio("Engine", ["Social intelligence", "Path / teacher"], horizontal=True)
-    population_size = st.slider("Population", 12, 240, 180 if mode == "Social intelligence" else 52, step=4)
-    generations = st.slider("Generations", 5, 500, 120 if mode == "Social intelligence" else 200, step=5)
-    seed = st.number_input("Seed", value=2500 if mode == "Social intelligence" else 13, step=1)
+    mode = st.radio(
+        "Engine",
+        ["GridMapper OS", "Social intelligence", "Path / teacher"],
+        horizontal=True,
+    )
+    population_size = st.slider(
+        "Population",
+        12,
+        240,
+        180 if mode != "Path / teacher" else 52,
+        step=4,
+    )
+    generations = st.slider(
+        "Generations",
+        5,
+        500,
+        80 if mode == "GridMapper OS" else 120 if mode == "Social intelligence" else 200,
+        step=5,
+    )
+    seed = st.number_input("Seed", value=2500 if mode != "Path / teacher" else 13, step=1)
 
-if mode == "Social intelligence":
+if mode == "GridMapper OS":
+    with st.sidebar:
+        grid_size = st.select_slider("Grid size", options=[5, 11, 21, 31], value=11)
+        data_path = st.text_input("CSV grid path", value="")
+        targets_text = st.text_area(
+            "Targets: id,row,col,asset[,moves]",
+            value="order_1,5,5,10,static",
+        )
+        rules_text = st.text_area(
+            "Rules: name,penalty,trigger",
+            value="miss_target,1.0,miss_target\ntrusted_lie,0.5,trusted_lie",
+        )
+    target_specs = tuple(
+        line.strip() for line in targets_text.splitlines() if line.strip()
+    )
+    rule_specs = tuple(line.strip() for line in rules_text.splitlines() if line.strip())
+    history, metadata = run_gridmapper_cached(
+        grid_size,
+        generations,
+        population_size,
+        int(seed),
+        data_path,
+        target_specs,
+        rule_specs,
+    )
+    latest = history.iloc[-1]
+
+    cols = st.columns(6)
+    cols[0].metric("Fitness", f"{latest.average_fitness:.2f}")
+    cols[1].metric("Verification", f"{metadata['verification']:.0%}")
+    cols[2].metric("Gossip", f"{metadata['gossip']:.0%}")
+    cols[3].metric("Rep cap", f"{metadata['reputation_cap']:.0%}")
+    cols[4].metric("Robustness", f"{metadata['robustness']:.2f}")
+    cols[5].metric("Rule budget", f"{metadata['rule_penalty_budget']:.2f}")
+    st.caption(f"Final target positions: {metadata['targets']}")
+
+    left, right = st.columns(2)
+    with left:
+        st.subheader("Policy evolution")
+        st.line_chart(
+            history.set_index("generation")[
+                ["average_verification", "average_gossip", "average_predation_threshold"]
+            ]
+        )
+    with right:
+        st.subheader("Trust and monopoly")
+        st.line_chart(
+            history.set_index("generation")[
+                ["lie_rate", "trusted_lie_rate", "top_source_share", "monopoly_pressure"]
+            ]
+        )
+
+    st.subheader("Niches")
+    st.area_chart(
+        history.set_index("generation")[
+            ["scouts", "verifiers", "deceivers", "gossips", "pragmatists"]
+        ]
+    )
+
+    with st.expander("Raw GridMapper generation data"):
+        st.dataframe(history, use_container_width=True)
+elif mode == "Social intelligence":
     with st.sidebar:
         preset = st.selectbox("Problem preset", ["trust", "birmingham", "misinformation", "compute"])
         grid_size = st.select_slider("Grid size", options=[11, 21, 31], value=31)

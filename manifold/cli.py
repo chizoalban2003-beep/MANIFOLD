@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 
+from manifold.gridmapper import AgentPopulation, GridWorld
 from manifold.simulation import SimulationConfig, run_experiment
 from manifold.social import (
     SocialConfig,
@@ -20,7 +21,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--mode",
-        choices=["path", "social"],
+        choices=["path", "social", "gridmapper"],
         default="social",
         help="Run the path/teacher engine or the social-intelligence engine.",
     )
@@ -31,6 +32,18 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--data-path",
         help="Optional CSV grid with row,col,cost,risk,asset[,neutrality] columns.",
+    )
+    parser.add_argument(
+        "--target",
+        action="append",
+        default=[],
+        help="GridMapper target as id,row,col,asset[,moves]. May be supplied multiple times.",
+    )
+    parser.add_argument(
+        "--rule",
+        action="append",
+        default=[],
+        help="GridMapper rule as name,penalty,trigger. Triggers include miss_target, deception_detected, trusted_lie, low_energy.",
     )
     parser.add_argument(
         "--preset",
@@ -57,6 +70,8 @@ def main() -> None:
     args = build_parser().parse_args()
     if args.mode == "path":
         history = run_path_mode(args)
+    elif args.mode == "gridmapper":
+        history = run_gridmapper_mode(args)
     else:
         history = run_social_mode(args)
 
@@ -150,6 +165,50 @@ def run_social_mode(args: argparse.Namespace):
         print("  Monopoly controls: " + ", ".join(audit.monopoly_controls))
         print(f"Niches: {final.niche_counts}")
     return history
+
+
+def run_gridmapper_mode(args: argparse.Namespace):
+    world = GridWorld(size=args.grid_size)
+    if args.data_path:
+        world.load_from_csv(args.data_path)
+    for target in args.target:
+        target_id, row, col, asset, *rest = target.split(",")
+        world.add_dynamic_targets(
+            [
+                {
+                    "id": target_id,
+                    "pos": (int(row), int(col)),
+                    "asset": float(asset),
+                    "moves": rest[0] if rest else "static",
+                }
+            ]
+        )
+    for rule in args.rule:
+        name, penalty, trigger = rule.split(",")
+        world.add_rule(name, float(penalty), trigger)
+    if not world.targets:
+        center = args.grid_size // 2
+        world.add_dynamic_targets(
+            [{"id": "default_target", "pos": (center, center), "asset": 1.0}]
+        )
+
+    result = AgentPopulation(seed=str(args.seed), n=args.population_size).optimize(
+        world,
+        generations=args.generations,
+    )
+    if not args.json:
+        final = result.history[-1]
+        print("Project MANIFOLD - GridMapper OS")
+        print(f"Generations: {len(result.history)}")
+        print(f"Targets: {result.target_snapshots.get(len(result.history) - 1, ())}")
+        print(f"Average fitness: {final.average_fitness:.2f}")
+        print(f"Verification: {result.verification:.2%}")
+        print(f"Gossip: {result.gossip:.2%}")
+        print(f"Reputation cap: {result.reputation_cap:.2%}")
+        print(f"Rule penalty budget: {result.rule_penalty_budget:.2f}")
+        print(f"Robustness score: {result.audit.robustness_score:.2f}")
+        print(f"Niches: {final.niche_counts}")
+    return result.history
 
 
 if __name__ == "__main__":

@@ -9,6 +9,13 @@ from .simulation import (
     run_experiment,
     transfer_population,
 )
+from .gridmapper import (
+    AgentPopulation,
+    DynamicTarget,
+    GridOptimizationResult,
+    GridWorld,
+    Rule,
+)
 from .social import (
     CellVector,
     PolicyAudit,
@@ -23,11 +30,16 @@ from .social import (
 )
 
 __all__ = [
+    "AgentPopulation",
     "CellVector",
+    "DynamicTarget",
     "GenerationSummary",
+    "GridOptimizationResult",
+    "GridWorld",
     "LifeResult",
     "ManifoldExperiment",
     "PolicyAudit",
+    "Rule",
     "SimulationConfig",
     "SocialConfig",
     "SocialGenerationSummary",
