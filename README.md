@@ -1,72 +1,138 @@
-# ![CI logo](https://codeinstitute.s3.amazonaws.com/fullstack/ci_logo_small.png)
+# Project MANIFOLD
 
-## Template Instructions
+**MANIFOLD** stands for **Multi-Agent Non-stationary Framework for Ontogenetic Learning and Dynamic valuation**.
 
-Welcome,
+This repository now contains a runnable simulation and Streamlit interface for the project described in the design brief:
 
-This is the Code Institute student template for the Data Analytics capstone project. We have preinstalled all of the tools you need to get started. It's perfectly okay to use this template as the basis for your project submissions. Click the `Use this template` button above to get started.
+- a 3x3 grid with 8 traversable routes,
+- heterogeneous vectors seeded across a broad physics range,
+- regret-driven selection and conservative mutation,
+- fitness sharing to preserve multiple niches,
+- a bored teacher that perturbs the dominant corridor when adaptation plateaus,
+- and a Phase 5 ontogeny layer where each vector must budget a finite energy battery during its own lifetime.
 
-You can safely delete the Template Instructions section of this README.md file and modify the remaining paragraphs for your own project. Please do read the Template Instructions at least once, though! It contains some important information about the IDE and the extensions we use.
+## Core idea
 
-## How to use this repo
+Classical heuristic search bakes value into the geometry. In MANIFOLD, geometry is only the starting condition. Agents must discover high-value regions through population dynamics, then keep adapting as the world changes.
 
-1. Use this template to create your GitHub project repo. Click the **Use this template** button, then click **Create a new repository**.
+The center cell in the 3x3 grid still participates in 4 of the 8 routes while each corner participates in 3 of the 8 routes. That gives the familiar static prior:
 
-1. Copy the URL of your repository to your clipboard.
+- center weight = 4 / 8 = 0.5
+- corner weight = 3 / 8 = 0.375
 
-1. In VS Code, select **File** -> **Open Folder**.
+MANIFOLD treats those values as an emergent hypothesis rather than a hardcoded rule.
 
-1. Select your `vscode-projects` folder, then click the **Select Folder** button on Windows, or the **Open** button on Mac.
+## Implemented phases
 
-1. From the top menu in VS Code, select **Terminal** > **New Terminal** to open the terminal.
+### V1 - Static geometry
 
-1. In the terminal, type `git clone` followed by the URL of your GitHub repository. Then hit **Enter**. This command will download all the files in your GitHub repository into your vscode-projects folder.
+- Fixed route structure
+- No teacher perturbations
+- No lifetime energy budget
+- Useful for confirming that the population can recover the center-heavy prior from selection alone
 
-1. In VS Code, select **File** > **Open Folder** again.
+### V3 - Emergent adaptation
 
-1. This time, navigate to and select the folder for the project you just downloaded. Then, click **Select Folder**.
+- Multi-agent competition over the same 8 routes
+- Distinct corridor risk profiles
+- Fitness sharing across scout, hybrid, and tank niches
+- Death leaves pheromone-like cost traces
+- A bored teacher injects targeted or random spikes when regret plateaus
+- Flicker corridor alternates between low and high risk every 8 generations
 
-1. A virtual environment is necessary when working with Python projects to ensure each project's dependencies are kept separate from each other. You need to create your virtual environment, also called a venv, and then ensure that it is activated any time you return to your workspace.
-Click the gear icon in the lower left-hand corner of the screen to open the Manage menu and select **Command Palette** to open the VS Code command palette.
+### Phase 5 - Ontogeny energy budget
 
-1. In the command palette, type: *create environment* and select **Python: Create Environment…**
+- Each vector carries `E_max = 30`
+- Risk can be handled by spending energy on temporary armor
+- Energy spent now cannot be spent later
+- The decision problem shifts from shortest path to dynamic within-lifetime budgeting
 
-1. Choose **Venv** from the dropdown list.
+This repo implements that Phase 5 baseline directly in the simulator.
 
-1. Choose the Python version you installed earlier. Currently, we recommend Python 3.12.8
+## Repository layout
 
-1. **DO NOT** click the box next to `requirements.txt`, as you need to do more steps before you can install your dependencies. Click **OK**.
-
-1. You will see a `.venv` folder appear in the file explorer pane to show that the virtual environment has been created.
-
-1. **Important**: Note that the `.venv` folder is in the `.gitignore` file so that Git won't track it.
-
-1. Return to the terminal by clicking on the TERMINAL tab, or click on the **Terminal** menu and choose **New Terminal** if no terminal is currently open.
-
-1. In the terminal, use the command below to install your dependencies. This may take several minutes.
-
- ```console
- pip3 install -r requirements.txt
- ```
-
-1. Open the `jupyter_notebooks` directory, and click on the notebook you want to open.
-
-1. Click the **kernel** button and choose **Python Environments**.
-
-Note that the kernel says `Python 3.12.8` as it inherits from the venv, so it will be Python-3.12.8 if that is what is installed on your PC. To confirm this, you can use the command below in a notebook code cell.
-
-```console
-! python --version
+```text
+app.py                    Streamlit application
+manifold/
+  __init__.py             Public package exports
+  simulation.py           MANIFOLD engine and reporting helpers
+tests/
+  test_simulation.py      Focused regression tests
+Procfile                  Streamlit entrypoint
+setup.sh                  Streamlit runtime config
 ```
 
-## Deployment Reminders
+## Simulation model
 
-* Set the `.python-version` Python version to a [Heroku-22](https://devcenter.heroku.com/articles/python-support#supported-runtimes) stack currently supported version that closest matches what you used in this project.
-* The project can be deployed to Heroku using the following steps.
+The current engine uses:
 
-1. Log in to Heroku and create an App
-2. At the **Deploy** tab, select **GitHub** as the deployment method.
-3. Select your repository name and click **Search**. Once it is found, click **Connect**.
-4. Select the branch you want to deploy, then click **Deploy Branch**.
-5. The deployment process should happen smoothly if all deployment files are fully functional. Click the button **Open App** at the top of the page to access your App.
-6. If the slug size is too large, then add large files not required for the app to the `.slugignore` file.
+- **8 routes** over the 3x3 grid (rows, columns, diagonals)
+- **Generation-0 diverse seeding** across:
+  - `risk_multiplier`
+  - `max_risk`
+  - `energy_policy`
+  - `armor_efficiency`
+  - `learning_rate`
+  - `explore_rate`
+- **Conservative mutation** controlled by `mutation_sigma`
+- **Vector regret** as the gap between realized cost and the best available route in the same generation
+- **Grid regret** approximated by mean population regret over time
+- **Fitness sharing** via a light crowding penalty applied inside each niche
+- **Teacher shocks** triggered on plateau windows
+- **Death pheromone** that increases future route cost through cells where agents failed
+
+## Running locally
+
+Install dependencies:
+
+```bash
+pip install -r requirements.txt
+```
+
+Run the Streamlit interface:
+
+```bash
+streamlit run app.py
+```
+
+## Running tests
+
+```bash
+pytest
+```
+
+## Streamlit dashboard
+
+The app exposes controls for:
+
+- scenario selection (`geometry`, `emergent`, `ontogeny`)
+- random seed
+- generation count
+- optional population-size override
+- mutation sigma
+
+It then visualizes:
+
+- regret, diversity, and energy usage over time,
+- mortality, flicker intensity, and active spikes,
+- the static geometry prior versus final population traffic,
+- final population genomes,
+- route definitions,
+- and teacher intervention events.
+
+## Interpretation guide
+
+- **Geometry scenario**: should recover the classic center-heavy occupancy prior without any hand-coded route heuristic in the agents.
+- **Emergent scenario**: should show population-level adaptation under teacher shocks and changing corridor risk.
+- **Ontogeny scenario**: should show non-zero energy expenditure because vectors now solve a within-lifetime budgeting problem instead of pure route-length minimization.
+  In some seeds the final generation may have already adapted away from spending energy, so the more reliable indicators are peak or cumulative energy usage over the run.
+
+## Deployment note
+
+The existing `Procfile` launches the Streamlit app directly:
+
+```text
+web: sh setup.sh && streamlit run app.py
+```
+
+That means the repository is ready for the same style of deployment expected by the original scaffold, but it now points to a real application instead of a missing file.
