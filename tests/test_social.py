@@ -60,7 +60,13 @@ def test_compute_preset_evolves_more_verification_than_deception() -> None:
     final = history[-1]
 
     assert final.average_verification > final.average_deception
-    assert final.niche_counts.keys() == {"Verifier", "Deceiver", "Gossip", "Pragmatist"}
+    assert final.niche_counts.keys() == {
+        "Scout",
+        "Verifier",
+        "Deceiver",
+        "Gossip",
+        "Pragmatist",
+    }
 
 
 def test_social_diversity_uses_all_five_genes() -> None:
@@ -100,3 +106,26 @@ def test_source_concentration_metrics_are_recorded() -> None:
     assert 0.0 <= final.top_source_share <= 1.0
     assert 0.0 <= final.source_hhi <= 1.0
     assert final.monopoly_pressure >= 0.0
+
+
+def test_predatory_scouts_check_concentrated_reputation_sources() -> None:
+    config = SocialConfig(
+        population_size=10,
+        generations=1,
+        seed=2500,
+        predatory_scouts=True,
+        scout_source_share_trigger=0.10,
+        scout_reputation_trigger=0.10,
+        random_audit_rate=0.0,
+    )
+    experiment = SocialManifoldExperiment(config)
+    experiment.population = [
+        SocialGenome(deception=0.05, verification=0.9, gossip=0.1, memory=0.4, energy=12.0)
+        for _ in range(config.population_size)
+    ]
+    experiment.reputation = [1.0 for _ in range(config.population_size)]
+
+    history = experiment.run()
+
+    assert history[-1].predatory_scout_rate > 0
+    assert history[-1].niche_counts["Scout"] == config.population_size

@@ -118,6 +118,7 @@ def run_social_mode(args: argparse.Namespace):
         print(f"Lie rate: {final.lie_rate:.2%}")
         print(f"Blacklist rate: {final.blacklist_rate:.2f}")
         print(f"Forgiveness rate: {final.forgiveness_rate:.2f}")
+        print(f"Predatory scout checks: {final.predatory_scout_rate:.2%}")
         print(f"Top source share: {final.top_source_share:.2%}")
         print(f"Monopoly risk: {audit.monopoly_risk:.2%}")
         print(f"Robustness score: {audit.robustness_score:.2f}")

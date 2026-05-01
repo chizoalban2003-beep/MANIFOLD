@@ -111,6 +111,27 @@ forgive when expected future value > expected deception loss + verification cost
 In practice, memory evolves into a temporary exclusion window rather than a moral
 sentence. Mercy is adaptive risk pricing.
 
+## Collusion collapse and Predatory Scouts
+
+The monopoly acid test starts with a verification cartel controlling a large
+share of traffic, charging a premium above the base physics cost of checking, and
+under-reporting risk. The substrate defeats it because the base verification
+cost is anchored in the environment, not in the cartel's reputation.
+
+The collapse has two mechanisms:
+
+1. **Routing around**: agents with high verification and low gossip become
+   Scouts. When they see concentrated high-reputation sources, they stop buying
+   the premium signal and perform local checks.
+2. **Memory tax bankruptcy**: colluders must spend memory and reputation energy
+   keeping lies consistent, which becomes metabolically expensive once traffic
+   routes around them.
+
+Predatory Scouts are now an explicit mechanism. They are not universal police;
+they trigger independent verification only when source traffic is concentrated
+or reputation is unusually high. This keeps verification cheap in normal regions
+while making monopoly capture unstable.
+
 ## Engines in this repo
 
 ### 1. Social intelligence engine

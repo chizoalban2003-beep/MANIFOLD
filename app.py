@@ -54,6 +54,7 @@ def run_social_cached(config: SocialConfig) -> pd.DataFrame:
         row = asdict(item)
         row.update(
             {
+                "scouts": item.niche_counts["Scout"],
                 "verifiers": item.niche_counts["Verifier"],
                 "deceivers": item.niche_counts["Deceiver"],
                 "gossips": item.niche_counts["Gossip"],
@@ -109,7 +110,7 @@ if mode == "Social intelligence":
                     key: value
                     for key, value in row.items()
                     if key
-                    not in {"verifiers", "deceivers", "gossips", "pragmatists"}
+                    not in {"scouts", "verifiers", "deceivers", "gossips", "pragmatists"}
                 },
             )()
             for row in history.to_dict("records")
@@ -150,6 +151,7 @@ if mode == "Social intelligence":
             history.set_index("generation")[[
                 "lie_rate",
                 "verification_rate",
+                "predatory_scout_rate",
                 "trusted_lie_rate",
                 "honest_correlation",
             ]]
@@ -163,7 +165,12 @@ if mode == "Social intelligence":
         st.subheader("Verification market concentration")
         st.line_chart(
             history.set_index("generation")[
-                ["top_source_share", "source_hhi", "monopoly_pressure"]
+                [
+                    "top_source_share",
+                    "source_hhi",
+                    "monopoly_pressure",
+                    "predatory_scout_rate",
+                ]
             ]
         )
 
@@ -171,7 +178,9 @@ if mode == "Social intelligence":
     with left:
         st.subheader("Niches")
         st.area_chart(
-            history.set_index("generation")[["verifiers", "deceivers", "gossips", "pragmatists"]]
+            history.set_index("generation")[
+                ["scouts", "verifiers", "deceivers", "gossips", "pragmatists"]
+            ]
         )
     with right:
         st.subheader("Audit notes")

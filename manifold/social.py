@@ -16,7 +16,7 @@ from typing import Iterable, Literal
 
 
 Position = tuple[int, int]
-PresetName = Literal["trust", "birmingham", "misinformation", "compute"]
+PresetName = Literal["trust", "birmingham", "misinformation", "compute", "collusion"]
 
 
 @dataclass(frozen=True)
@@ -52,6 +52,10 @@ class SocialConfig:
     random_audit_rate: float = 0.08
     source_share_limit: float = 0.35
     monopoly_penalty: float = 0.20
+    predatory_scouts: bool = True
+    scout_source_share_trigger: float = 0.22
+    scout_reputation_trigger: float = 0.75
+    scout_verification_discount: float = 0.35
 
 
 @dataclass
@@ -79,6 +83,8 @@ class SocialGenome:
         )
 
     def niche(self) -> str:
+        if self.verification >= 0.60 and self.gossip <= 0.40 and self.deception <= 0.35:
+            return "Scout"
         if self.verification >= 0.70 and self.gossip >= 0.55:
             return "Verifier"
         if self.deception >= 0.45:
@@ -104,6 +110,7 @@ class SocialLifeResult:
     verifications: int
     lies_detected: int
     trusted_lies: int
+    predatory_scout_checks: int
     gossip_events: int
     blacklist_events: int
     forgiveness_events: int
@@ -124,6 +131,7 @@ class SocialGenerationSummary:
     verification_rate: float
     gossip_rate: float
     trusted_lie_rate: float
+    predatory_scout_rate: float
     blacklist_rate: float
     forgiveness_rate: float
     honest_correlation: float
@@ -195,6 +203,7 @@ class SocialManifoldExperiment:
         verifications = 0
         lies_detected = 0
         trusted_lies = 0
+        predatory_scout_checks = 0
         gossip_events = 0
         blacklist_events = 0
         forgiveness_events = 0
@@ -223,9 +232,14 @@ class SocialManifoldExperiment:
                     lies_sent += 1
 
             use_signal = sender_index is not None and sender_index not in blacklist_until
-            if use_signal and self.rng.random() < genome.verification:
+            scout_check = self._should_predatory_scout_check(genome, sender_index)
+            if use_signal and (scout_check or self.rng.random() < genome.verification):
                 verifications += 1
-                energy -= self.config.verification_cost
+                if scout_check:
+                    predatory_scout_checks += 1
+                    energy -= self.config.verification_cost * self.config.scout_verification_discount
+                else:
+                    energy -= self.config.verification_cost
                 if signal_is_lie:
                     lies_detected += 1
                     penalties += self.config.detected_lie_penalty * 0.20
@@ -269,6 +283,7 @@ class SocialManifoldExperiment:
             verifications=verifications,
             lies_detected=lies_detected,
             trusted_lies=trusted_lies,
+            predatory_scout_checks=predatory_scout_checks,
             gossip_events=gossip_events,
             blacklist_events=blacklist_events,
             forgiveness_events=forgiveness_events,
@@ -317,6 +332,23 @@ class SocialManifoldExperiment:
 
         return max(options, key=trap_score)
 
+    def _should_predatory_scout_check(
+        self, genome: SocialGenome, sender_index: int | None
+    ) -> bool:
+        if (
+            not self.config.predatory_scouts
+            or sender_index is None
+            or genome.niche() != "Scout"
+        ):
+            return False
+        total_sources = sum(self.source_counts) or 1
+        source_share = self.source_counts[sender_index] / total_sources
+        reputation = min(self.reputation[sender_index], self.config.reputation_cap)
+        return (
+            source_share >= self.config.scout_source_share_trigger
+            or reputation >= self.config.scout_reputation_trigger
+        )
+
     def _gossip(self, sender_index: int) -> int:
         radius = 5
         warnings = min(radius, max(0, len(self.reputation) - 1))
@@ -353,7 +385,7 @@ class SocialManifoldExperiment:
         total_gossip = sum(result.gossip_events for result in results)
         niche_counts = {
             niche: sum(result.niche == niche for result in results)
-            for niche in ("Verifier", "Deceiver", "Gossip", "Pragmatist")
+            for niche in ("Scout", "Verifier", "Deceiver", "Gossip", "Pragmatist")
         }
         honest_labels = [1 - int(result.lies_sent > 0) for result in results]
         fitness_labels = [1 if result.fitness >= fmean(r.fitness for r in results) else 0 for result in results]
@@ -374,6 +406,8 @@ class SocialManifoldExperiment:
             verification_rate=total_verifications / total_signals,
             gossip_rate=total_gossip / total_signals,
             trusted_lie_rate=sum(result.trusted_lies for result in results) / total_signals,
+            predatory_scout_rate=sum(result.predatory_scout_checks for result in results)
+            / total_signals,
             blacklist_rate=sum(result.blacklist_events for result in results) / len(results),
             forgiveness_rate=sum(result.forgiveness_events for result in results) / len(results),
             honest_correlation=binary_correlation(honest_labels, fitness_labels),
@@ -544,6 +578,7 @@ def compile_policy_audit(
         monopoly_controls=(
             "cap reputation scores",
             "force random audits",
+            "activate predatory scout checks on concentrated high-reputation sources",
             "penalize source-share concentration",
             "rotate verifier selection",
         ),
