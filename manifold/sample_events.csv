@@ -1,0 +1,6 @@
+generation,layer,cell,delta,note
+4,info_noise,4,1.20,traffic rumor burst
+7,social_reputation,1,0.55,positive vendor review
+11,physical_risk,6,0.90,road closure incident
+15,info_noise,2,0.80,unverified gossip wave
+21,physical_risk,4,1.10,temporary outage

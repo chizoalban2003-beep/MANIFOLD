@@ -1,8 +1,12 @@
 """Core MANIFOLD simulation engine.
 
-The model evolves vectors over a 3x3 manifold where value is discovered, not
-hardcoded. Later phases add non-stationarity and ontogenetic budgeting, then
-introduce rechargeable sub-targets that require hierarchical action choices.
+This version supports:
+- classic evolutionary path adaptation (v1-v5),
+- explicit 3-layer grid dynamics (physical/info/social),
+- adaptive rule penalties,
+- live event ingestion,
+- predator self-tuning,
+- explainability traces and memory-market economics.
 """
 
 from __future__ import annotations
@@ -10,8 +14,12 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 import json
 import math
+from pathlib import Path
 import random
 from typing import Any
+
+from .connectors import ConnectorEvent, load_connector_events
+from .rules import RuleDefinition, compile_rulebook
 
 
 ROUTES: tuple[tuple[int, int, int], ...] = (
@@ -33,6 +41,17 @@ ACTION_ADVANCE = "advance"
 ACTION_PAUSE_RECHARGE = "pause_recharge"
 ACTION_DETOUR_RECHARGE = "detour_recharge"
 
+LAYER_PHYSICAL = "physical"
+LAYER_INFO = "information"
+LAYER_SOCIAL = "social"
+LAYER_NAMES: tuple[str, ...] = (LAYER_PHYSICAL, LAYER_INFO, LAYER_SOCIAL)
+
+DEFAULT_RULEBOOK = """
+if late_delivery then -£8.20 @target=0.18 @alpha=1.25 @min=0.8 @max=35
+if skip_verification then -£5.40 @target=0.22 @alpha=1.05 @min=0.5 @max=32
+if low_inventory then -£6.80 @target=0.20 @alpha=1.10 @min=0.7 @max=38
+"""
+
 CELL_PARTICIPATION = {
     cell: sum(1 for route in ROUTES if cell in route) for cell in range(9)
 }
@@ -53,6 +72,10 @@ class AgentGenome:
     max_risk: float
     timing_bias: float
     recharge_bias: float
+    honesty_bias: float
+    verification_skill: float
+    reputation: float = 0.50
+    verified_memory: float = 0.0
     energy_max: float = 30.0
     energy_per_armor: float = 1.0
     age: int = 0
@@ -60,7 +83,9 @@ class AgentGenome:
     last_action: str = ACTION_ADVANCE
     last_energy_spent: float = 0.0
     last_recharge_gained: float = 0.0
+    last_memory_revenue: float = 0.0
     last_died: bool = False
+    last_explanation: str = ""
 
 
 @dataclass
@@ -75,6 +100,11 @@ class PhaseConfig:
     ontogeny_enabled: bool = False
     recharge_enabled: bool = False
     energy_budget: float | None = None
+    multi_layer_enabled: bool = False
+    adaptive_rules_enabled: bool = False
+    memory_market_enabled: bool = False
+    predator_auto_tuning: bool = False
+    rule_targets_enabled: bool = False
 
 
 @dataclass
@@ -111,6 +141,13 @@ class ManifoldConfig:
     flicker_period: int = 8
     flicker_low: float = 3.0
     flicker_high: float = 7.0
+    layer_coupling_info_to_physical: float = 0.45
+    layer_coupling_social_to_info: float = 0.35
+    rulebook_text: str = DEFAULT_RULEBOOK
+    predator_spawn_rate: float = 0.05
+    connector_events_path: str | None = None
+    transfer_neutrality_path: str | None = None
+    target_intent: str = "Find the cheapest trustworthy supplier under £50"
     phases: tuple[PhaseConfig, ...] = (
         PhaseConfig(name="phase_1_static", generations=16),
         PhaseConfig(name="phase_2_dual_niche", generations=18, dual_niche=True),
@@ -140,6 +177,21 @@ class ManifoldConfig:
             recharge_enabled=True,
             energy_budget=12.0,
         ),
+        PhaseConfig(
+            name="phase_6_production_stack",
+            generations=28,
+            dual_niche=True,
+            teacher_enabled=True,
+            flicker_enabled=True,
+            ontogeny_enabled=True,
+            recharge_enabled=True,
+            energy_budget=12.0,
+            multi_layer_enabled=True,
+            adaptive_rules_enabled=True,
+            memory_market_enabled=True,
+            predator_auto_tuning=True,
+            rule_targets_enabled=True,
+        ),
     )
 
     @property
@@ -159,7 +211,12 @@ class RouteOutcome:
     base_cost: float
     energy_spent: float
     recharge_gained: float
+    memory_revenue: float
+    rule_penalty_cost: float
+    layer_costs: dict[str, float]
+    break_flags: dict[str, int]
     died: bool
+    explain_log: str
 
 
 @dataclass
@@ -174,12 +231,21 @@ class GenerationMetrics:
     diversity: float
     average_energy_spent: float
     average_recharge_gained: float
+    average_memory_revenue: float
     recharge_event_rate: float
     death_rate: float
+    predator_spawn_rate: float
+    max_reputation: float
+    layer_regret_contrib: dict[str, float] = field(default_factory=dict)
+    rule_break_rates: dict[str, float] = field(default_factory=dict)
+    rule_penalties: dict[str, float] = field(default_factory=dict)
     teacher_event: str | None = None
     niche_counts: dict[str, int] = field(default_factory=dict)
     route_usage: dict[int, int] = field(default_factory=dict)
     action_counts: dict[str, int] = field(default_factory=dict)
+    confidence_distribution: dict[int, float] = field(default_factory=dict)
+    target_intent: str = ""
+    explain_samples: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -189,33 +255,84 @@ class SimulationResult:
     config: ManifoldConfig
     metrics: list[GenerationMetrics]
     final_population: list[AgentGenome]
+    transfer_artifact: dict[str, Any]
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "config": asdict(self.config),
             "metrics": [asdict(metric) for metric in self.metrics],
             "final_population": [asdict(agent) for agent in self.final_population],
+            "transfer_artifact": self.transfer_artifact,
         }
 
     def to_json(self, indent: int = 2) -> str:
         return json.dumps(self.to_dict(), indent=indent)
 
 
-class Environment:
-    """Mutable non-stationary manifold state."""
+class RuleEngine:
+    """Adaptive rule penalty manager."""
+
+    def __init__(self, rules: tuple[RuleDefinition, ...]) -> None:
+        self.rules = rules
+        self.penalties: dict[str, float] = {rule.name: rule.penalty for rule in rules}
+        self.rule_map: dict[str, RuleDefinition] = {rule.name: rule for rule in rules}
+
+    def evaluate_break_flags(
+        self,
+        *,
+        energy_spent: float,
+        recharge_gained: float,
+        verify_attempt: bool,
+    ) -> dict[str, int]:
+        flags: dict[str, int] = {name: 0 for name in self.penalties}
+        if "late_delivery" in flags and energy_spent > 9.5:
+            flags["late_delivery"] = 1
+        if "skip_verification" in flags and not verify_attempt:
+            flags["skip_verification"] = 1
+        if "low_inventory" in flags and recharge_gained <= 0.2:
+            flags["low_inventory"] = 1
+        return flags
+
+    def penalty_cost(self, break_flags: dict[str, int]) -> float:
+        return sum(self.penalties[name] * broke for name, broke in break_flags.items())
+
+    def break_rates(self, counts: dict[str, int], population_size: int) -> dict[str, float]:
+        return {
+            name: (counts.get(name, 0) / max(population_size, 1))
+            for name in self.penalties
+        }
+
+    def update(self, break_rates: dict[str, float]) -> None:
+        for name, current_penalty in list(self.penalties.items()):
+            definition = self.rule_map[name]
+            updated = current_penalty + definition.alpha * (
+                break_rates[name] - definition.target_rate
+            )
+            self.penalties[name] = _clip(
+                updated, definition.min_penalty, definition.max_penalty
+            )
+
+
+class LayeredState:
+    """3-layer grid state with cross-layer couplings."""
 
     def __init__(self) -> None:
-        self.base_risk: dict[int, float] = {
-            0: 4.2,
-            1: 3.6,
-            2: 4.2,
-            3: 3.6,
-            4: 2.8,
-            5: 3.6,
-            6: 4.2,
-            7: 3.6,
-            8: 4.2,
+        self.layer_risk: dict[str, dict[int, float]] = {
+            LAYER_PHYSICAL: {
+                0: 4.2,
+                1: 3.6,
+                2: 4.2,
+                3: 3.6,
+                4: 2.8,
+                5: 3.6,
+                6: 4.2,
+                7: 3.6,
+                8: 4.2,
+            },
+            LAYER_INFO: {cell: 1.6 for cell in range(9)},
+            LAYER_SOCIAL: {cell: 1.1 for cell in range(9)},
         }
+        self.neutrality: dict[int, float] = {cell: 0.5 for cell in range(9)}
         self.pheromone: dict[int, float] = {cell: 0.0 for cell in range(9)}
         self.teacher_spike: dict[int, float] = {cell: 0.0 for cell in range(9)}
         self.route_distance_bias: dict[int, float] = {route_id: 0.0 for route_id in range(8)}
@@ -226,9 +343,8 @@ class Environment:
             self.route_distance_bias[route_id] = 0.0
             self.route_risk_bias[route_id] = 0.0
         if phase.dual_niche:
-            self.route_distance_bias[1] = 1.8  # scout corridor
+            self.route_distance_bias[1] = 1.8
             self.route_risk_bias[1] = -1.2
-            self.route_distance_bias[4] = 0.0  # tank corridor
             self.route_risk_bias[4] = 1.6
 
     def route_cells(self, route_id: int) -> tuple[int, int, int]:
@@ -244,19 +360,72 @@ class Environment:
         cycle = (generation // config.recharge_flicker_period) % 2
         return config.recharge_flicker_low if cycle == 0 else config.recharge_flicker_high
 
-    def cell_risk(
+    def layer_cell_risk(
         self,
+        *,
+        layer: str,
         cell: int,
         route_id: int,
         generation: int,
         phase: PhaseConfig,
         config: ManifoldConfig,
     ) -> float:
-        risk = self.base_risk[cell] + self.pheromone[cell] + self.teacher_spike[cell]
-        risk += self.route_risk_bias[route_id]
-        if phase.flicker_enabled and route_id == config.flicker_route:
-            risk = self.flicker_risk(generation=generation, config=config)
-        return max(0.0, risk)
+        base = self.layer_risk[layer][cell]
+        if layer == LAYER_PHYSICAL:
+            risk = base + self.pheromone[cell] + self.teacher_spike[cell]
+            risk += self.route_risk_bias[route_id]
+            if phase.flicker_enabled and route_id == config.flicker_route:
+                risk = self.flicker_risk(generation=generation, config=config)
+            return max(0.0, risk)
+        if layer == LAYER_INFO:
+            return max(0.0, base + 0.25 * self.teacher_spike[cell])
+        return max(0.0, base)
+
+    def combined_physical_risk(
+        self,
+        *,
+        cell: int,
+        route_id: int,
+        generation: int,
+        phase: PhaseConfig,
+        config: ManifoldConfig,
+    ) -> tuple[float, dict[str, float]]:
+        physical = self.layer_cell_risk(
+            layer=LAYER_PHYSICAL,
+            cell=cell,
+            route_id=route_id,
+            generation=generation,
+            phase=phase,
+            config=config,
+        )
+        layer_contrib = {
+            LAYER_PHYSICAL: physical,
+            LAYER_INFO: 0.0,
+            LAYER_SOCIAL: 0.0,
+        }
+        if phase.multi_layer_enabled:
+            info = self.layer_cell_risk(
+                layer=LAYER_INFO,
+                cell=cell,
+                route_id=route_id,
+                generation=generation,
+                phase=phase,
+                config=config,
+            )
+            social = self.layer_cell_risk(
+                layer=LAYER_SOCIAL,
+                cell=cell,
+                route_id=route_id,
+                generation=generation,
+                phase=phase,
+                config=config,
+            )
+            propagated_info = config.layer_coupling_info_to_physical * info
+            propagated_social = config.layer_coupling_social_to_info * social
+            layer_contrib[LAYER_INFO] = propagated_info
+            layer_contrib[LAYER_SOCIAL] = propagated_social
+            physical = physical + propagated_info + propagated_social
+        return max(0.0, physical), layer_contrib
 
     def recharge_gain(
         self,
@@ -276,14 +445,27 @@ class Environment:
             config=config,
         )
 
+    def apply_connector_event(self, event: ConnectorEvent) -> None:
+        if event.layer == "physical_risk":
+            self.layer_risk[LAYER_PHYSICAL][event.cell] += event.delta
+        elif event.layer == "info_noise":
+            self.layer_risk[LAYER_INFO][event.cell] += event.delta
+        elif event.layer == "social_reputation":
+            self.layer_risk[LAYER_SOCIAL][event.cell] += event.delta
+
     def decay(self, config: ManifoldConfig) -> None:
         for cell in range(9):
             self.pheromone[cell] *= config.pheromone_decay
             self.teacher_spike[cell] *= config.spike_decay
+            self.layer_risk[LAYER_INFO][cell] *= 0.985
+            self.layer_risk[LAYER_SOCIAL][cell] *= 0.992
 
     def deposit_death_pheromone(self, route_id: int, config: ManifoldConfig) -> None:
         for cell in self.route_cells(route_id):
             self.pheromone[cell] += config.pheromone_deposit
+
+    def export_transfer_map(self) -> dict[int, float]:
+        return {cell: _clip(value, 0.0, 1.0) for cell, value in self.neutrality.items()}
 
 
 def _seed_population(config: ManifoldConfig, rng: random.Random) -> list[AgentGenome]:
@@ -295,6 +477,8 @@ def _seed_population(config: ManifoldConfig, rng: random.Random) -> list[AgentGe
         max_risk = _clip(2.0 + 7.5 * mirrored + rng.gauss(0.0, 0.16), 2.0, 9.5)
         timing_bias = _clip(rng.random(), 0.0, 1.0)
         recharge_bias = _clip(rng.random(), 0.0, 1.0)
+        honesty_bias = _clip(rng.random(), 0.0, 1.0)
+        verification_skill = _clip(rng.random(), 0.0, 1.0)
         population.append(
             AgentGenome(
                 id=idx,
@@ -302,6 +486,8 @@ def _seed_population(config: ManifoldConfig, rng: random.Random) -> list[AgentGe
                 max_risk=max_risk,
                 timing_bias=timing_bias,
                 recharge_bias=recharge_bias,
+                honesty_bias=honesty_bias,
+                verification_skill=verification_skill,
                 energy_max=config.energy_max,
             )
         )
@@ -356,14 +542,73 @@ def _initial_energy(agent: AgentGenome, phase: PhaseConfig) -> float:
     return min(agent.energy_max, phase.energy_budget)
 
 
+def _predator_adjustment(
+    *,
+    max_reputation: float,
+    current_spawn_rate: float,
+    phase: PhaseConfig,
+) -> float:
+    if not phase.predator_auto_tuning:
+        return current_spawn_rate
+    if max_reputation > 0.85:
+        return _clip(current_spawn_rate + 0.02, 0.0, 0.4)
+    if max_reputation < 0.70:
+        return _clip(current_spawn_rate - 0.01, 0.0, 0.4)
+    return current_spawn_rate
+
+
+def _compute_memory_revenue(
+    *,
+    agent: AgentGenome,
+    verify_cost: float,
+    phase: PhaseConfig,
+) -> float:
+    if not phase.memory_market_enabled:
+        return 0.0
+    p_lying = _clip(1.0 - (0.55 * agent.honesty_bias + 0.45 * agent.reputation), 0.0, 0.95)
+    ceiling = 0.81
+    reputation_effective = min(agent.reputation, ceiling)
+    return verify_cost * (1.0 - p_lying) * reputation_effective
+
+
+def _estimate_verify_attempt(
+    *,
+    agent: AgentGenome,
+    layer_info_noise: float,
+    rng: random.Random,
+) -> bool:
+    threshold = 0.35 + 0.45 * layer_info_noise
+    propensity = 0.55 * agent.verification_skill + 0.30 * agent.honesty_bias + rng.random() * 0.15
+    return propensity >= threshold
+
+
+def _build_explain_log(
+    *,
+    agent: AgentGenome,
+    cell: int,
+    left: float,
+    verify_cost: float,
+    info_risk: float,
+    chose_verify: bool,
+) -> str:
+    relation = "<" if left < verify_cost * info_risk else ">="
+    decision = "verified" if chose_verify else "skipped verification"
+    return (
+        f"Agent {agent.id} {decision} at cell {cell} because "
+        f"{left:.3f} {relation} {verify_cost:.2f}×{info_risk:.2f}"
+    )
+
+
 def _compute_path_cost(
     agent: AgentGenome,
     route_id: int,
     action: str,
-    env: Environment,
+    env: LayeredState,
     generation: int,
     phase: PhaseConfig,
     config: ManifoldConfig,
+    rule_engine: RuleEngine,
+    predator_spawn_rate: float,
     *,
     estimate_only: bool,
     rng: random.Random,
@@ -374,10 +619,15 @@ def _compute_path_cost(
     risk_cost = 0.0
     energy_spent = 0.0
     recharge_gained = 0.0
+    memory_revenue = 0.0
+    rule_penalty_cost = 0.0
     energy_remaining = _initial_energy(agent=agent, phase=phase)
     died = False
     noise = _perception_noise(agent=agent, config=config)
     did_pause_recharge = False
+    verify_happened = False
+    layer_costs = {layer: 0.0 for layer in LAYER_NAMES}
+    explain_log = ""
 
     if phase.recharge_enabled and action == ACTION_DETOUR_RECHARGE:
         base_cost += config.detour_penalty + 0.35 * (1.0 - agent.timing_bias)
@@ -387,16 +637,47 @@ def _compute_path_cost(
         energy_remaining = new_energy
 
     for cell in env.route_cells(route_id):
-        cell_risk = env.cell_risk(
+        combined_risk, layer_contrib = env.combined_physical_risk(
             cell=cell,
             route_id=route_id,
             generation=generation,
             phase=phase,
             config=config,
         )
-        used_risk = cell_risk
+        info_noise = env.layer_cell_risk(
+            layer=LAYER_INFO,
+            cell=cell,
+            route_id=route_id,
+            generation=generation,
+            phase=phase,
+            config=config,
+        )
+        used_risk = combined_risk
         if estimate_only:
-            used_risk = max(0.0, cell_risk + rng.gauss(0.0, noise))
+            used_risk = max(0.0, combined_risk + rng.gauss(0.0, noise))
+
+        verify_attempt = _estimate_verify_attempt(
+            agent=agent,
+            layer_info_noise=info_noise,
+            rng=rng,
+        )
+        verify_cost = 0.08 * (1.0 + info_noise)
+        if verify_attempt:
+            base_cost += verify_cost
+            memory_revenue += _compute_memory_revenue(
+                agent=agent,
+                verify_cost=verify_cost,
+                phase=phase,
+            )
+            verify_happened = True
+        explain_log = _build_explain_log(
+            agent=agent,
+            cell=cell,
+            left=used_risk * 0.01,
+            verify_cost=verify_cost,
+            info_risk=info_noise,
+            chose_verify=verify_attempt,
+        )
 
         if phase.ontogeny_enabled:
             proactive_fraction = _clip(
@@ -419,6 +700,9 @@ def _compute_path_cost(
             armor_applied = 0.0
 
         residual_risk = used_risk - armor_applied
+        layer_costs[LAYER_PHYSICAL] += layer_contrib[LAYER_PHYSICAL] * agent.risk_multiplier
+        layer_costs[LAYER_INFO] += layer_contrib[LAYER_INFO] * agent.risk_multiplier
+        layer_costs[LAYER_SOCIAL] += layer_contrib[LAYER_SOCIAL] * agent.risk_multiplier
         risk_cost += residual_risk * agent.risk_multiplier
         if residual_risk > agent.max_risk:
             died = True
@@ -448,18 +732,50 @@ def _compute_path_cost(
         flicker_is_high = env.flicker_risk(generation=generation, config=config) > (
             config.flicker_low + config.flicker_high
         ) / 2
-        if flicker_is_high:
-            timing_adjustment = 2.2 * agent.timing_bias
-        else:
-            timing_adjustment = -1.2 * agent.timing_bias
+        timing_adjustment = 2.2 * agent.timing_bias if flicker_is_high else -1.2 * agent.timing_bias
 
-    total_cost = base_cost + risk_cost + timing_adjustment
+    predator_cost = 0.0
+    if phase.predator_auto_tuning:
+        predator_cost = predator_spawn_rate * (1.0 + (1.0 - agent.reputation) * 2.0) * 3.0
+
+    break_flags = rule_engine.evaluate_break_flags(
+        energy_spent=energy_spent,
+        recharge_gained=recharge_gained,
+        verify_attempt=verify_happened,
+    )
+    if phase.adaptive_rules_enabled:
+        rule_penalty_cost = rule_engine.penalty_cost(break_flags)
+    else:
+        rule_penalty_cost = 0.0
+        break_flags = {name: 0 for name in break_flags}
+
+    total_cost = (
+        base_cost
+        + risk_cost
+        + timing_adjustment
+        + rule_penalty_cost
+        + predator_cost
+        - memory_revenue
+    )
     if phase.ontogeny_enabled:
         total_cost += energy_spent
     if phase.recharge_enabled and action == ACTION_PAUSE_RECHARGE and not did_pause_recharge:
         total_cost += 4.0
     if died:
         total_cost += config.death_penalty
+
+    if phase.rule_targets_enabled and not estimate_only:
+        top_cell = max(
+            range(9),
+            key=lambda cell_idx: env.combined_physical_risk(
+                cell=cell_idx,
+                route_id=route_id,
+                generation=generation,
+                phase=phase,
+                config=config,
+            )[0],
+        )
+        total_cost += 0.25 * (top_cell / 8.0)
 
     return RouteOutcome(
         route_id=route_id,
@@ -470,16 +786,23 @@ def _compute_path_cost(
         base_cost=base_cost,
         energy_spent=energy_spent,
         recharge_gained=recharge_gained,
+        memory_revenue=memory_revenue,
+        rule_penalty_cost=rule_penalty_cost,
+        layer_costs=layer_costs,
+        break_flags=break_flags,
         died=died,
+        explain_log=explain_log,
     )
 
 
 def _evaluate_agent(
     agent: AgentGenome,
-    env: Environment,
+    env: LayeredState,
     generation: int,
     phase: PhaseConfig,
     config: ManifoldConfig,
+    rule_engine: RuleEngine,
+    predator_spawn_rate: float,
     rng: random.Random,
 ) -> tuple[float, RouteOutcome, float]:
     estimated_outcomes: list[RouteOutcome] = []
@@ -494,6 +817,8 @@ def _evaluate_agent(
                     generation=generation,
                     phase=phase,
                     config=config,
+                    rule_engine=rule_engine,
+                    predator_spawn_rate=predator_spawn_rate,
                     estimate_only=True,
                     rng=rng,
                 )
@@ -508,6 +833,8 @@ def _evaluate_agent(
         generation=generation,
         phase=phase,
         config=config,
+        rule_engine=rule_engine,
+        predator_spawn_rate=predator_spawn_rate,
         estimate_only=False,
         rng=rng,
     )
@@ -521,6 +848,8 @@ def _evaluate_agent(
             generation=generation,
             phase=phase,
             config=config,
+            rule_engine=rule_engine,
+            predator_spawn_rate=predator_spawn_rate,
             estimate_only=False,
             rng=rng,
         ).actual_cost
@@ -544,6 +873,10 @@ def _mutate_agent(
         max_risk=_clip(parent.max_risk + rng.gauss(0.0, sigma * 3.0), 2.0, 9.5),
         timing_bias=_clip(parent.timing_bias + rng.gauss(0.0, sigma * 1.4), 0.0, 1.0),
         recharge_bias=_clip(parent.recharge_bias + rng.gauss(0.0, sigma * 1.6), 0.0, 1.0),
+        honesty_bias=_clip(parent.honesty_bias + rng.gauss(0.0, sigma * 1.4), 0.0, 1.0),
+        verification_skill=_clip(parent.verification_skill + rng.gauss(0.0, sigma * 1.5), 0.0, 1.0),
+        reputation=_clip(parent.reputation + rng.gauss(0.0, sigma * 0.8), 0.0, 1.0),
+        verified_memory=max(0.0, parent.verified_memory * 0.96),
         energy_max=parent.energy_max,
         energy_per_armor=parent.energy_per_armor,
     )
@@ -567,7 +900,7 @@ def _should_trigger_teacher(
 
 
 def _apply_teacher(
-    env: Environment,
+    env: LayeredState,
     population: list[AgentGenome],
     route_usage: dict[int, int],
     config: ManifoldConfig,
@@ -586,6 +919,7 @@ def _apply_teacher(
         spike = rng.uniform(config.teacher_spike_low, config.teacher_spike_high)
         for cell in env.route_cells(dominant_route):
             env.teacher_spike[cell] += spike
+            env.layer_risk[LAYER_INFO][cell] += spike * 0.2
         return f"targeted:{dominant_niche}:route_{dominant_route}"
 
     random_cell = rng.randrange(0, 9)
@@ -614,6 +948,10 @@ def _select_next_population(
                 max_risk=elite.max_risk,
                 timing_bias=elite.timing_bias,
                 recharge_bias=elite.recharge_bias,
+                honesty_bias=elite.honesty_bias,
+                verification_skill=elite.verification_skill,
+                reputation=elite.reputation,
+                verified_memory=elite.verified_memory,
                 energy_max=elite.energy_max,
                 energy_per_armor=elite.energy_per_armor,
                 age=elite.age + 1,
@@ -636,14 +974,58 @@ def _select_next_population(
     return next_population, next_id
 
 
-def run_manifold(config: ManifoldConfig | None = None) -> SimulationResult:
+def _build_confidence_distribution(route_usage: dict[int, int]) -> dict[int, float]:
+    cell_weights: dict[int, float] = {cell: 0.0 for cell in range(9)}
+    total = sum(route_usage.values())
+    if total <= 0:
+        return cell_weights
+    for route_id, count in route_usage.items():
+        share = count / total
+        cells = ROUTES[route_id]
+        for cell in cells:
+            cell_weights[cell] += share / len(cells)
+    norm = sum(cell_weights.values())
+    if norm <= 0:
+        return cell_weights
+    return {cell: weight / norm for cell, weight in cell_weights.items()}
+
+
+def _load_rules(config: ManifoldConfig) -> tuple[RuleDefinition, ...]:
+    return compile_rulebook(config.rulebook_text)
+
+
+def _load_connector_events(config: ManifoldConfig) -> tuple[ConnectorEvent, ...]:
+    path = Path(config.connector_events_path) if config.connector_events_path else None
+    return load_connector_events(path)
+
+
+def _events_for_generation(
+    events: tuple[ConnectorEvent, ...],
+    generation: int,
+) -> tuple[ConnectorEvent, ...]:
+    return tuple(event for event in events if event.generation == generation)
+
+
+def run_manifold(
+    config: ManifoldConfig | None = None,
+    *,
+    transfer_neutrality_layer: dict[int, float] | None = None,
+) -> SimulationResult:
     """Run full MANIFOLD simulation and return all telemetry."""
 
     if config is None:
         config = ManifoldConfig()
     rng = random.Random(config.seed)
-    env = Environment()
+    env = LayeredState()
+    if transfer_neutrality_layer is not None:
+        for cell, value in transfer_neutrality_layer.items():
+            if cell in env.neutrality:
+                env.neutrality[cell] = _clip(float(value), 0.0, 1.0)
     population = _seed_population(config=config, rng=rng)
+    rules = _load_rules(config=config)
+    rule_engine = RuleEngine(rules=rules)
+    connector_events = _load_connector_events(config=config)
+    predator_spawn_rate = config.predator_spawn_rate
 
     metrics: list[GenerationMetrics] = []
     id_counter = max(agent.id for agent in population) + 1
@@ -652,6 +1034,9 @@ def run_manifold(config: ManifoldConfig | None = None) -> SimulationResult:
     for phase in config.phases:
         env.configure_for_phase(phase)
         for _ in range(phase.generations):
+            for event in _events_for_generation(connector_events, absolute_generation):
+                env.apply_connector_event(event)
+
             regrets: dict[int, float] = {}
             route_usage: dict[int, int] = {route_id: 0 for route_id in range(len(ROUTES))}
             action_counts: dict[str, int] = {
@@ -659,10 +1044,14 @@ def run_manifold(config: ManifoldConfig | None = None) -> SimulationResult:
                 ACTION_PAUSE_RECHARGE: 0,
                 ACTION_DETOUR_RECHARGE: 0,
             }
+            rule_break_counts: dict[str, int] = {rule.name: 0 for rule in rules}
+            layer_accumulator: dict[str, float] = {layer: 0.0 for layer in LAYER_NAMES}
             deaths = 0
             total_energy = 0.0
             total_recharge = 0.0
+            total_memory_revenue = 0.0
             recharge_events = 0
+            explain_samples: list[str] = []
 
             for agent in population:
                 regret, outcome, _ = _evaluate_agent(
@@ -671,23 +1060,47 @@ def run_manifold(config: ManifoldConfig | None = None) -> SimulationResult:
                     generation=absolute_generation,
                     phase=phase,
                     config=config,
+                    rule_engine=rule_engine,
+                    predator_spawn_rate=predator_spawn_rate,
                     rng=rng,
                 )
                 regrets[agent.id] = regret
                 route_usage[outcome.route_id] += 1
                 action_counts[outcome.action] += 1
+                for layer in LAYER_NAMES:
+                    layer_accumulator[layer] += outcome.layer_costs.get(layer, 0.0)
+                for rule_name, broke in outcome.break_flags.items():
+                    rule_break_counts[rule_name] += broke
+
                 agent.last_route = outcome.route_id
                 agent.last_action = outcome.action
                 agent.last_energy_spent = outcome.energy_spent
                 agent.last_recharge_gained = outcome.recharge_gained
+                agent.last_memory_revenue = outcome.memory_revenue
                 agent.last_died = outcome.died
+                agent.last_explanation = outcome.explain_log
+                if outcome.explain_log and len(explain_samples) < 6:
+                    explain_samples.append(outcome.explain_log)
+
                 total_energy += outcome.energy_spent
                 total_recharge += outcome.recharge_gained
+                total_memory_revenue += outcome.memory_revenue
                 if outcome.recharge_gained > 0.0:
                     recharge_events += 1
                 if outcome.died:
                     deaths += 1
                     env.deposit_death_pheromone(route_id=outcome.route_id, config=config)
+
+                agent.verified_memory = _clip(
+                    agent.verified_memory + (1.0 if "verified" in outcome.explain_log else -0.2),
+                    0.0,
+                    30.0,
+                )
+                agent.reputation = _clip(
+                    agent.reputation + (0.012 if "verified" in outcome.explain_log else -0.01),
+                    0.0,
+                    1.0,
+                )
 
             niche_counts: dict[str, int] = {"scout": 0, "tank": 0, "hybrid": 0}
             for agent in population:
@@ -705,8 +1118,37 @@ def run_manifold(config: ManifoldConfig | None = None) -> SimulationResult:
             diversity = _calculate_diversity(population=population)
             avg_energy = total_energy / len(population)
             avg_recharge = total_recharge / len(population)
+            avg_memory_revenue = total_memory_revenue / len(population)
             recharge_event_rate = recharge_events / len(population)
             death_rate = deaths / len(population)
+            max_reputation = max(agent.reputation for agent in population)
+
+            rule_break_rates = rule_engine.break_rates(
+                counts=rule_break_counts,
+                population_size=len(population),
+            )
+            if phase.adaptive_rules_enabled:
+                rule_engine.update(rule_break_rates)
+
+            if phase.predator_auto_tuning:
+                predator_spawn_rate = _predator_adjustment(
+                    max_reputation=max_reputation,
+                    current_spawn_rate=predator_spawn_rate,
+                    phase=phase,
+                )
+
+            confidence_distribution = (
+                _build_confidence_distribution(route_usage)
+                if phase.rule_targets_enabled
+                else {}
+            )
+            if phase.multi_layer_enabled:
+                for cell, confidence in confidence_distribution.items():
+                    env.neutrality[cell] = _clip(
+                        env.neutrality[cell] * 0.90 + confidence * 0.10,
+                        0.0,
+                        1.0,
+                    )
 
             teacher_event: str | None = None
             if _should_trigger_teacher(
@@ -723,6 +1165,10 @@ def run_manifold(config: ManifoldConfig | None = None) -> SimulationResult:
                     rng=rng,
                 )
 
+            layer_scale = max(len(population), 1)
+            layer_regret = {
+                layer: layer_accumulator[layer] / layer_scale for layer in LAYER_NAMES
+            }
             metrics.append(
                 GenerationMetrics(
                     generation=absolute_generation,
@@ -733,12 +1179,20 @@ def run_manifold(config: ManifoldConfig | None = None) -> SimulationResult:
                     diversity=diversity,
                     average_energy_spent=avg_energy,
                     average_recharge_gained=avg_recharge,
+                    average_memory_revenue=avg_memory_revenue,
                     recharge_event_rate=recharge_event_rate,
                     death_rate=death_rate,
+                    predator_spawn_rate=predator_spawn_rate,
+                    max_reputation=max_reputation,
+                    layer_regret_contrib=layer_regret,
+                    rule_break_rates=rule_break_rates,
+                    rule_penalties=dict(rule_engine.penalties),
                     teacher_event=teacher_event,
                     niche_counts=niche_counts,
                     route_usage=route_usage,
                     action_counts=action_counts,
+                    confidence_distribution=confidence_distribution,
+                    explain_samples=explain_samples,
                 )
             )
 
@@ -752,14 +1206,24 @@ def run_manifold(config: ManifoldConfig | None = None) -> SimulationResult:
             env.decay(config=config)
             absolute_generation += 1
 
-    return SimulationResult(config=config, metrics=metrics, final_population=population)
+    transfer_artifact = {
+        "neutrality_layer": env.export_transfer_map(),
+        "rule_penalties": dict(rule_engine.penalties),
+        "max_reputation": max(agent.reputation for agent in population),
+    }
+    return SimulationResult(
+        config=config,
+        metrics=metrics,
+        final_population=population,
+        transfer_artifact=transfer_artifact,
+    )
 
 
 def summarize_result(result: SimulationResult) -> dict[str, Any]:
     """Compact summary for CLI/UI usage."""
 
     final = result.metrics[-1]
-    by_phase: dict[str, dict[str, float | str]] = {}
+    by_phase: dict[str, dict[str, float | str | dict[str, float]]] = {}
     for phase in result.config.phases:
         phase_metrics = [m for m in result.metrics if m.phase == phase.name]
         end = phase_metrics[-1]
@@ -770,9 +1234,12 @@ def summarize_result(result: SimulationResult) -> dict[str, Any]:
             "diversity_end": end.diversity,
             "energy_end": end.average_energy_spent,
             "recharge_end": end.average_recharge_gained,
+            "memory_revenue_end": end.average_memory_revenue,
             "recharge_event_rate_end": end.recharge_event_rate,
             "death_rate_end": end.death_rate,
             "dominant_action_end": dominant_action,
+            "predator_spawn_rate_end": end.predator_spawn_rate,
+            "layer_regret_contrib_end": end.layer_regret_contrib,
         }
     return {
         "total_generations": result.config.total_generations,
@@ -782,7 +1249,11 @@ def summarize_result(result: SimulationResult) -> dict[str, Any]:
         "final_diversity": final.diversity,
         "final_energy_spent": final.average_energy_spent,
         "final_recharge_gained": final.average_recharge_gained,
+        "final_memory_revenue": final.average_memory_revenue,
         "final_recharge_event_rate": final.recharge_event_rate,
         "final_action_mix": final.action_counts,
+        "final_rule_penalties": final.rule_penalties,
+        "final_layer_regret": final.layer_regret_contrib,
+        "transfer_artifact": result.transfer_artifact,
         "phase_summary": by_phase,
     }

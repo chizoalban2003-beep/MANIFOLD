@@ -11,7 +11,12 @@ from .simulation import ManifoldConfig, run_manifold, summarize_result
 
 
 def _build_config(args: argparse.Namespace) -> ManifoldConfig:
-    config = ManifoldConfig(seed=args.seed)
+    config = ManifoldConfig(
+        seed=args.seed,
+        connector_events_path=str(args.connector_events) if args.connector_events else None,
+    )
+    if args.rulebook:
+        config = replace(config, rulebook_text=args.rulebook.read_text(encoding="utf-8"))
     if args.quick:
         quick_phases = tuple(
             replace(phase, generations=max(4, phase.generations // 4))
@@ -48,6 +53,18 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=None,
         help="Optional path for full simulation JSON.",
+    )
+    parser.add_argument(
+        "--rulebook",
+        type=Path,
+        default=None,
+        help="Optional DSL file for adaptive rule penalties.",
+    )
+    parser.add_argument(
+        "--connector-events",
+        type=Path,
+        default=None,
+        help="Optional CSV for live connector events.",
     )
     return parser
 
