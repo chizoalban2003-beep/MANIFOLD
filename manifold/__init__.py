@@ -1,6 +1,8 @@
 """MANIFOLD simulation package."""
 
 from .simulation import (
+    ACTION_DETOUR_RECHARGE,
+    ACTION_PAUSE_RECHARGE,
     AgentGenome,
     GenerationMetrics,
     ManifoldConfig,
@@ -12,6 +14,8 @@ from .simulation import (
 
 __all__ = [
     "AgentGenome",
+    "ACTION_DETOUR_RECHARGE",
+    "ACTION_PAUSE_RECHARGE",
     "GenerationMetrics",
     "ManifoldConfig",
     "PhaseConfig",

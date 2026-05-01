@@ -6,7 +6,7 @@ import json
 
 import streamlit as st
 
-from manifold.simulation import run_manifold, summarize_result
+from manifold.simulation import ManifoldConfig, run_manifold, summarize_result
 
 
 st.set_page_config(page_title="Project MANIFOLD", layout="wide")
@@ -21,12 +21,7 @@ run_clicked = st.sidebar.button("Run simulation", type="primary")
 
 if run_clicked:
     with st.spinner("Simulating..."):
-        result = run_manifold()
-        # Keep reproducibility visible by rerunning with sidebar seed if changed.
-        if seed != 7:
-            from manifold.simulation import ManifoldConfig
-
-            result = run_manifold(config=ManifoldConfig(seed=int(seed)))
+        result = run_manifold(config=ManifoldConfig(seed=int(seed)))
         summary = summarize_result(result)
 
     st.subheader("Summary")

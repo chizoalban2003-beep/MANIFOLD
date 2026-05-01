@@ -1,8 +1,8 @@
 """Core MANIFOLD simulation engine.
 
-The model evolves a population of vectors on top of a 3x3 route manifold.
-Value is emergent: vectors discover and re-discover route utility as the
-environment changes through teacher interventions and corridor flicker.
+The model evolves vectors over a 3x3 manifold where value is discovered, not
+hardcoded. Later phases add non-stationarity and ontogenetic budgeting, then
+introduce rechargeable sub-targets that require hierarchical action choices.
 """
 
 from __future__ import annotations
@@ -24,6 +24,14 @@ ROUTES: tuple[tuple[int, int, int], ...] = (
     (0, 4, 8),
     (2, 4, 6),
 )
+RECHARGE_CELLS: dict[int, float] = {
+    1: 5.5,
+    4: 8.0,
+    7: 5.5,
+}
+ACTION_ADVANCE = "advance"
+ACTION_PAUSE_RECHARGE = "pause_recharge"
+ACTION_DETOUR_RECHARGE = "detour_recharge"
 
 CELL_PARTICIPATION = {
     cell: sum(1 for route in ROUTES if cell in route) for cell in range(9)
@@ -38,17 +46,20 @@ def _clip(value: float, minimum: float, maximum: float) -> float:
 
 @dataclass
 class AgentGenome:
-    """Evolvable physics for one vector."""
+    """Evolvable physics and behavioral biases for one vector."""
 
     id: int
     risk_multiplier: float
     max_risk: float
     timing_bias: float
+    recharge_bias: float
     energy_max: float = 30.0
     energy_per_armor: float = 1.0
     age: int = 0
     last_route: int | None = None
+    last_action: str = ACTION_ADVANCE
     last_energy_spent: float = 0.0
+    last_recharge_gained: float = 0.0
     last_died: bool = False
 
 
@@ -62,6 +73,8 @@ class PhaseConfig:
     teacher_enabled: bool = False
     flicker_enabled: bool = False
     ontogeny_enabled: bool = False
+    recharge_enabled: bool = False
+    energy_budget: float | None = None
 
 
 @dataclass
@@ -88,6 +101,12 @@ class ManifoldConfig:
     perception_noise_base: float = 0.9
     perception_noise_age_scale: float = 1.5
     energy_max: float = 30.0
+    recharge_reward_scale: float = 1.0
+    pause_penalty: float = 0.85
+    detour_penalty: float = 1.35
+    recharge_flicker_period: int = 6
+    recharge_flicker_low: float = 0.65
+    recharge_flicker_high: float = 1.25
     flicker_route: int = 6
     flicker_period: int = 8
     flicker_low: float = 3.0
@@ -109,6 +128,17 @@ class ManifoldConfig:
             teacher_enabled=True,
             flicker_enabled=True,
             ontogeny_enabled=True,
+            energy_budget=30.0,
+        ),
+        PhaseConfig(
+            name="phase_5_recharge_hierarchical",
+            generations=24,
+            dual_niche=True,
+            teacher_enabled=True,
+            flicker_enabled=True,
+            ontogeny_enabled=True,
+            recharge_enabled=True,
+            energy_budget=12.0,
         ),
     )
 
@@ -119,14 +149,16 @@ class ManifoldConfig:
 
 @dataclass
 class RouteOutcome:
-    """Execution outcome for one route under one agent."""
+    """Execution outcome for one route under one action plan."""
 
     route_id: int
+    action: str
     expected_cost: float
     actual_cost: float
     risk_cost: float
     base_cost: float
     energy_spent: float
+    recharge_gained: float
     died: bool
 
 
@@ -141,10 +173,13 @@ class GenerationMetrics:
     best_regret: float
     diversity: float
     average_energy_spent: float
+    average_recharge_gained: float
+    recharge_event_rate: float
     death_rate: float
     teacher_event: str | None = None
     niche_counts: dict[str, int] = field(default_factory=dict)
     route_usage: dict[int, int] = field(default_factory=dict)
+    action_counts: dict[str, int] = field(default_factory=dict)
 
 
 @dataclass
@@ -170,7 +205,6 @@ class Environment:
     """Mutable non-stationary manifold state."""
 
     def __init__(self) -> None:
-        # Center is safer at baseline; edges/corners are riskier.
         self.base_risk: dict[int, float] = {
             0: 4.2,
             1: 3.6,
@@ -192,17 +226,10 @@ class Environment:
             self.route_distance_bias[route_id] = 0.0
             self.route_risk_bias[route_id] = 0.0
         if phase.dual_niche:
-            # "Scout corridor": longer, safer.
-            self.route_distance_bias[1] = 1.8
+            self.route_distance_bias[1] = 1.8  # scout corridor
             self.route_risk_bias[1] = -1.2
-            # "Tank corridor": shorter, but dangerous.
-            self.route_distance_bias[4] = 0.0
+            self.route_distance_bias[4] = 0.0  # tank corridor
             self.route_risk_bias[4] = 1.6
-        else:
-            self.route_distance_bias[1] = 0.0
-            self.route_risk_bias[1] = 0.0
-            self.route_distance_bias[4] = 0.0
-            self.route_risk_bias[4] = 0.0
 
     def route_cells(self, route_id: int) -> tuple[int, int, int]:
         return ROUTES[route_id]
@@ -210,6 +237,12 @@ class Environment:
     def flicker_risk(self, generation: int, config: ManifoldConfig) -> float:
         cycle = (generation // config.flicker_period) % 2
         return config.flicker_low if cycle == 0 else config.flicker_high
+
+    def recharge_multiplier(self, cell: int, generation: int, config: ManifoldConfig) -> float:
+        if cell != 4:
+            return 1.0
+        cycle = (generation // config.recharge_flicker_period) % 2
+        return config.recharge_flicker_low if cycle == 0 else config.recharge_flicker_high
 
     def cell_risk(
         self,
@@ -224,6 +257,24 @@ class Environment:
         if phase.flicker_enabled and route_id == config.flicker_route:
             risk = self.flicker_risk(generation=generation, config=config)
         return max(0.0, risk)
+
+    def recharge_gain(
+        self,
+        *,
+        cell: int,
+        generation: int,
+        phase: PhaseConfig,
+        config: ManifoldConfig,
+    ) -> float:
+        if not phase.recharge_enabled:
+            return 0.0
+        if cell not in RECHARGE_CELLS:
+            return 0.0
+        return RECHARGE_CELLS[cell] * self.recharge_multiplier(
+            cell=cell,
+            generation=generation,
+            config=config,
+        )
 
     def decay(self, config: ManifoldConfig) -> None:
         for cell in range(9):
@@ -243,12 +294,14 @@ def _seed_population(config: ManifoldConfig, rng: random.Random) -> list[AgentGe
         risk_multiplier = _clip(0.1 + 2.4 * ratio + rng.gauss(0.0, 0.04), 0.1, 2.5)
         max_risk = _clip(2.0 + 7.5 * mirrored + rng.gauss(0.0, 0.16), 2.0, 9.5)
         timing_bias = _clip(rng.random(), 0.0, 1.0)
+        recharge_bias = _clip(rng.random(), 0.0, 1.0)
         population.append(
             AgentGenome(
                 id=idx,
                 risk_multiplier=risk_multiplier,
                 max_risk=max_risk,
                 timing_bias=timing_bias,
+                recharge_bias=recharge_bias,
                 energy_max=config.energy_max,
             )
         )
@@ -275,7 +328,6 @@ def _calculate_diversity(population: list[AgentGenome]) -> float:
             continue
         p = count / total
         entropy -= p * math.log(p)
-    # Normalized Shannon entropy (0..1)
     return entropy / math.log(3)
 
 
@@ -283,9 +335,31 @@ def _perception_noise(agent: AgentGenome, config: ManifoldConfig) -> float:
     return config.perception_noise_base / (1.0 + agent.age / config.perception_noise_age_scale)
 
 
+def _route_has_recharge(route_id: int) -> bool:
+    return any(cell in RECHARGE_CELLS for cell in ROUTES[route_id])
+
+
+def _action_space(route_id: int, phase: PhaseConfig) -> tuple[str, ...]:
+    if not phase.recharge_enabled:
+        return (ACTION_ADVANCE,)
+    actions = [ACTION_ADVANCE, ACTION_DETOUR_RECHARGE]
+    if _route_has_recharge(route_id):
+        actions.append(ACTION_PAUSE_RECHARGE)
+    return tuple(actions)
+
+
+def _initial_energy(agent: AgentGenome, phase: PhaseConfig) -> float:
+    if not phase.ontogeny_enabled:
+        return 0.0
+    if phase.energy_budget is None:
+        return agent.energy_max
+    return min(agent.energy_max, phase.energy_budget)
+
+
 def _compute_path_cost(
     agent: AgentGenome,
     route_id: int,
+    action: str,
     env: Environment,
     generation: int,
     phase: PhaseConfig,
@@ -299,9 +373,18 @@ def _compute_path_cost(
 
     risk_cost = 0.0
     energy_spent = 0.0
-    energy_remaining = agent.energy_max if phase.ontogeny_enabled else 0.0
+    recharge_gained = 0.0
+    energy_remaining = _initial_energy(agent=agent, phase=phase)
     died = False
     noise = _perception_noise(agent=agent, config=config)
+    did_pause_recharge = False
+
+    if phase.recharge_enabled and action == ACTION_DETOUR_RECHARGE:
+        base_cost += config.detour_penalty + 0.35 * (1.0 - agent.timing_bias)
+        detour_gain = config.recharge_reward_scale * (5.0 + 4.0 * agent.recharge_bias)
+        new_energy = min(agent.energy_max, energy_remaining + detour_gain)
+        recharge_gained += new_energy - energy_remaining
+        energy_remaining = new_energy
 
     for cell in env.route_cells(route_id):
         cell_risk = env.cell_risk(
@@ -315,31 +398,50 @@ def _compute_path_cost(
         if estimate_only:
             used_risk = max(0.0, cell_risk + rng.gauss(0.0, noise))
 
-        required_armor = max(0.0, used_risk - agent.max_risk)
-        armor_applied = 0.0
         if phase.ontogeny_enabled:
-            # Ontogeny: vectors can spend battery to lower expected risk even
-            # before survival pressure becomes critical.
             proactive_fraction = _clip(
-                0.10 + 0.50 * agent.timing_bias + 0.15 * agent.risk_multiplier,
+                0.12 + 0.45 * agent.timing_bias + 0.14 * agent.risk_multiplier,
                 0.0,
                 0.85,
             )
+            if action == ACTION_DETOUR_RECHARGE:
+                proactive_fraction = _clip(proactive_fraction + 0.08, 0.0, 0.9)
+            required_armor = max(0.0, used_risk - agent.max_risk)
             target_residual = max(0.0, used_risk * (1.0 - proactive_fraction))
             desired_armor = max(0.0, used_risk - target_residual)
             armor_budget_need = max(required_armor, desired_armor)
-
-            affordable_armor = energy_remaining / agent.energy_per_armor
-            armor_applied = min(armor_budget_need, affordable_armor)
+            armor_cap = energy_remaining / agent.energy_per_armor
+            armor_applied = min(armor_budget_need, armor_cap)
             spent = armor_applied * agent.energy_per_armor
             energy_spent += spent
             energy_remaining -= spent
+        else:
+            armor_applied = 0.0
 
         residual_risk = used_risk - armor_applied
         risk_cost += residual_risk * agent.risk_multiplier
         if residual_risk > agent.max_risk:
             died = True
             break
+
+        if (
+            phase.recharge_enabled
+            and action == ACTION_PAUSE_RECHARGE
+            and not did_pause_recharge
+            and cell in RECHARGE_CELLS
+        ):
+            pause_gain = env.recharge_gain(
+                cell=cell,
+                generation=generation,
+                phase=phase,
+                config=config,
+            )
+            pause_gain *= config.recharge_reward_scale * (0.55 + agent.recharge_bias)
+            new_energy = min(agent.energy_max, energy_remaining + pause_gain)
+            recharge_gained += new_energy - energy_remaining
+            energy_remaining = new_energy
+            base_cost += config.pause_penalty
+            did_pause_recharge = True
 
     timing_adjustment = 0.0
     if phase.flicker_enabled and route_id == config.flicker_route:
@@ -354,16 +456,20 @@ def _compute_path_cost(
     total_cost = base_cost + risk_cost + timing_adjustment
     if phase.ontogeny_enabled:
         total_cost += energy_spent
+    if phase.recharge_enabled and action == ACTION_PAUSE_RECHARGE and not did_pause_recharge:
+        total_cost += 4.0
     if died:
         total_cost += config.death_penalty
 
     return RouteOutcome(
         route_id=route_id,
+        action=action,
         expected_cost=total_cost if estimate_only else 0.0,
         actual_cost=total_cost if not estimate_only else 0.0,
         risk_cost=risk_cost,
         base_cost=base_cost,
         energy_spent=energy_spent,
+        recharge_gained=recharge_gained,
         died=died,
     )
 
@@ -378,23 +484,26 @@ def _evaluate_agent(
 ) -> tuple[float, RouteOutcome, float]:
     estimated_outcomes: list[RouteOutcome] = []
     for route_id in range(len(ROUTES)):
-        estimated_outcomes.append(
-            _compute_path_cost(
-                agent=agent,
-                route_id=route_id,
-                env=env,
-                generation=generation,
-                phase=phase,
-                config=config,
-                estimate_only=True,
-                rng=rng,
+        for action in _action_space(route_id=route_id, phase=phase):
+            estimated_outcomes.append(
+                _compute_path_cost(
+                    agent=agent,
+                    route_id=route_id,
+                    action=action,
+                    env=env,
+                    generation=generation,
+                    phase=phase,
+                    config=config,
+                    estimate_only=True,
+                    rng=rng,
+                )
             )
-        )
 
     chosen = min(estimated_outcomes, key=lambda outcome: outcome.expected_cost)
     actual_chosen = _compute_path_cost(
         agent=agent,
         route_id=chosen.route_id,
+        action=chosen.action,
         env=env,
         generation=generation,
         phase=phase,
@@ -407,6 +516,7 @@ def _evaluate_agent(
         _compute_path_cost(
             agent=agent,
             route_id=route_id,
+            action=action,
             env=env,
             generation=generation,
             phase=phase,
@@ -415,6 +525,7 @@ def _evaluate_agent(
             rng=rng,
         ).actual_cost
         for route_id in range(len(ROUTES))
+        for action in _action_space(route_id=route_id, phase=phase)
     )
     regret = actual_chosen.actual_cost - optimal_actual_cost
     return regret, actual_chosen, optimal_actual_cost
@@ -432,6 +543,7 @@ def _mutate_agent(
         risk_multiplier=_clip(parent.risk_multiplier + rng.gauss(0.0, sigma), 0.1, 2.5),
         max_risk=_clip(parent.max_risk + rng.gauss(0.0, sigma * 3.0), 2.0, 9.5),
         timing_bias=_clip(parent.timing_bias + rng.gauss(0.0, sigma * 1.4), 0.0, 1.0),
+        recharge_bias=_clip(parent.recharge_bias + rng.gauss(0.0, sigma * 1.6), 0.0, 1.0),
         energy_max=parent.energy_max,
         energy_per_armor=parent.energy_per_armor,
     )
@@ -470,7 +582,6 @@ def _apply_teacher(
     dominant_niche = max(dominant_niche_counts, key=dominant_niche_counts.get)
 
     if rng.random() <= config.teacher_targeted_prob:
-        # Targeted attack hits the currently dominant route.
         dominant_route = max(route_usage, key=route_usage.get)
         spike = rng.uniform(config.teacher_spike_low, config.teacher_spike_high)
         for cell in env.route_cells(dominant_route):
@@ -502,6 +613,7 @@ def _select_next_population(
                 risk_multiplier=elite.risk_multiplier,
                 max_risk=elite.max_risk,
                 timing_bias=elite.timing_bias,
+                recharge_bias=elite.recharge_bias,
                 energy_max=elite.energy_max,
                 energy_per_armor=elite.energy_per_armor,
                 age=elite.age + 1,
@@ -542,8 +654,15 @@ def run_manifold(config: ManifoldConfig | None = None) -> SimulationResult:
         for _ in range(phase.generations):
             regrets: dict[int, float] = {}
             route_usage: dict[int, int] = {route_id: 0 for route_id in range(len(ROUTES))}
+            action_counts: dict[str, int] = {
+                ACTION_ADVANCE: 0,
+                ACTION_PAUSE_RECHARGE: 0,
+                ACTION_DETOUR_RECHARGE: 0,
+            }
             deaths = 0
             total_energy = 0.0
+            total_recharge = 0.0
+            recharge_events = 0
 
             for agent in population:
                 regret, outcome, _ = _evaluate_agent(
@@ -556,10 +675,16 @@ def run_manifold(config: ManifoldConfig | None = None) -> SimulationResult:
                 )
                 regrets[agent.id] = regret
                 route_usage[outcome.route_id] += 1
+                action_counts[outcome.action] += 1
                 agent.last_route = outcome.route_id
+                agent.last_action = outcome.action
                 agent.last_energy_spent = outcome.energy_spent
+                agent.last_recharge_gained = outcome.recharge_gained
                 agent.last_died = outcome.died
                 total_energy += outcome.energy_spent
+                total_recharge += outcome.recharge_gained
+                if outcome.recharge_gained > 0.0:
+                    recharge_events += 1
                 if outcome.died:
                     deaths += 1
                     env.deposit_death_pheromone(route_id=outcome.route_id, config=config)
@@ -579,6 +704,8 @@ def run_manifold(config: ManifoldConfig | None = None) -> SimulationResult:
             best_regret = min(regrets.values())
             diversity = _calculate_diversity(population=population)
             avg_energy = total_energy / len(population)
+            avg_recharge = total_recharge / len(population)
+            recharge_event_rate = recharge_events / len(population)
             death_rate = deaths / len(population)
 
             teacher_event: str | None = None
@@ -605,10 +732,13 @@ def run_manifold(config: ManifoldConfig | None = None) -> SimulationResult:
                     best_regret=best_regret,
                     diversity=diversity,
                     average_energy_spent=avg_energy,
+                    average_recharge_gained=avg_recharge,
+                    recharge_event_rate=recharge_event_rate,
                     death_rate=death_rate,
                     teacher_event=teacher_event,
                     niche_counts=niche_counts,
                     route_usage=route_usage,
+                    action_counts=action_counts,
                 )
             )
 
@@ -629,15 +759,20 @@ def summarize_result(result: SimulationResult) -> dict[str, Any]:
     """Compact summary for CLI/UI usage."""
 
     final = result.metrics[-1]
-    by_phase: dict[str, dict[str, float]] = {}
+    by_phase: dict[str, dict[str, float | str]] = {}
     for phase in result.config.phases:
         phase_metrics = [m for m in result.metrics if m.phase == phase.name]
+        end = phase_metrics[-1]
+        dominant_action = max(end.action_counts, key=end.action_counts.get)
         by_phase[phase.name] = {
             "avg_regret_start": phase_metrics[0].avg_regret,
-            "avg_regret_end": phase_metrics[-1].avg_regret,
-            "diversity_end": phase_metrics[-1].diversity,
-            "energy_end": phase_metrics[-1].average_energy_spent,
-            "death_rate_end": phase_metrics[-1].death_rate,
+            "avg_regret_end": end.avg_regret,
+            "diversity_end": end.diversity,
+            "energy_end": end.average_energy_spent,
+            "recharge_end": end.average_recharge_gained,
+            "recharge_event_rate_end": end.recharge_event_rate,
+            "death_rate_end": end.death_rate,
+            "dominant_action_end": dominant_action,
         }
     return {
         "total_generations": result.config.total_generations,
@@ -646,5 +781,8 @@ def summarize_result(result: SimulationResult) -> dict[str, Any]:
         "final_best_regret": final.best_regret,
         "final_diversity": final.diversity,
         "final_energy_spent": final.average_energy_spent,
+        "final_recharge_gained": final.average_recharge_gained,
+        "final_recharge_event_rate": final.recharge_event_rate,
+        "final_action_mix": final.action_counts,
         "phase_summary": by_phase,
     }

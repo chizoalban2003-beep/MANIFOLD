@@ -2,7 +2,7 @@
 
 **MANIFOLD — Multi-Agent Non-stationary Framework for Ontogenetic Learning and Dynamic valuation**
 
-MANIFOLD is an evolutionary simulation where route value is discovered by a competing population rather than hardcoded in geometry. The system starts from a classic 3x3, 8-route manifold and progressively introduces competition, environment mutation, and within-lifetime energy budgeting.
+MANIFOLD is an evolutionary simulation where route value is discovered by a competing population rather than hardcoded in geometry. The system starts from a classic 3x3, 8-route manifold and progressively introduces competition, environment mutation, within-lifetime energy budgeting, and then hierarchical recharge decisions.
 
 ## Core Idea
 
@@ -17,7 +17,7 @@ The project moves intelligence across three levels:
 
 ## Implemented Architecture
 
-`manifold/simulation.py` includes a full end-to-end model with four phases:
+`manifold/simulation.py` includes a full end-to-end model with five phases:
 
 1. `phase_1_static`
    - fixed map
@@ -28,6 +28,13 @@ The project moves intelligence across three levels:
    - enables bored teacher spikes and flickering corridor risk
 4. `phase_4_ontogeny`
    - keeps non-stationarity and adds finite per-agent energy budgeting
+5. `phase_5_recharge_hierarchical`
+   - keeps ontogeny constraints under a tighter energy budget
+   - introduces rechargeable sub-target cells
+   - requires hierarchical action selection:
+     - `advance`
+     - `pause_recharge`
+     - `detour_recharge`
 
 ### Mechanisms Included
 
@@ -44,6 +51,10 @@ The project moves intelligence across three levels:
   - finite battery (`energy_max=30`)
   - armor spending decision per cell/per timestep
   - energy spend contributes directly to total route cost
+- Recharge hierarchy:
+  - recharge cells with time-varying yield
+  - pause-vs-detour planning tradeoff
+  - action-mix and recharge-event telemetry
 
 ## Repository Structure
 
@@ -98,11 +109,17 @@ Current tests cover:
 - non-zero energy spend during ontogeny phase
 - teacher events in teacher-enabled phases
 - population size bounds across all generations
+- positive recharge gains/events in hierarchical phase
+- usage of recharge actions (`pause_recharge` / `detour_recharge`)
 
-## Notes on Extension
+## Hierarchical Recharge Extension Details
 
-The next research extension after this baseline is rechargeable sub-targets (hierarchical planning under dynamic budget replenishment), which can be integrated by:
+The implemented Phase 5 extension adds a second control layer above route choice:
 
-- introducing intermediate waypoints with local reward/charge mechanics
-- adding action choices beyond route selection (e.g., pause/recharge/advance)
-- tracking policy quality over delayed credit horizons
+- **Route selection**: choose among the 8 corridors.
+- **Action selection**: for each candidate route, also choose one of:
+  - `advance`: direct traversal
+  - `pause_recharge`: stop on-route at a recharge cell and accept a time penalty
+  - `detour_recharge`: take a pre-route detour for battery replenishment
+
+Recharge yield varies by location and by time (flickering center yield), forcing policies to trade immediate path efficiency against future survivability.
