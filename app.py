@@ -84,6 +84,7 @@ if mode == "Social intelligence":
     with st.sidebar:
         preset = st.selectbox("Problem preset", ["trust", "birmingham", "misinformation", "compute"])
         grid_size = st.select_slider("Grid size", options=[11, 21, 31], value=31)
+        data_path = st.text_input("CSV grid path", value="")
     if preset == "trust":
         config = SocialConfig(
             population_size=population_size,
@@ -91,6 +92,7 @@ if mode == "Social intelligence":
             seed=int(seed),
             grid_size=grid_size,
             preset=preset,
+            data_path=data_path or None,
         )
     else:
         config = config_for_preset(
@@ -99,6 +101,19 @@ if mode == "Social intelligence":
             population_size=population_size,
             seed=int(seed),
         )
+        if data_path:
+            config = SocialConfig(
+                population_size=population_size,
+                generations=generations,
+                seed=int(seed),
+                grid_size=grid_size,
+                preset=preset,
+                signal_cost=config.signal_cost,
+                verification_cost=config.verification_cost,
+                false_trust_penalty=config.false_trust_penalty,
+                detected_lie_penalty=config.detected_lie_penalty,
+                data_path=data_path,
+            )
     history = run_social_cached(config)
     latest = history.iloc[-1]
     audit = compile_policy_audit(
@@ -131,8 +146,9 @@ if mode == "Social intelligence":
     policy_cols[0].metric("Verify above lie p", f"{audit.verification_threshold:.0%}")
     policy_cols[1].metric("Target verification", f"{audit.recommended_verification_rate:.0%}")
     policy_cols[2].metric("Target gossip", f"{audit.recommended_gossip_rate:.0%}")
-    policy_cols[3].metric("Forgiveness", f"{audit.recommended_forgiveness_window} ticks")
+    policy_cols[3].metric("Predation cap", f"{audit.recommended_predation_threshold:.0%}")
     policy_cols[4].metric("Robustness", f"{audit.robustness_score:.2f}")
+    st.caption(f"Forgiveness window: {audit.recommended_forgiveness_window} ticks")
     st.caption("Monopoly controls: " + ", ".join(audit.monopoly_controls))
 
     left, right = st.columns(2)
@@ -143,6 +159,7 @@ if mode == "Social intelligence":
                 "average_deception",
                 "average_verification",
                 "average_gossip",
+                "average_predation_threshold",
             ]]
         )
     with right:

@@ -29,6 +29,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--seed", type=int, default=2500)
     parser.add_argument("--grid-size", type=int, default=31)
     parser.add_argument(
+        "--data-path",
+        help="Optional CSV grid with row,col,cost,risk,asset[,neutrality] columns.",
+    )
+    parser.add_argument(
         "--preset",
         choices=["trust", "birmingham", "misinformation", "compute"],
         default="trust",
@@ -94,6 +98,7 @@ def run_social_mode(args: argparse.Namespace):
             seed=args.seed,
             grid_size=args.grid_size,
             preset=args.preset,
+            data_path=args.data_path,
         )
     else:
         config = config_for_preset(
@@ -102,6 +107,19 @@ def run_social_mode(args: argparse.Namespace):
             population_size=args.population_size,
             seed=args.seed,
         )
+        if args.data_path:
+            config = SocialConfig(
+                generations=config.generations,
+                population_size=config.population_size,
+                seed=config.seed,
+                grid_size=args.grid_size,
+                preset=config.preset,
+                signal_cost=config.signal_cost,
+                verification_cost=config.verification_cost,
+                false_trust_penalty=config.false_trust_penalty,
+                detected_lie_penalty=config.detected_lie_penalty,
+                data_path=args.data_path,
+            )
     history = run_social_experiment(config)
     if not args.json:
         final = history[-1]
@@ -126,6 +144,7 @@ def run_social_mode(args: argparse.Namespace):
         print(f"  Verify above lie probability: {audit.verification_threshold:.2%}")
         print(f"  Target verification rate: {audit.recommended_verification_rate:.2%}")
         print(f"  Target gossip rate: {audit.recommended_gossip_rate:.2%}")
+        print(f"  Predation threshold: {audit.recommended_predation_threshold:.2%}")
         print(f"  Blacklist after lies: {audit.recommended_blacklist_after_lies}")
         print(f"  Forgiveness window: {audit.recommended_forgiveness_window} ticks")
         print("  Monopoly controls: " + ", ".join(audit.monopoly_controls))

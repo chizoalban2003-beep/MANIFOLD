@@ -150,6 +150,26 @@ python3 -m manifold --mode social --preset misinformation
 python3 -m manifold --mode social --preset compute
 ```
 
+Run against a real mapper CSV:
+
+```bash
+python3 -m manifold --mode social --preset birmingham --grid-size 31 --data-path data/birmingham_week.csv
+```
+
+The CSV schema is:
+
+```text
+row,col,cost,risk,asset,neutrality
+```
+
+`neutrality` is optional. Missing cells are filled as low-risk neutral space, so
+sparse traffic, supply-chain, or telemetry extracts can be projected into the
+grid without hand-painting every cell.
+
+Predatory Scouts now carry an evolvable sixth gene, `predation_threshold`. This
+lets the substrate discover whether the reputation cap is really near 0.85 under
+real load instead of hardcoding that value.
+
 ### 2. Path / teacher engine
 
 The earlier energy-budgeting world is still available:

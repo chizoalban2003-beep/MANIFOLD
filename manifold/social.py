@@ -8,6 +8,7 @@ grid, and select the genomes that preserve the most energy and value.
 
 from __future__ import annotations
 
+import csv
 from dataclasses import dataclass, field
 import math
 import random
@@ -56,6 +57,7 @@ class SocialConfig:
     scout_source_share_trigger: float = 0.22
     scout_reputation_trigger: float = 0.75
     scout_verification_discount: float = 0.35
+    data_path: str | None = None
 
 
 @dataclass
@@ -67,6 +69,7 @@ class SocialGenome:
     gossip: float
     memory: float
     energy: float
+    predation_threshold: float = 0.85
     ancestry: str = "seed"
 
     def mutated(self, rng: random.Random, config: SocialConfig) -> "SocialGenome":
@@ -79,6 +82,9 @@ class SocialGenome:
             gossip=clamp(self.gossip + rng.gauss(0.0, config.mutation_sigma), 0.0, 1.0),
             memory=clamp(self.memory + rng.gauss(0.0, config.mutation_sigma), 0.0, 1.0),
             energy=clamp(self.energy + rng.gauss(0.0, config.mutation_sigma * 8.0), 4.0, 20.0),
+            predation_threshold=clamp(
+                self.predation_threshold + rng.gauss(0.0, config.mutation_sigma), 0.55, 0.98
+            ),
             ancestry=self.niche(),
         )
 
@@ -127,6 +133,7 @@ class SocialGenerationSummary:
     average_gossip: float
     average_memory_ticks: float
     average_start_energy: float
+    average_predation_threshold: float
     lie_rate: float
     verification_rate: float
     gossip_rate: float
@@ -149,6 +156,7 @@ class PolicyAudit:
     verification_threshold: float
     recommended_verification_rate: float
     recommended_gossip_rate: float
+    recommended_predation_threshold: float
     recommended_blacklist_after_lies: int
     recommended_forgiveness_window: int
     expected_deception_equilibrium: float
@@ -172,7 +180,11 @@ class SocialManifoldExperiment:
 
     def __post_init__(self) -> None:
         self.rng = random.Random(self.config.seed)
-        self.grid = build_problem_grid(self.config)
+        self.grid = (
+            load_problem_grid_csv(self.config.data_path, self.config.grid_size)
+            if self.config.data_path
+            else build_problem_grid(self.config)
+        )
         self.population = seed_social_population(self.config.population_size, self.rng, self.config)
         self.reputation = [0.0 for _ in self.population]
         self.source_counts = [0 for _ in self.population]
@@ -346,7 +358,7 @@ class SocialManifoldExperiment:
         reputation = min(self.reputation[sender_index], self.config.reputation_cap)
         return (
             source_share >= self.config.scout_source_share_trigger
-            or reputation >= self.config.scout_reputation_trigger
+            or reputation >= genome.predation_threshold
         )
 
     def _gossip(self, sender_index: int) -> int:
@@ -402,6 +414,9 @@ class SocialManifoldExperiment:
             average_gossip=fmean(result.genome.gossip for result in results),
             average_memory_ticks=fmean(result.genome.memory_ticks for result in results),
             average_start_energy=fmean(result.genome.energy for result in results),
+            average_predation_threshold=fmean(
+                result.genome.predation_threshold for result in results
+            ),
             lie_rate=total_lies / total_signals,
             verification_rate=total_verifications / total_signals,
             gossip_rate=total_gossip / total_signals,
@@ -420,6 +435,9 @@ class SocialManifoldExperiment:
 
 
 def build_problem_grid(config: SocialConfig) -> list[list[CellVector]]:
+    if config.data_path:
+        return load_grid_from_csv(config.data_path, config.grid_size)
+
     rng = random.Random(config.seed + 10_001)
     grid: list[list[CellVector]] = []
     center = config.grid_size // 2
@@ -451,6 +469,45 @@ def build_problem_grid(config: SocialConfig) -> list[list[CellVector]]:
     return grid
 
 
+def load_grid_from_csv(path: str, grid_size: int) -> list[list[CellVector]]:
+    """Load a real-world mapper CSV into a square MANIFOLD grid.
+
+    Required columns are `row`, `col`, `cost`, `risk`, `asset`. `neutrality` is
+    optional and is derived when absent. Missing cells become neutral low-value
+    states, which lets sparse traffic or supply-chain extracts still run.
+    """
+
+    grid = [
+        [CellVector(cost=0.05, risk=0.05, neutrality=0.95, asset=0.0) for _ in range(grid_size)]
+        for _ in range(grid_size)
+    ]
+    with open(path, newline="", encoding="utf-8") as handle:
+        reader = csv.DictReader(handle)
+        required = {"row", "col", "cost", "risk", "asset"}
+        missing = required - set(reader.fieldnames or [])
+        if missing:
+            raise ValueError(f"CSV grid is missing required columns: {sorted(missing)}")
+        for record in reader:
+            row = int(record["row"])
+            col = int(record["col"])
+            if not (0 <= row < grid_size and 0 <= col < grid_size):
+                continue
+            cost = clamp(float(record["cost"]), 0.0, 10.0)
+            risk = clamp(float(record["risk"]), 0.0, 10.0)
+            asset = clamp(float(record["asset"]), 0.0, 10.0)
+            if record.get("neutrality") not in (None, ""):
+                neutrality = clamp(float(record["neutrality"]), 0.0, 10.0)
+            else:
+                neutrality = max(0.0, 1.0 - min(1.0, cost + risk + asset) / 2.0)
+            grid[row][col] = CellVector(
+                cost=cost,
+                risk=risk,
+                neutrality=neutrality,
+                asset=asset,
+            )
+    return grid
+
+
 def seed_social_population(
     size: int, rng: random.Random, config: SocialConfig
 ) -> list[SocialGenome]:
@@ -462,13 +519,24 @@ def seed_social_population(
             gossip = clamp(rng.gauss(0.67, 0.10), 0.0, 1.0)
             memory = clamp(rng.gauss(0.45, 0.12), 0.0, 1.0)
             energy = clamp(rng.gauss(10.0, 1.2), 4.0, 20.0)
+            predation_threshold = clamp(rng.gauss(0.85, 0.06), 0.55, 0.98)
         else:
             deception = rng.uniform(0.05, 0.15)
             verification = rng.uniform(0.05, 0.25)
             gossip = rng.uniform(0.05, 0.30)
             memory = rng.uniform(0.10, 0.50)
             energy = rng.uniform(8.0, 12.0)
-        population.append(SocialGenome(deception, verification, gossip, memory, energy))
+            predation_threshold = rng.uniform(0.70, 0.95)
+        population.append(
+            SocialGenome(
+                deception,
+                verification,
+                gossip,
+                memory,
+                energy,
+                predation_threshold,
+            )
+        )
     return population
 
 
@@ -535,6 +603,7 @@ def compile_policy_audit(
     expected_deception = fmean(item.average_deception for item in window)
     recommended_verification = fmean(item.average_verification for item in window)
     recommended_gossip = fmean(item.average_gossip for item in window)
+    recommended_predation = fmean(item.average_predation_threshold for item in window)
     forgiveness_window = round(fmean(item.average_memory_ticks for item in window))
     monopoly_risk = fmean(item.monopoly_pressure for item in window)
 
@@ -570,6 +639,7 @@ def compile_policy_audit(
         verification_threshold=verification_threshold,
         recommended_verification_rate=recommended_verification,
         recommended_gossip_rate=recommended_gossip,
+        recommended_predation_threshold=recommended_predation,
         recommended_blacklist_after_lies=config.blacklist_after_lies,
         recommended_forgiveness_window=forgiveness_window,
         expected_deception_equilibrium=expected_deception,

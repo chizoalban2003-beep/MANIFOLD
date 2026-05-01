@@ -6,7 +6,7 @@ from manifold import (
     config_for_preset,
     run_social_experiment,
 )
-from manifold.social import recommended_prices, social_diversity
+from manifold.social import load_grid_from_csv, recommended_prices, social_diversity
 
 
 def test_gen_2000_seed_starts_near_trust_equilibrium() -> None:
@@ -129,3 +129,38 @@ def test_predatory_scouts_check_concentrated_reputation_sources() -> None:
 
     assert history[-1].predatory_scout_rate > 0
     assert history[-1].niche_counts["Scout"] == config.population_size
+
+
+def test_predation_threshold_is_evolved_and_audited() -> None:
+    config = SocialConfig(population_size=24, generations=4, seed=2500)
+
+    history = run_social_experiment(config)
+    audit = compile_policy_audit(history, config)
+
+    assert 0.55 <= history[-1].average_predation_threshold <= 0.98
+    assert 0.55 <= audit.recommended_predation_threshold <= 0.98
+
+
+def test_csv_grid_loader_maps_real_data(tmp_path) -> None:
+    grid_path = tmp_path / "traffic.csv"
+    grid_path.write_text(
+        "row,col,cost,risk,asset,neutrality\n"
+        "0,0,0.2,0.4,0.8,0.1\n"
+        "1,1,0.1,0.2,0.3,\n",
+        encoding="utf-8",
+    )
+
+    grid = load_grid_from_csv(str(grid_path), grid_size=3)
+    history = run_social_experiment(
+        SocialConfig(
+            population_size=12,
+            generations=2,
+            grid_size=3,
+            seed=2500,
+            data_path=str(grid_path),
+        )
+    )
+
+    assert grid[0][0].asset == 0.8
+    assert grid[1][1].neutrality > 0
+    assert len(history) == 2
