@@ -6,7 +6,12 @@ import argparse
 import json
 
 from manifold.simulation import SimulationConfig, run_experiment
-from manifold.social import SocialConfig, config_for_preset, run_social_experiment
+from manifold.social import (
+    SocialConfig,
+    compile_policy_audit,
+    config_for_preset,
+    run_social_experiment,
+)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -100,6 +105,7 @@ def run_social_mode(args: argparse.Namespace):
     history = run_social_experiment(config)
     if not args.json:
         final = history[-1]
+        audit = compile_policy_audit(history, config)
         print("Project MANIFOLD - social intelligence engine")
         print(f"Preset: {args.preset}")
         print(f"Generations: {len(history)}")
@@ -112,6 +118,16 @@ def run_social_mode(args: argparse.Namespace):
         print(f"Lie rate: {final.lie_rate:.2%}")
         print(f"Blacklist rate: {final.blacklist_rate:.2f}")
         print(f"Forgiveness rate: {final.forgiveness_rate:.2f}")
+        print(f"Top source share: {final.top_source_share:.2%}")
+        print(f"Monopoly risk: {audit.monopoly_risk:.2%}")
+        print(f"Robustness score: {audit.robustness_score:.2f}")
+        print("Policy recommendations:")
+        print(f"  Verify above lie probability: {audit.verification_threshold:.2%}")
+        print(f"  Target verification rate: {audit.recommended_verification_rate:.2%}")
+        print(f"  Target gossip rate: {audit.recommended_gossip_rate:.2%}")
+        print(f"  Blacklist after lies: {audit.recommended_blacklist_after_lies}")
+        print(f"  Forgiveness window: {audit.recommended_forgiveness_window} ticks")
+        print("  Monopoly controls: " + ", ".join(audit.monopoly_controls))
         print(f"Niches: {final.niche_counts}")
     return history
 

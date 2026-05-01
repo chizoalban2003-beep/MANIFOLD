@@ -48,6 +48,10 @@ class SocialConfig:
     blacklist_after_lies: int = 3
     survivor_fraction: float = 0.20
     mutation_sigma: float = 0.045
+    reputation_cap: float = 1.5
+    random_audit_rate: float = 0.08
+    source_share_limit: float = 0.35
+    monopoly_penalty: float = 0.20
 
 
 @dataclass
@@ -124,7 +128,26 @@ class SocialGenerationSummary:
     forgiveness_rate: float
     honest_correlation: float
     diversity: float
+    top_source_share: float
+    source_hhi: float
+    monopoly_pressure: float
     niche_counts: dict[str, int]
+
+
+@dataclass(frozen=True)
+class PolicyAudit:
+    """Post-game policy recommendations compiled from an evolved run."""
+
+    verification_threshold: float
+    recommended_verification_rate: float
+    recommended_gossip_rate: float
+    recommended_blacklist_after_lies: int
+    recommended_forgiveness_window: int
+    expected_deception_equilibrium: float
+    robustness_score: float
+    monopoly_risk: float
+    monopoly_controls: tuple[str, ...]
+    notes: tuple[str, ...]
 
 
 @dataclass
@@ -136,6 +159,7 @@ class SocialManifoldExperiment:
     grid: list[list[CellVector]] = field(init=False)
     population: list[SocialGenome] = field(init=False)
     reputation: list[float] = field(init=False)
+    source_counts: list[int] = field(init=False)
     history: list[SocialGenerationSummary] = field(default_factory=list)
 
     def __post_init__(self) -> None:
@@ -143,6 +167,7 @@ class SocialManifoldExperiment:
         self.grid = build_problem_grid(self.config)
         self.population = seed_social_population(self.config.population_size, self.rng, self.config)
         self.reputation = [0.0 for _ in self.population]
+        self.source_counts = [0 for _ in self.population]
 
     def run(self) -> list[SocialGenerationSummary]:
         for generation in range(self.config.generations):
@@ -151,6 +176,7 @@ class SocialManifoldExperiment:
         return self.history
 
     def step(self, generation: int) -> list[SocialLifeResult]:
+        self.source_counts = [0 for _ in self.population]
         results = [self._evaluate_agent(index, genome, generation) for index, genome in enumerate(self.population)]
         self._update_reputation(results)
         self.population = self._reproduce(results)
@@ -265,7 +291,16 @@ class SocialManifoldExperiment:
         ]
         if not candidates:
             return None
-        return max(candidates, key=lambda index: self.reputation[index] + self.rng.random() * 0.05)
+        if self.rng.random() < self.config.random_audit_rate:
+            selected = self.rng.choice(candidates)
+        else:
+            selected = max(
+                candidates,
+                key=lambda index: min(self.reputation[index], self.config.reputation_cap)
+                + self.rng.random() * 0.05,
+            )
+        self.source_counts[selected] += 1
+        return selected
 
     def _best_neighbor(self, options: Iterable[Position], risk_sensitive: bool = False) -> Position:
         def score(position: Position) -> float:
@@ -289,10 +324,15 @@ class SocialManifoldExperiment:
         return warnings
 
     def _update_reputation(self, results: list[SocialLifeResult]) -> None:
+        total_sources = sum(self.source_counts) or 1
         for index, result in enumerate(results):
             self.reputation[index] += result.lies_detected * 0.08
             self.reputation[index] -= result.lies_sent * 0.12
             self.reputation[index] += result.gossip_events * 0.01
+            source_share = self.source_counts[index] / total_sources
+            if source_share > self.config.source_share_limit:
+                excess = source_share - self.config.source_share_limit
+                self.reputation[index] -= excess * self.config.monopoly_penalty * len(results)
 
     def _reproduce(self, results: list[SocialLifeResult]) -> list[SocialGenome]:
         ordered = sorted(results, key=lambda result: result.fitness, reverse=True)
@@ -317,6 +357,10 @@ class SocialManifoldExperiment:
         }
         honest_labels = [1 - int(result.lies_sent > 0) for result in results]
         fitness_labels = [1 if result.fitness >= fmean(r.fitness for r in results) else 0 for result in results]
+        total_sources = sum(self.source_counts) or 1
+        source_shares = [count / total_sources for count in self.source_counts]
+        top_source_share = max(source_shares, default=0.0)
+        source_hhi = sum(share * share for share in source_shares)
         return SocialGenerationSummary(
             generation=generation,
             average_fitness=fmean(result.fitness for result in results),
@@ -334,6 +378,9 @@ class SocialManifoldExperiment:
             forgiveness_rate=sum(result.forgiveness_events for result in results) / len(results),
             honest_correlation=binary_correlation(honest_labels, fitness_labels),
             diversity=social_diversity(result.genome for result in results),
+            top_source_share=top_source_share,
+            source_hhi=source_hhi,
+            monopoly_pressure=max(0.0, top_source_share - self.config.source_share_limit),
             niche_counts=niche_counts,
         )
 
@@ -439,6 +486,69 @@ def config_for_preset(
 def run_social_experiment(config: SocialConfig | None = None) -> list[SocialGenerationSummary]:
     experiment = SocialManifoldExperiment(config or SocialConfig())
     return experiment.run()
+
+
+def compile_policy_audit(
+    history: list[SocialGenerationSummary], config: SocialConfig
+) -> PolicyAudit:
+    """Turn a MANIFOLD run into deployable policy recommendations."""
+
+    if not history:
+        raise ValueError("Cannot compile a policy audit without generation history.")
+
+    window = history[-min(25, len(history)) :]
+    final = history[-1]
+    expected_deception = fmean(item.average_deception for item in window)
+    recommended_verification = fmean(item.average_verification for item in window)
+    recommended_gossip = fmean(item.average_gossip for item in window)
+    forgiveness_window = round(fmean(item.average_memory_ticks for item in window))
+    monopoly_risk = fmean(item.monopoly_pressure for item in window)
+
+    # Verify when expected loss beats checking cost. This is the deployable
+    # threshold for any external mapper that can estimate local lie probability.
+    verification_threshold = min(
+        1.0,
+        config.verification_cost
+        / max(0.001, config.false_trust_penalty * config.verification_risk_reduction),
+    )
+    robustness_score = clamp(
+        1.0
+        - final.trusted_lie_rate
+        - monopoly_risk
+        + min(0.25, final.diversity * 0.20),
+        0.0,
+        1.0,
+    )
+
+    notes: list[str] = []
+    if final.average_verification < verification_threshold:
+        notes.append("Verification is under-selected for the configured lie penalty.")
+    if final.lie_rate > final.verification_rate:
+        notes.append("Deception pressure exceeds verification pressure; raise audit rate or lie penalties.")
+    if monopoly_risk > 0.05:
+        notes.append("Information-source concentration is high; cap reputation and force random audits.")
+    if final.forgiveness_rate == 0.0:
+        notes.append("No rehabilitation observed; lower memory duration or blacklist threshold if brittleness appears.")
+    if not notes:
+        notes.append("Policy prices produced a stable trust economy in the observed window.")
+
+    return PolicyAudit(
+        verification_threshold=verification_threshold,
+        recommended_verification_rate=recommended_verification,
+        recommended_gossip_rate=recommended_gossip,
+        recommended_blacklist_after_lies=config.blacklist_after_lies,
+        recommended_forgiveness_window=forgiveness_window,
+        expected_deception_equilibrium=expected_deception,
+        robustness_score=robustness_score,
+        monopoly_risk=monopoly_risk,
+        monopoly_controls=(
+            "cap reputation scores",
+            "force random audits",
+            "penalize source-share concentration",
+            "rotate verifier selection",
+        ),
+        notes=tuple(notes),
+    )
 
 
 def neighbors(position: Position, grid_size: int) -> Iterable[Position]:

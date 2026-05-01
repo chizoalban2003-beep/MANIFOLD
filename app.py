@@ -8,7 +8,12 @@ import pandas as pd
 import streamlit as st
 
 from manifold import ManifoldExperiment, SimulationConfig
-from manifold.social import SocialConfig, config_for_preset, run_social_experiment
+from manifold.social import (
+    SocialConfig,
+    compile_policy_audit,
+    config_for_preset,
+    run_social_experiment,
+)
 
 
 st.set_page_config(
@@ -95,6 +100,22 @@ if mode == "Social intelligence":
         )
     history = run_social_cached(config)
     latest = history.iloc[-1]
+    audit = compile_policy_audit(
+        [
+            type(
+                "Summary",
+                (),
+                {
+                    key: value
+                    for key, value in row.items()
+                    if key
+                    not in {"verifiers", "deceivers", "gossips", "pragmatists"}
+                },
+            )()
+            for row in history.to_dict("records")
+        ],
+        config,
+    )
 
     cols = st.columns(6)
     cols[0].metric("Fitness", f"{latest.average_fitness:.2f}")
@@ -103,6 +124,15 @@ if mode == "Social intelligence":
     cols[3].metric("Gossip", f"{latest.average_gossip:.0%}")
     cols[4].metric("Memory", f"{latest.average_memory_ticks:.0f} ticks")
     cols[5].metric("Diversity", f"{latest.diversity:.2f}")
+
+    st.subheader("Compiled policy recommendations")
+    policy_cols = st.columns(5)
+    policy_cols[0].metric("Verify above lie p", f"{audit.verification_threshold:.0%}")
+    policy_cols[1].metric("Target verification", f"{audit.recommended_verification_rate:.0%}")
+    policy_cols[2].metric("Target gossip", f"{audit.recommended_gossip_rate:.0%}")
+    policy_cols[3].metric("Forgiveness", f"{audit.recommended_forgiveness_window} ticks")
+    policy_cols[4].metric("Robustness", f"{audit.robustness_score:.2f}")
+    st.caption("Monopoly controls: " + ", ".join(audit.monopoly_controls))
 
     left, right = st.columns(2)
     with left:
@@ -130,10 +160,23 @@ if mode == "Social intelligence":
         st.subheader("Reputation dynamics")
         st.line_chart(history.set_index("generation")[["blacklist_rate", "forgiveness_rate"]])
     with right:
+        st.subheader("Verification market concentration")
+        st.line_chart(
+            history.set_index("generation")[
+                ["top_source_share", "source_hhi", "monopoly_pressure"]
+            ]
+        )
+
+    left, right = st.columns(2)
+    with left:
         st.subheader("Niches")
         st.area_chart(
             history.set_index("generation")[["verifiers", "deceivers", "gossips", "pragmatists"]]
         )
+    with right:
+        st.subheader("Audit notes")
+        for note in audit.notes:
+            st.write("- " + note)
 
     with st.expander("Raw social generation data"):
         st.dataframe(history, use_container_width=True)
