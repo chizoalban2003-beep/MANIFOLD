@@ -568,7 +568,8 @@ def _compute_memory_revenue(
     p_lying = _clip(1.0 - (0.55 * agent.honesty_bias + 0.45 * agent.reputation), 0.0, 0.95)
     ceiling = 0.81
     reputation_effective = min(agent.reputation, ceiling)
-    return verify_cost * (1.0 - p_lying) * reputation_effective
+    inventory_multiplier = 1.0 + min(agent.verified_memory, 10.0) / 10.0
+    return verify_cost * (1.0 - p_lying) * (0.5 + reputation_effective) * inventory_multiplier
 
 
 def _estimate_verify_attempt(
@@ -577,9 +578,17 @@ def _estimate_verify_attempt(
     layer_info_noise: float,
     rng: random.Random,
 ) -> bool:
-    threshold = 0.35 + 0.45 * layer_info_noise
-    propensity = 0.55 * agent.verification_skill + 0.30 * agent.honesty_bias + rng.random() * 0.15
-    return propensity >= threshold
+    threshold = 0.28 + 0.18 * layer_info_noise
+    propensity = (
+        0.60 * agent.verification_skill
+        + 0.30 * agent.honesty_bias
+        + 0.10 * agent.reputation
+        + rng.random() * 0.12
+    )
+    opportunistic_verify = (
+        agent.verification_skill + agent.honesty_bias >= 1.2 and layer_info_noise <= 2.6
+    )
+    return propensity >= threshold or opportunistic_verify
 
 
 def _build_explain_log(
@@ -839,24 +848,27 @@ def _evaluate_agent(
         rng=rng,
     )
 
-    optimal_actual_cost = min(
-        _compute_path_cost(
-            agent=agent,
-            route_id=route_id,
-            action=action,
-            env=env,
-            generation=generation,
-            phase=phase,
-            config=config,
-            rule_engine=rule_engine,
-            predator_spawn_rate=predator_spawn_rate,
-            estimate_only=False,
-            rng=rng,
-        ).actual_cost
-        for route_id in range(len(ROUTES))
-        for action in _action_space(route_id=route_id, phase=phase)
-    )
-    regret = actual_chosen.actual_cost - optimal_actual_cost
+    optimal_actual_cost = actual_chosen.actual_cost
+    for route_id in range(len(ROUTES)):
+        for action in _action_space(route_id=route_id, phase=phase):
+            if route_id == chosen.route_id and action == chosen.action:
+                continue
+            candidate = _compute_path_cost(
+                agent=agent,
+                route_id=route_id,
+                action=action,
+                env=env,
+                generation=generation,
+                phase=phase,
+                config=config,
+                rule_engine=rule_engine,
+                predator_spawn_rate=predator_spawn_rate,
+                estimate_only=False,
+                rng=rng,
+            )
+            optimal_actual_cost = min(optimal_actual_cost, candidate.actual_cost)
+
+    regret = max(0.0, actual_chosen.actual_cost - optimal_actual_cost)
     return regret, actual_chosen, optimal_actual_cost
 
 

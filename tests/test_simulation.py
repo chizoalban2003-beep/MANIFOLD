@@ -161,3 +161,31 @@ def test_transfer_artifact_contains_neutrality_and_penalties() -> None:
     assert "neutrality_layer" in artifact
     assert "rule_penalties" in artifact
     assert len(artifact["neutrality_layer"]) == 9
+
+
+def test_regret_metrics_are_non_negative() -> None:
+    config = ManifoldConfig(seed=7)
+    result = run_manifold(config=config)
+    assert all(metric.avg_regret >= 0.0 for metric in result.metrics)
+    assert all(metric.best_regret >= 0.0 for metric in result.metrics)
+
+
+def test_memory_market_generates_positive_revenue() -> None:
+    production_phase = PhaseConfig(
+        name="production_memory",
+        generations=10,
+        dual_niche=True,
+        teacher_enabled=True,
+        flicker_enabled=True,
+        ontogeny_enabled=True,
+        recharge_enabled=True,
+        multi_layer_enabled=True,
+        adaptive_rules_enabled=True,
+        memory_market_enabled=True,
+        predator_auto_tuning=True,
+        rule_targets_enabled=True,
+        energy_budget=12.0,
+    )
+    config = ManifoldConfig(seed=73, phases=(production_phase,))
+    result = run_manifold(config=config)
+    assert any(metric.average_memory_revenue > 0.0 for metric in result.metrics)
