@@ -14,6 +14,11 @@ from manifold.social import (
     run_social_experiment,
 )
 from manifold.trustrouter import DialogueTask, TrustRouter, TrustRouterConfig
+from manifold.trustbench import (
+    load_labelled_tasks_csv,
+    run_trust_benchmark,
+    sample_trust_tasks,
+)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -22,7 +27,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--mode",
-        choices=["path", "social", "gridmapper", "trustrouter"],
+        choices=["path", "social", "gridmapper", "trustrouter", "trustbench"],
         default="social",
         help="Run the path/teacher engine or the social-intelligence engine.",
     )
@@ -69,6 +74,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--safety-sensitivity", type=float, default=0.2)
     parser.add_argument("--dynamic-intent", action="store_true")
     parser.add_argument(
+        "--tasks-path",
+        help="Optional TrustBench CSV with prompt,expected_action and task feature columns.",
+    )
+    parser.add_argument(
         "--json",
         action="store_true",
         help="Emit the full generation history as JSON.",
@@ -84,6 +93,8 @@ def main() -> None:
         history = run_gridmapper_mode(args)
     elif args.mode == "trustrouter":
         history = run_trustrouter_mode(args)
+    elif args.mode == "trustbench":
+        history = run_trustbench_mode(args)
     else:
         history = run_social_mode(args)
 
@@ -261,6 +272,37 @@ def run_trustrouter_mode(args: argparse.Namespace):
         for note in decision.notes:
             print(f"  - {note}")
     return decision.result.history
+
+
+def run_trustbench_mode(args: argparse.Namespace):
+    tasks = load_labelled_tasks_csv(args.tasks_path) if args.tasks_path else sample_trust_tasks()
+    report = run_trust_benchmark(
+        tasks,
+        TrustRouterConfig(
+            generations=args.generations,
+            population_size=args.population_size,
+            grid_size=args.grid_size if args.grid_size in (5, 11, 21, 31) else 11,
+            seed=args.seed,
+        ),
+    )
+    if not args.json:
+        print("Project MANIFOLD - TrustBench")
+        print(f"Tasks: {len(tasks)}")
+        print(f"Best policy: {report.best_policy}")
+        print(f"TrustRouter rank: {report.trustrouter_rank}")
+        for score in sorted(report.scores, key=lambda item: item.utility, reverse=True):
+            print(
+                f"{score.name}: utility={score.utility:.3f}, "
+                f"accuracy={score.accuracy:.2%}, "
+                f"cost={score.average_action_cost:.3f}, "
+                f"risk_penalty={score.average_risk_penalty:.3f}, "
+                f"missed={score.missed_verification_rate:.2%}, "
+                f"unnecessary={score.unnecessary_verification_rate:.2%}"
+            )
+        print("Recommendations:")
+        for recommendation in report.recommendations:
+            print(f"  - {recommendation}")
+    return []
 
 
 if __name__ == "__main__":

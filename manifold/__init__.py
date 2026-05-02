@@ -17,6 +17,14 @@ from .trustrouter import (
     TrustRouterDecision,
     route_task,
 )
+from .trustbench import (
+    BenchmarkReport,
+    LabelledTask,
+    PolicyScore,
+    load_labelled_tasks_csv,
+    run_trust_benchmark,
+    sample_trust_tasks,
+)
 from .gridmapper import (
     AgentPopulation,
     DynamicTarget,
@@ -39,6 +47,7 @@ from .social import (
 
 __all__ = [
     "AgentPopulation",
+    "BenchmarkReport",
     "CellVector",
     "DialogueTask",
     "DynamicTarget",
@@ -48,6 +57,7 @@ __all__ = [
     "LifeResult",
     "ManifoldExperiment",
     "PolicyAudit",
+    "PolicyScore",
     "Rule",
     "SimulationConfig",
     "SocialConfig",
@@ -61,9 +71,13 @@ __all__ = [
     "VectorGenome",
     "compile_policy_audit",
     "config_for_preset",
+    "LabelledTask",
+    "load_labelled_tasks_csv",
     "recommended_prices",
     "route_task",
     "run_experiment",
     "run_social_experiment",
+    "run_trust_benchmark",
+    "sample_trust_tasks",
     "transfer_population",
 ]

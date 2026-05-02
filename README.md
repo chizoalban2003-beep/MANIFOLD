@@ -162,6 +162,25 @@ The TrustRouter memory tracks prior worlds by domain, so repeated support,
 legal, medical, or technical tasks can nudge future risk thresholds without
 hardcoding a static policy.
 
+TrustBench compares TrustRouter against static baselines:
+
+```bash
+python3 -m manifold --mode trustbench --generations 12 --population 32 --grid-size 5
+```
+
+The benchmark reports utility, accuracy, action cost, risk penalty, missed
+verification, and unnecessary verification for:
+
+- TrustRouter
+- always answer
+- clarify if uncertain
+- retrieve when source confidence is low
+- refuse high-safety tasks
+- a hand-tuned static risk policy
+
+Use this mode to prove whether TrustRouter is actually competitive before
+deploying it into an LLM or agent workflow.
+
 ### 0. GridMapper OS
 
 GridMapper OS is the reusable intelligent-system layer. It lets you define a

@@ -231,6 +231,8 @@ class TrustRouter:
             return "escalate"
         if task.uncertainty >= self._clarification_threshold(task) and task.user_patience >= 0.35:
             return "clarify"
+        if task.source_confidence >= 0.55 and risk_score >= result.audit.verification_threshold:
+            return "verify"
         if (1.0 - task.source_confidence) >= self._retrieval_threshold(task):
             return "retrieve"
         if risk_score >= result.audit.verification_threshold:

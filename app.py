@@ -11,10 +11,12 @@ from manifold import (
     AgentPopulation,
     DialogueTask,
     GridWorld,
+    TrustRouterConfig,
     ManifoldExperiment,
     SimulationConfig,
     TrustRouter,
-    TrustRouterConfig,
+    run_trust_benchmark,
+    sample_trust_tasks,
 )
 from manifold.social import (
     SocialConfig,
@@ -147,7 +149,7 @@ with st.sidebar:
     st.header("Experiment controls")
     mode = st.radio(
         "Engine",
-        ["TrustRouter", "GridMapper OS", "Social intelligence", "Path / teacher"],
+        ["TrustRouter", "TrustBench", "GridMapper OS", "Social intelligence", "Path / teacher"],
         horizontal=True,
     )
     population_size = st.slider(
@@ -172,7 +174,27 @@ with st.sidebar:
     )
     seed = st.number_input("Seed", value=2500 if mode != "Path / teacher" else 13, step=1)
 
-if mode == "TrustRouter":
+if mode == "TrustBench":
+    config = TrustRouterConfig(
+        generations=generations,
+        population_size=population_size,
+        grid_size=5,
+        seed=int(seed),
+    )
+    report = run_trust_benchmark(sample_trust_tasks(), config)
+    rows = [asdict(score) for score in report.scores]
+    scores = pd.DataFrame(rows).sort_values("utility", ascending=False)
+    st.subheader("TrustBench: policy comparison")
+    cols = st.columns(3)
+    cols[0].metric("Best policy", report.best_policy)
+    cols[1].metric("TrustRouter rank", f"#{report.trustrouter_rank}")
+    trustrouter_score = scores[scores["name"] == "trustrouter"].iloc[0]
+    cols[2].metric("TrustRouter utility", f"{trustrouter_score.utility:.3f}")
+    st.dataframe(scores, use_container_width=True)
+    st.subheader("Benchmark recommendations")
+    for recommendation in report.recommendations:
+        st.write("- " + recommendation)
+elif mode == "TrustRouter":
     with st.sidebar:
         grid_size = st.select_slider("Grid size", options=[5, 11, 21], value=11)
         prompt = st.text_area("Prompt / task", value="The user asks an ambiguous support question.")
