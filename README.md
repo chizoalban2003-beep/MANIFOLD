@@ -186,6 +186,23 @@ derived from production telemetry: model confidence, retrieval confidence, tool
 failure rate, latency, user tier, severity, safety classifier scores, or human
 review labels.
 
+Run a customer-support Trust Audit with:
+
+```bash
+python3 -m manifold --mode trustaudit
+```
+
+Trust Audit models:
+
+- **regret reduction**: always-answer cost vs MANIFOLD Brain routing cost;
+- **gossip cost**: a support summary note as token/latency cost;
+- **bad-tool memory**: repeated bad tool outcomes leaving reliability scars.
+
+In the support niche, gossip is not abstract chatter. It is the cost of writing a
+summary note that prevents the next agent from repeating the same mistake. If a
+summary note costs `0.06` but prevents a repeated `0.80` late-delivery or
+bad-tool penalty, gossip has positive expected utility.
+
 ## How MANIFOLD translates to LLMs and generative AI
 
 MANIFOLD is not a replacement for an LLM. It does not generate prose, code, or

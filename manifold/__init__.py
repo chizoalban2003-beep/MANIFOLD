@@ -36,6 +36,14 @@ from .brainbench import (
     run_brain_benchmark,
     sample_brain_tasks,
 )
+from .trustaudit import (
+    TrustAuditConfig,
+    TrustAuditFinding,
+    TrustAuditReport,
+    format_trust_audit_report,
+    run_support_trust_audit,
+    sample_support_tasks,
+)
 from .research import ResearchFinding, ResearchReport, run_research_suite
 from .trustbench import (
     BenchmarkReport,
@@ -96,6 +104,9 @@ __all__ = [
     "SocialGenome",
     "SocialManifoldExperiment",
     "TrustLearningMemory",
+    "TrustAuditConfig",
+    "TrustAuditFinding",
+    "TrustAuditReport",
     "TrustRouter",
     "TrustRouterConfig",
     "TrustRouterDecision",
@@ -105,6 +116,7 @@ __all__ = [
     "config_for_preset",
     "decide_task",
     "default_tools",
+    "format_trust_audit_report",
     "LabelledTask",
     "load_brain_tasks_csv",
     "load_labelled_tasks_csv",
@@ -114,8 +126,10 @@ __all__ = [
     "run_social_experiment",
     "run_brain_benchmark",
     "run_trust_benchmark",
+    "run_support_trust_audit",
     "run_research_suite",
     "sample_brain_tasks",
+    "sample_support_tasks",
     "sample_trust_tasks",
     "transfer_population",
 ]

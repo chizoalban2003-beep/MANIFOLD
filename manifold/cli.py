@@ -22,6 +22,7 @@ from manifold.trustbench import (
     run_trust_benchmark,
     sample_trust_tasks,
 )
+from manifold.trustaudit import format_trust_audit_report, run_support_trust_audit
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -39,6 +40,7 @@ def build_parser() -> argparse.ArgumentParser:
             "brain",
             "brainbench",
             "research",
+            "trustaudit",
         ],
         default="social",
         help="Run the path/teacher engine or the social-intelligence engine.",
@@ -116,6 +118,8 @@ def main() -> None:
         history = run_brainbench_mode(args)
     elif args.mode == "research":
         history = run_research_mode(args)
+    elif args.mode == "trustaudit":
+        history = run_trustaudit_mode(args)
     else:
         history = run_social_mode(args)
 
@@ -402,6 +406,13 @@ def run_research_mode(args: argparse.Namespace):
     report = run_research_suite(seed=args.seed)
     if not args.json:
         print(format_research_report(report))
+    return []
+
+
+def run_trustaudit_mode(args: argparse.Namespace):
+    report = run_support_trust_audit()
+    if not args.json:
+        print(format_trust_audit_report(report))
     return []
 
 

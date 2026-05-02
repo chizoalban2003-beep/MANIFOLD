@@ -21,11 +21,13 @@ from manifold import (
     default_tools,
     run_research_suite,
     run_brain_benchmark,
+    run_support_trust_audit,
     run_trust_benchmark,
     sample_brain_tasks,
     sample_trust_tasks,
 )
 from manifold.research import format_research_report
+from manifold.trustaudit import format_trust_audit_report
 from manifold.social import (
     SocialConfig,
     compile_policy_audit,
@@ -159,6 +161,7 @@ with st.sidebar:
         "Engine",
         [
             "Research probes",
+            "Trust Audit",
             "MANIFOLD Brain",
             "BrainBench",
             "TrustRouter",
@@ -203,6 +206,18 @@ if mode == "Research probes":
         st.write(finding.interpretation)
     with st.expander("Honest research summary"):
         st.text(format_research_report(report))
+elif mode == "Trust Audit":
+    report = run_support_trust_audit()
+    st.subheader("Customer support trust audit")
+    cols = st.columns(len(report.findings))
+    for col, finding in zip(cols, report.findings):
+        col.metric(finding.name, f"{finding.improvement:.0%}")
+        col.caption(f"baseline={finding.baseline_cost:.2f}, manifold={finding.manifold_cost:.2f}")
+    st.subheader("Recommendations")
+    for recommendation in report.recommendations:
+        st.write("- " + recommendation)
+    with st.expander("Audit detail"):
+        st.text(format_trust_audit_report(report))
 elif mode == "BrainBench":
     config = BrainConfig(
         generations=generations,

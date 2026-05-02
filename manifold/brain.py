@@ -144,7 +144,9 @@ class BrainMemory:
         stats = self.tool_stats.get(tool.name)
         if not stats:
             return 0.0
-        return max(-0.25, min(0.15, stats.get("success_rate", tool.reliability) - tool.reliability))
+        # Tool failures need to leave a meaningful scar; otherwise high-prior
+        # tools remain attractive even after repeated bad outcomes.
+        return max(-0.75, min(0.15, stats.get("success_rate", tool.reliability) - tool.reliability))
 
     def update(
         self,
