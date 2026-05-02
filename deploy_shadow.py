@@ -1,7 +1,8 @@
 """deploy_shadow.py — MANIFOLD Shadow Mode Deployment Script.
 
 Run this script to execute a complete Trust Audit V2 against a synthetic
-customer-support stream.  It wires together all 12 phases:
+customer-support stream or a real historical log file.  It wires together
+all 12 phases:
 
   Phase 8  — ConnectorRegistry + ShadowModeWrapper
   Phase 9  — HITLGate (escalation detection)
@@ -11,16 +12,39 @@ customer-support stream.  It wires together all 12 phases:
 
 Usage::
 
-    python deploy_shadow.py                 # run with built-in synthetic stream
-    python deploy_shadow.py --tasks 200     # change stream size
-    python deploy_shadow.py --seed 42       # reproducible run
-    python deploy_shadow.py --json          # emit JSON report to stdout
+    python deploy_shadow.py                         # synthetic stream (100 tasks)
+    python deploy_shadow.py --tasks 200             # larger synthetic stream
+    python deploy_shadow.py --seed 42               # reproducible run
+    python deploy_shadow.py --json                  # emit JSON report to stdout
+    python deploy_shadow.py --input logs.csv        # real CSV log (Zendesk / Intercom)
+    python deploy_shadow.py --input traces.json     # real JSON log (LangSmith / OpenAI)
+    python deploy_shadow.py --input logs.csv --json > report.json  # sales artifact
+
+Real log formats supported
+--------------------------
+**CSV** (Zendesk / Intercom / any tabular export):
+  Required column: ``prompt`` (or ``body``, ``message``, ``description``, ``subject``)
+  Optional columns: ``domain``, ``stakes``, ``uncertainty``, ``complexity``,
+    ``source_confidence``, ``tool_relevance``, ``time_pressure``,
+    ``safety_sensitivity``, ``collaboration_value``, ``user_patience``,
+    ``naive_action`` (the action the existing agent took)
+  Missing numeric columns are filled with safe defaults.
+
+**JSON** (LangSmith / OpenAI traces / raw arrays):
+  Accepts a JSON array of objects.  Common field aliases are auto-detected:
+    ``input``, ``user_message``, ``question``, ``content`` → ``prompt``
+    ``output``, ``response``, ``assistant_message`` → ``naive_action``
+    ``metadata.domain``, ``tags``, ``run_type`` → ``domain``
+  Any extra fields are silently ignored.
 """
 
 from __future__ import annotations
 
 import argparse
+import csv
+import io
 import json
+import os
 import random
 import time
 from dataclasses import dataclass
@@ -47,6 +71,253 @@ from manifold import (
 from manifold.adversarial import AdversarialPricingDetector, NashEquilibriumGate
 from manifold.autodiscovery import PenaltyOptimizer, PolicySynthesizer
 from manifold.transfer import ReputationRegistry
+
+
+# ---------------------------------------------------------------------------
+# Real-log parsers
+# ---------------------------------------------------------------------------
+
+# Numeric BrainTask fields with safe defaults used when a column is absent
+_TASK_NUMERIC_DEFAULTS: dict[str, float] = {
+    "uncertainty": 0.50,
+    "complexity": 0.45,
+    "stakes": 0.40,
+    "source_confidence": 0.70,
+    "tool_relevance": 0.65,
+    "time_pressure": 0.35,
+    "safety_sensitivity": 0.20,
+    "collaboration_value": 0.30,
+    "user_patience": 0.60,
+}
+
+# Column-name aliases used in CSV exports from common platforms
+_PROMPT_ALIASES = ("prompt", "body", "message", "description", "subject",
+                   "input", "user_message", "question", "content", "text", "ticket_body")
+_DOMAIN_ALIASES = ("domain", "category", "type", "tag", "channel", "queue")
+_ACTION_ALIASES = ("naive_action", "action", "output", "response",
+                   "assistant_message", "resolution", "resolved_by")
+
+# LangSmith / OpenAI trace JSON field paths (dot-notation = nested lookup)
+_JSON_PROMPT_PATHS = ("input", "inputs.input", "inputs.question",
+                      "inputs.human_input", "inputs.messages.0.content",
+                      "user_message", "question", "content", "prompt")
+_JSON_ACTION_PATHS = ("output", "outputs.output", "outputs.text",
+                      "outputs.answer", "response", "assistant_message")
+_JSON_DOMAIN_PATHS = ("metadata.domain", "extra.metadata.domain",
+                      "tags.0", "run_type", "domain")
+
+
+def _deep_get(obj: dict, dotpath: str) -> object | None:
+    """Traverse a nested dict by a dot-separated key path."""
+    parts = dotpath.split(".")
+    cur: object = obj
+    for part in parts:
+        if not isinstance(cur, dict):
+            return None
+        # allow numeric index in path (e.g. "messages.0.content")
+        if part.isdigit():
+            if isinstance(cur, list):
+                idx = int(part)
+                cur = cur[idx] if idx < len(cur) else None  # type: ignore[assignment]
+            else:
+                return None
+        else:
+            cur = cur.get(part)  # type: ignore[union-attr]
+    return cur
+
+
+def _clamp(value: object, lo: float = 0.0, hi: float = 1.0, default: float = 0.5) -> float:
+    """Coerce *value* to a float in [lo, hi]; return *default* on failure."""
+    try:
+        v = float(value)  # type: ignore[arg-type]
+        return max(lo, min(hi, v))
+    except (TypeError, ValueError):
+        return default
+
+
+def _parse_row(row: dict[str, object], idx: int) -> tuple[BrainTask, str]:
+    """Convert a flat dict (from CSV or JSON) into a ``(BrainTask, naive_action)`` pair."""
+    # Resolve prompt
+    prompt: str = ""
+    for alias in _PROMPT_ALIASES:
+        if alias in row and row[alias]:
+            prompt = str(row[alias])
+            break
+    if not prompt:
+        prompt = f"[task #{idx}] (no prompt field found)"
+
+    # Resolve domain
+    domain: str = "general"
+    for alias in _DOMAIN_ALIASES:
+        if alias in row and row[alias]:
+            domain = str(row[alias]).lower().strip()
+            break
+
+    # Resolve naive action (what the existing system did)
+    naive_action: str = "auto_resolve"
+    for alias in _ACTION_ALIASES:
+        if alias in row and row[alias]:
+            naive_action = str(row[alias]).lower().strip()
+            break
+
+    # Numeric fields
+    def _get(key: str) -> float:
+        return _clamp(row.get(key), default=_TASK_NUMERIC_DEFAULTS[key])
+
+    task = BrainTask(
+        prompt=f"[#{idx}] {prompt[:200]}",
+        domain=domain,
+        uncertainty=_get("uncertainty"),
+        complexity=_get("complexity"),
+        stakes=_get("stakes"),
+        source_confidence=_get("source_confidence"),
+        tool_relevance=_get("tool_relevance"),
+        time_pressure=_get("time_pressure"),
+        safety_sensitivity=_get("safety_sensitivity"),
+        collaboration_value=_get("collaboration_value"),
+        user_patience=_get("user_patience"),
+    )
+    return task, naive_action
+
+
+def _load_csv(path: str) -> list[tuple[BrainTask, str]]:
+    """Load tasks from a CSV file.
+
+    Supports any CSV with a prompt/body/message column plus optional numeric
+    fields.  Missing numeric columns use safe defaults.  Extra columns are
+    silently ignored.
+
+    Parameters
+    ----------
+    path:
+        Path to the CSV file.
+
+    Returns
+    -------
+    list[tuple[BrainTask, str]]
+        (task, naive_action) pairs, one per row.
+    """
+    tasks: list[tuple[BrainTask, str]] = []
+    with open(path, newline="", encoding="utf-8-sig") as fh:
+        reader = csv.DictReader(fh)
+        for idx, row in enumerate(reader):
+            tasks.append(_parse_row(dict(row), idx))
+    return tasks
+
+
+def _flatten_json_trace(obj: dict) -> dict[str, object]:
+    """Flatten a LangSmith / OpenAI JSON trace object into a plain dict.
+
+    Tries known nested paths and surfaces them as top-level keys.
+    """
+    flat: dict[str, object] = {}
+    # prompt
+    for path in _JSON_PROMPT_PATHS:
+        val = _deep_get(obj, path)
+        if val:
+            flat.setdefault("prompt", val)
+            break
+    # action
+    for path in _JSON_ACTION_PATHS:
+        val = _deep_get(obj, path)
+        if val:
+            flat.setdefault("naive_action", str(val)[:80])
+            break
+    # domain
+    for path in _JSON_DOMAIN_PATHS:
+        val = _deep_get(obj, path)
+        if val:
+            flat.setdefault("domain", str(val))
+            break
+    # numeric fields — check top level first, then metadata sub-dict
+    for key in _TASK_NUMERIC_DEFAULTS:
+        val = obj.get(key) or _deep_get(obj, f"metadata.{key}")
+        if val is not None:
+            flat[key] = val
+    # copy everything from the top level (won't overwrite already-set keys)
+    for k, v in obj.items():
+        if not isinstance(v, (dict, list)):
+            flat.setdefault(k, v)
+    return flat
+
+
+def _load_json(path: str) -> list[tuple[BrainTask, str]]:
+    """Load tasks from a JSON file (LangSmith traces, OpenAI logs, or raw arrays).
+
+    The file must contain a JSON array at the top level, or a dict with a
+    ``"runs"``, ``"traces"``, ``"logs"``, or ``"data"`` key containing an array.
+
+    Parameters
+    ----------
+    path:
+        Path to the JSON file.
+
+    Returns
+    -------
+    list[tuple[BrainTask, str]]
+        (task, naive_action) pairs, one per element.
+    """
+    with open(path, encoding="utf-8") as fh:
+        raw = json.load(fh)
+
+    if isinstance(raw, list):
+        records: list[dict] = raw
+    elif isinstance(raw, dict):
+        # try common envelope keys
+        for key in ("runs", "traces", "logs", "data", "items", "events", "records"):
+            if isinstance(raw.get(key), list):
+                records = raw[key]
+                break
+        else:
+            raise ValueError(
+                f"JSON file must contain a top-level array or a dict with a "
+                f"'runs'/'traces'/'logs'/'data' key. Got keys: {list(raw.keys())}"
+            )
+    else:
+        raise ValueError(f"Unexpected JSON root type: {type(raw)}")
+
+    tasks: list[tuple[BrainTask, str]] = []
+    for idx, obj in enumerate(records):
+        if not isinstance(obj, dict):
+            continue
+        flat = _flatten_json_trace(obj)
+        tasks.append(_parse_row(flat, idx))
+    return tasks
+
+
+def load_tasks_from_file(path: str) -> list[tuple[BrainTask, str]]:
+    """Load ``(BrainTask, naive_action)`` pairs from a CSV or JSON file.
+
+    Parameters
+    ----------
+    path:
+        Path to the input file.  Extension determines format:
+        ``*.csv`` → CSV parser; ``*.json`` → JSON parser.
+
+    Returns
+    -------
+    list[tuple[BrainTask, str]]
+        One pair per row / trace object.
+
+    Raises
+    ------
+    ValueError
+        If the file extension is not recognised.
+    FileNotFoundError
+        If the file does not exist.
+    """
+    if not os.path.exists(path):
+        raise FileNotFoundError(f"Input file not found: {path!r}")
+    ext = os.path.splitext(path)[1].lower()
+    if ext == ".csv":
+        return _load_csv(path)
+    elif ext in (".json", ".jsonl"):
+        return _load_json(path)
+    else:
+        raise ValueError(
+            f"Unsupported file extension {ext!r}. "
+            "Supported: .csv, .json"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -161,17 +432,22 @@ def run_shadow_deployment(
     n_tasks: int = 100,
     seed: int = 2500,
     verbose: bool = True,
+    input_tasks: list[tuple[BrainTask, str]] | None = None,
 ) -> ShadowRunReport:
-    """Run a full shadow-mode deployment against a synthetic support stream.
+    """Run a full shadow-mode deployment against a task stream.
 
     Parameters
     ----------
     n_tasks:
-        Number of synthetic customer support tasks to process.
+        Number of **synthetic** tasks to generate when *input_tasks* is ``None``.
+        Ignored if *input_tasks* is provided.
     seed:
-        Random seed for reproducibility.
+        Random seed for reproducibility (tool selection, synthetic stream).
     verbose:
         Print progress to stdout.
+    input_tasks:
+        Pre-loaded ``(BrainTask, naive_action)`` pairs from a real log file.
+        When provided, the synthetic stream is bypassed entirely.
 
     Returns
     -------
@@ -179,6 +455,15 @@ def run_shadow_deployment(
         Structured report of the shadow run results.
     """
     rng = random.Random(seed)
+
+    # Resolve the task stream -----------------------------------------------
+    if input_tasks is not None:
+        task_stream = input_tasks
+        stream_label = f"{len(task_stream)} tasks from real log"
+    else:
+        task_stream = [(_make_task(rng, i), _naive_agent_action(_make_task(rng, i), rng))
+                       for i in range(n_tasks)]
+        stream_label = f"{n_tasks} synthetic customer support tasks"
 
     # ------------------------------------------------------------------
     # Phase 10: Federated gossip cold-start
@@ -268,12 +553,9 @@ def run_shadow_deployment(
     # Main shadow loop
     # ------------------------------------------------------------------
     if verbose:
-        print(f"\n[Run] Processing {n_tasks} synthetic customer support tasks...\n")
+        print(f"\n[Run] Processing {stream_label}...\n")
 
-    for i in range(n_tasks):
-        task = _make_task(rng, i)
-        naive_action = _naive_agent_action(task, rng)
-
+    for i, (task, naive_action) in enumerate(task_stream):
         # Phase 8: Shadow observe
         vr = wrapper.observe(task, actual_action=naive_action)
 
@@ -319,10 +601,6 @@ def run_shadow_deployment(
         # Phase 12: Observe rule events
         if not result.success:
             discovery.observe_rule_event(tool_name, "tool_failure", outcome, penalty=1.0)
-
-        # Phase 12: Observe successful decompositions (via brain decision)
-        if vr.manifold_decision.action in {"decompose", "escalate"}:
-            pass  # hierarchical decisions tracked separately in production
 
     # ------------------------------------------------------------------
     # Post-run analysis
@@ -450,16 +728,47 @@ def _print_report(report: ShadowRunReport, status: dict) -> None:
 # ---------------------------------------------------------------------------
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="MANIFOLD Shadow Mode deployment script")
-    parser.add_argument("--tasks", type=int, default=100, help="Number of tasks to process (default: 100)")
+    parser = argparse.ArgumentParser(
+        description="MANIFOLD Shadow Mode deployment script — Trust Audit V2",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  python deploy_shadow.py                           # synthetic stream (100 tasks)
+  python deploy_shadow.py --tasks 200               # larger synthetic run
+  python deploy_shadow.py --input support.csv       # real Zendesk/Intercom CSV
+  python deploy_shadow.py --input traces.json       # real LangSmith/OpenAI JSON
+  python deploy_shadow.py --input logs.csv --json > report.json   # sales artifact
+""",
+    )
+    parser.add_argument(
+        "--tasks", type=int, default=100,
+        help="Number of synthetic tasks (default: 100, ignored when --input is set)"
+    )
     parser.add_argument("--seed", type=int, default=2500, help="Random seed (default: 2500)")
-    parser.add_argument("--json", action="store_true", dest="emit_json", help="Emit JSON report to stdout")
+    parser.add_argument(
+        "--json", action="store_true", dest="emit_json",
+        help="Emit JSON report to stdout instead of human-readable table"
+    )
+    parser.add_argument(
+        "--input", dest="input_path", metavar="FILE",
+        help="Path to a real log file to analyse (.csv or .json). "
+             "When provided, the synthetic task stream is bypassed."
+    )
     args = parser.parse_args()
+
+    input_tasks: list[tuple[BrainTask, str]] | None = None
+    if args.input_path:
+        if not args.emit_json:
+            print(f"[Loading] {args.input_path} ...")
+        input_tasks = load_tasks_from_file(args.input_path)
+        if not args.emit_json:
+            print(f"[Loading] {len(input_tasks)} tasks loaded\n")
 
     report = run_shadow_deployment(
         n_tasks=args.tasks,
         seed=args.seed,
         verbose=not args.emit_json,
+        input_tasks=input_tasks,
     )
 
     if args.emit_json:

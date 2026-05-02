@@ -1,15 +1,38 @@
 [project]
-name = "project-manifold"
-version = "0.1.0"
-description = "Multi-agent non-stationary framework for ontogenetic learning and dynamic valuation"
+name = "manifold-ai"
+version = "1.0.0rc1"
+description = "The Trust Operating System for AI agents — prices risk, delegates hierarchically, detects adversarial gaming, and writes its own legislation."
 requires-python = ">=3.12"
+license = {text = "MIT"}
+authors = [{name = "MANIFOLD Contributors"}]
+keywords = ["ai", "agents", "trust", "shadow-mode", "llm", "risk", "orchestration"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
 dependencies = [
     "pandas>=2.1",
-    "streamlit>=1.40",
 ]
+
+[project.optional-dependencies]
+ui = ["streamlit>=1.40"]
+dashboard = ["streamlit>=1.40"]
+dev = ["pytest>=9.0"]
+all = ["streamlit>=1.40", "pytest>=9.0"]
+
+[project.urls]
+Homepage = "https://github.com/chizoalban2003-beep/MANIFOLD"
+Repository = "https://github.com/chizoalban2003-beep/MANIFOLD"
+"Bug Tracker" = "https://github.com/chizoalban2003-beep/MANIFOLD/issues"
 
 [project.scripts]
 manifold = "manifold.cli:main"
+manifold-shadow = "deploy_shadow:main"
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
