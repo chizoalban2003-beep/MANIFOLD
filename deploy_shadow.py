@@ -51,6 +51,7 @@ from dataclasses import dataclass
 from typing import Callable
 
 from manifold import (
+    ActiveInterceptor,
     AutoRuleDiscovery,
     BrainConfig,
     BrainOutcome,
@@ -61,6 +62,7 @@ from manifold import (
     GlobalReputationLedger,
     HITLConfig,
     HITLGate,
+    InterceptorConfig,
     ManifoldBrain,
     OrgReputationSnapshot,
     ShadowModeWrapper,
@@ -426,6 +428,7 @@ class ShadowRunReport:
     adversarial_suspects: list[dict]
     top_disagreements: list[tuple[str, str]]
     hitl_escalations: int
+    interceptor_summary: dict | None = None  # Phase 13 activation summary
 
 
 def run_shadow_deployment(
@@ -544,6 +547,19 @@ def run_shadow_deployment(
     )
 
     # ------------------------------------------------------------------
+    # Phase 13: ActiveInterceptor (dry-run — logs veto decisions)
+    # ------------------------------------------------------------------
+    interceptor_cfg = InterceptorConfig(
+        risk_veto_threshold=0.40,
+        redirect_strategy="hitl",
+    )
+    interceptor = ActiveInterceptor(
+        registry=registry,
+        brain=brain,
+        config=interceptor_cfg,
+    )
+
+    # ------------------------------------------------------------------
     # Counters
     # ------------------------------------------------------------------
     high_risk_escalations_manifold = 0
@@ -572,6 +588,8 @@ def run_shadow_deployment(
         # Execute tool calls through registry and record outcomes
         tool_name = rng.choice(tool_names)
         connector = registry.get(tool_name)
+        if connector is None:
+            continue
         result = connector.call(task.prompt[:50])
         outcome = result.to_brain_outcome()
 
@@ -601,6 +619,12 @@ def run_shadow_deployment(
         # Phase 12: Observe rule events
         if not result.success:
             discovery.observe_rule_event(tool_name, "tool_failure", outcome, penalty=1.0)
+
+        # Phase 13: Log interceptor decision (dry-run, non-blocking)
+        try:
+            interceptor.intercept(task, tool_name)
+        except KeyError:
+            pass
 
     # ------------------------------------------------------------------
     # Post-run analysis
@@ -645,6 +669,7 @@ def run_shadow_deployment(
         adversarial_suspects=adversarial_suspects,
         top_disagreements=shadow_report["top_disagreement_actions"],
         hitl_escalations=hitl_escalations,
+        interceptor_summary=interceptor.summary(),
     )
 
     if verbose:
@@ -709,6 +734,19 @@ def _print_report(report: ShadowRunReport, status: dict) -> None:
     else:
         print(f"  Rule triggers known: {status['known_triggers']}")
         print(f"  Pending proposals: {status['pending_proposals']}")
+
+    print(f"\n{'PHASE 13 — ACTIVE INTERCEPTOR':30s}")
+    print("  " + "─" * 44)
+    if report.interceptor_summary:
+        s = report.interceptor_summary
+        print(f"  {'Calls evaluated':35s}  {s['total_calls']:>6d}")
+        print(f"  {'Permitted':35s}  {s['permitted']:>6d}")
+        print(f"  {'Vetoed':35s}  {s['vetoed']:>6d}")
+        print(f"  {'Veto rate':35s}  {s['veto_rate']:>6.1%}")
+        print(f"  {'Redirected to HITL':35s}  {s['redirected_to_hitl']:>6d}")
+        print(f"  {'Avg risk score':35s}  {s['avg_risk_score']:>6.3f}")
+    else:
+        print("  (interceptor not active)")
 
     print(f"\n{'TOP DISAGREEMENT PAIRS':30s}")
     print("  " + "─" * 44)

@@ -54,6 +54,13 @@ from .adversarial import (
     ReputationLaunderingDetector,
     ToolOutcomeWindow,
 )
+from .interceptor import (
+    ActiveInterceptor,
+    InterceptorConfig,
+    InterceptorVeto,
+    InterceptResult,
+    shield,
+)
 from .autodiscovery import (
     AutoRuleDiscovery,
     DecompositionTemplate,
@@ -143,6 +150,7 @@ from .social import (
 )
 
 __all__ = [
+    "ActiveInterceptor",
     "AdversarialPricingDetector",
     "AuditTrigger",
     "AutoRuleDiscovery",
@@ -173,6 +181,9 @@ __all__ = [
     "GossipNote",
     "GridOptimizationResult",
     "GridWorld",
+    "InterceptorConfig",
+    "InterceptorVeto",
+    "InterceptResult",
     "HITLConfig",
     "HITLGate",
     "HITLRecord",
@@ -256,6 +267,7 @@ __all__ = [
     "sample_brain_tasks",
     "sample_support_tasks",
     "sample_trust_tasks",
+    "shield",
     "transfer_population",
     "warm_start_memory",
 ]
