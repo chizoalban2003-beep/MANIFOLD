@@ -7,7 +7,15 @@ from dataclasses import asdict
 import pandas as pd
 import streamlit as st
 
-from manifold import AgentPopulation, GridWorld, ManifoldExperiment, SimulationConfig
+from manifold import (
+    AgentPopulation,
+    DialogueTask,
+    GridWorld,
+    ManifoldExperiment,
+    SimulationConfig,
+    TrustRouter,
+    TrustRouterConfig,
+)
 from manifold.social import (
     SocialConfig,
     compile_policy_audit,
@@ -139,7 +147,7 @@ with st.sidebar:
     st.header("Experiment controls")
     mode = st.radio(
         "Engine",
-        ["GridMapper OS", "Social intelligence", "Path / teacher"],
+        ["TrustRouter", "GridMapper OS", "Social intelligence", "Path / teacher"],
         horizontal=True,
     )
     population_size = st.slider(
@@ -153,12 +161,77 @@ with st.sidebar:
         "Generations",
         5,
         500,
-        80 if mode == "GridMapper OS" else 120 if mode == "Social intelligence" else 200,
+        40
+        if mode == "TrustRouter"
+        else 80
+        if mode == "GridMapper OS"
+        else 120
+        if mode == "Social intelligence"
+        else 200,
         step=5,
     )
     seed = st.number_input("Seed", value=2500 if mode != "Path / teacher" else 13, step=1)
 
-if mode == "GridMapper OS":
+if mode == "TrustRouter":
+    with st.sidebar:
+        grid_size = st.select_slider("Grid size", options=[5, 11, 21], value=11)
+        prompt = st.text_area("Prompt / task", value="The user asks an ambiguous support question.")
+        domain = st.text_input("Domain", value="support")
+        uncertainty = st.slider("Uncertainty", 0.0, 1.0, 0.6, step=0.05)
+        complexity = st.slider("Complexity", 0.0, 1.0, 0.5, step=0.05)
+        stakes = st.slider("Stakes", 0.0, 1.0, 0.6, step=0.05)
+        source_confidence = st.slider("Source confidence", 0.0, 1.0, 0.5, step=0.05)
+        user_patience = st.slider("User patience", 0.0, 1.0, 0.7, step=0.05)
+        safety_sensitivity = st.slider("Safety sensitivity", 0.0, 1.0, 0.2, step=0.05)
+        dynamic_intent = st.toggle("Dynamic user intent", value=False)
+    router = TrustRouter(
+        TrustRouterConfig(
+            generations=generations,
+            population_size=population_size,
+            grid_size=grid_size,
+            seed=int(seed),
+        )
+    )
+    decision = router.route(
+        DialogueTask(
+            prompt=prompt,
+            domain=domain,
+            uncertainty=uncertainty,
+            complexity=complexity,
+            stakes=stakes,
+            source_confidence=source_confidence,
+            user_patience=user_patience,
+            safety_sensitivity=safety_sensitivity,
+            dynamic_intent=dynamic_intent,
+        )
+    )
+    history = pd.DataFrame([asdict(item) for item in decision.result.history])
+    cols = st.columns(6)
+    cols[0].metric("Action", decision.action)
+    cols[1].metric("Confidence", f"{decision.confidence:.0%}")
+    cols[2].metric("Risk", f"{decision.risk_score:.0%}")
+    cols[3].metric("Verification", f"{decision.recommended_verification_rate:.0%}")
+    cols[4].metric("Rep cap", f"{decision.reputation_cap:.0%}")
+    cols[5].metric("Robustness", f"{decision.robustness_score:.2f}")
+
+    st.subheader("Action thresholds")
+    threshold_cols = st.columns(4)
+    threshold_cols[0].metric("Clarify", f"{decision.clarification_threshold:.0%}")
+    threshold_cols[1].metric("Retrieve", f"{decision.retrieval_threshold:.0%}")
+    threshold_cols[2].metric("Verify", f"{decision.verification_threshold:.0%}")
+    threshold_cols[3].metric("Escalate", f"{decision.escalation_threshold:.0%}")
+    for note in decision.notes:
+        st.write("- " + note)
+
+    st.subheader("TrustRouter learning trace")
+    st.line_chart(
+        history.set_index("generation")[
+            ["average_verification", "average_gossip", "average_predation_threshold"]
+        ]
+    )
+    with st.expander("Raw TrustRouter generation data"):
+        st.dataframe(history, use_container_width=True)
+elif mode == "GridMapper OS":
     with st.sidebar:
         grid_size = st.select_slider("Grid size", options=[5, 11, 21, 31], value=11)
         data_path = st.text_input("CSV grid path", value="")

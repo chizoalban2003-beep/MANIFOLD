@@ -13,6 +13,7 @@ from manifold.social import (
     config_for_preset,
     run_social_experiment,
 )
+from manifold.trustrouter import DialogueTask, TrustRouter, TrustRouterConfig
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -21,7 +22,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--mode",
-        choices=["path", "social", "gridmapper"],
+        choices=["path", "social", "gridmapper", "trustrouter"],
         default="social",
         help="Run the path/teacher engine or the social-intelligence engine.",
     )
@@ -58,6 +59,15 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--communication", action="store_true")
     parser.add_argument("--no-recharge", action="store_true")
+    parser.add_argument("--prompt", default="How should I answer this user?")
+    parser.add_argument("--domain", default="general")
+    parser.add_argument("--uncertainty", type=float, default=0.5)
+    parser.add_argument("--complexity", type=float, default=0.5)
+    parser.add_argument("--stakes", type=float, default=0.5)
+    parser.add_argument("--source-confidence", type=float, default=0.7)
+    parser.add_argument("--user-patience", type=float, default=0.7)
+    parser.add_argument("--safety-sensitivity", type=float, default=0.2)
+    parser.add_argument("--dynamic-intent", action="store_true")
     parser.add_argument(
         "--json",
         action="store_true",
@@ -72,6 +82,8 @@ def main() -> None:
         history = run_path_mode(args)
     elif args.mode == "gridmapper":
         history = run_gridmapper_mode(args)
+    elif args.mode == "trustrouter":
+        history = run_trustrouter_mode(args)
     else:
         history = run_social_mode(args)
 
@@ -209,6 +221,46 @@ def run_gridmapper_mode(args: argparse.Namespace):
         print(f"Robustness score: {result.audit.robustness_score:.2f}")
         print(f"Niches: {final.niche_counts}")
     return result.history
+
+
+def run_trustrouter_mode(args: argparse.Namespace):
+    router = TrustRouter(
+        TrustRouterConfig(
+            generations=args.generations,
+            population_size=args.population_size,
+            grid_size=args.grid_size if args.grid_size in (5, 11, 21, 31) else 11,
+            seed=args.seed,
+        )
+    )
+    task = DialogueTask(
+        prompt=args.prompt,
+        domain=args.domain,
+        uncertainty=args.uncertainty,
+        complexity=args.complexity,
+        stakes=args.stakes,
+        source_confidence=args.source_confidence,
+        user_patience=args.user_patience,
+        safety_sensitivity=args.safety_sensitivity,
+        dynamic_intent=args.dynamic_intent,
+    )
+    decision = router.route(task)
+    if not args.json:
+        print("Project MANIFOLD - TrustRouter")
+        print(f"Action: {decision.action}")
+        print(f"Confidence: {decision.confidence:.2%}")
+        print(f"Risk score: {decision.risk_score:.2%}")
+        print(f"Verification threshold: {decision.verification_threshold:.2%}")
+        print(f"Clarification threshold: {decision.clarification_threshold:.2%}")
+        print(f"Retrieval threshold: {decision.retrieval_threshold:.2%}")
+        print(f"Escalation threshold: {decision.escalation_threshold:.2%}")
+        print(f"Recommended verification: {decision.recommended_verification_rate:.2%}")
+        print(f"Recommended gossip: {decision.recommended_gossip_rate:.2%}")
+        print(f"Reputation cap: {decision.reputation_cap:.2%}")
+        print(f"Robustness score: {decision.robustness_score:.2f}")
+        print("Notes:")
+        for note in decision.notes:
+            print(f"  - {note}")
+    return decision.result.history
 
 
 if __name__ == "__main__":

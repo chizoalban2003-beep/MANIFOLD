@@ -9,6 +9,14 @@ from .simulation import (
     run_experiment,
     transfer_population,
 )
+from .trustrouter import (
+    DialogueTask,
+    TrustLearningMemory,
+    TrustRouter,
+    TrustRouterConfig,
+    TrustRouterDecision,
+    route_task,
+)
 from .gridmapper import (
     AgentPopulation,
     DynamicTarget,
@@ -32,6 +40,7 @@ from .social import (
 __all__ = [
     "AgentPopulation",
     "CellVector",
+    "DialogueTask",
     "DynamicTarget",
     "GenerationSummary",
     "GridOptimizationResult",
@@ -45,10 +54,15 @@ __all__ = [
     "SocialGenerationSummary",
     "SocialGenome",
     "SocialManifoldExperiment",
+    "TrustLearningMemory",
+    "TrustRouter",
+    "TrustRouterConfig",
+    "TrustRouterDecision",
     "VectorGenome",
     "compile_policy_audit",
     "config_for_preset",
     "recommended_prices",
+    "route_task",
     "run_experiment",
     "run_social_experiment",
     "transfer_population",

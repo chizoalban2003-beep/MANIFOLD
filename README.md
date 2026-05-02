@@ -134,6 +134,34 @@ while making monopoly capture unstable.
 
 ## Engines in this repo
 
+### 0. TrustRouter
+
+TrustRouter is the first niche product built on MANIFOLD. It maps an AI-agent or
+dialogue task into GridMapper OS and returns an action policy:
+
+```text
+answer | clarify | retrieve | verify | escalate | refuse
+```
+
+Example:
+
+```bash
+python3 -m manifold \
+  --mode trustrouter \
+  --prompt "The user asks for regulated advice from uncertain sources" \
+  --domain regulated \
+  --uncertainty 0.9 \
+  --complexity 0.8 \
+  --stakes 0.95 \
+  --source-confidence 0.2 \
+  --safety-sensitivity 0.9 \
+  --dynamic-intent
+```
+
+The TrustRouter memory tracks prior worlds by domain, so repeated support,
+legal, medical, or technical tasks can nudge future risk thresholds without
+hardcoding a static policy.
+
 ### 0. GridMapper OS
 
 GridMapper OS is the reusable intelligent-system layer. It lets you define a
