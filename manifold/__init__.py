@@ -156,6 +156,19 @@ from .hub import (
     CommunityBaseline,
     ReputationHub,
 )
+from .recruiter import (
+    MarketplaceListing,
+    RecruitmentResult,
+    SovereignRecruiter,
+)
+from .policy import (
+    DOMAIN_TEMPLATES,
+    ManifoldPolicy,
+    PolicyDomain,
+    PolicyExporter,
+    PolicyLoader,
+    RuleDiff,
+)
 
 __all__ = [
     "ActiveInterceptor",
@@ -255,12 +268,20 @@ __all__ = [
     "config_for_preset",
     "decide_task",
     "default_tools",
+    "DOMAIN_TEMPLATES",
     "format_trust_audit_report",
     "LabelledTask",
     "load_brain_tasks_csv",
     "load_labelled_tasks_csv",
+    "ManifoldPolicy",
+    "MarketplaceListing",
+    "PolicyDomain",
+    "PolicyExporter",
+    "PolicyLoader",
+    "RecruitmentResult",
     "recommended_prices",
     "route_task",
+    "RuleDiff",
     "run_asset_learning_suite",
     "run_dual_encoder_suite",
     "run_encoder_suite",
@@ -280,6 +301,7 @@ __all__ = [
     "sample_support_tasks",
     "sample_trust_tasks",
     "shield",
+    "SovereignRecruiter",
     "transfer_population",
     "warm_start_memory",
 ]
