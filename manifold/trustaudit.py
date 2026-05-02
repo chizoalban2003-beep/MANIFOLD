@@ -25,7 +25,7 @@ class TrustAuditConfig:
 
     summary_note_cost: float = 0.06
     repeated_failure_penalty: float = 0.80
-    bad_tool_failure_count: int = 4
+    bad_tool_failure_count: int = 7
     benchmark_config: BrainConfig = BrainConfig(generations=3, population_size=16, grid_size=5)
 
 
@@ -150,6 +150,7 @@ def bad_tool_memory_audit(config: TrustAuditConfig) -> TrustAuditFinding:
                 risk_realized=0.75,
                 asset_gained=0.0,
                 rule_violations=1,
+                failure_mode="tool_error",
             ),
         )
     after = brain.decide(task)

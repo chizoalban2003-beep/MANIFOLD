@@ -119,6 +119,7 @@ class BrainOutcome:
     risk_realized: float
     asset_gained: float
     rule_violations: int = 0
+    failure_mode: str = "unknown"
 
     @property
     def utility(self) -> float:
@@ -132,6 +133,7 @@ class BrainMemory:
     domain_stats: dict[str, dict[str, float]] = field(default_factory=dict)
     action_stats: dict[str, dict[str, float]] = field(default_factory=dict)
     tool_stats: dict[str, dict[str, float]] = field(default_factory=dict)
+    base_learning_rate: float = 0.15
 
     def prior_risk_adjustment(self, task: BrainTask) -> float:
         stats = self.domain_stats.get(task.domain)
@@ -154,23 +156,67 @@ class BrainMemory:
         decision: BrainDecision,
         outcome: BrainOutcome,
     ) -> None:
-        self._update_bucket(self.domain_stats, task.domain, outcome)
-        self._update_bucket(self.action_stats, decision.action, outcome)
+        self._update_bucket(self.domain_stats, task.domain, outcome, self.base_learning_rate)
+        self._update_bucket(self.action_stats, decision.action, outcome, self.base_learning_rate)
         if decision.selected_tool:
-            self._update_bucket(self.tool_stats, decision.selected_tool, outcome)
+            self._update_bucket(
+                self.tool_stats,
+                decision.selected_tool,
+                outcome,
+                self._tool_learning_rate(decision.selected_tool, outcome),
+            )
 
     def _update_bucket(
-        self, store: dict[str, dict[str, float]], key: str, outcome: BrainOutcome
+        self, store: dict[str, dict[str, float]], key: str, outcome: BrainOutcome, learning_rate: float
     ) -> None:
-        current = store.get(key, {"count": 0.0, "success_rate": 1.0, "utility": 0.0})
-        count = current["count"]
-        new_count = count + 1.0
-        current["success_rate"] = (
-            current["success_rate"] * count + (1.0 if outcome.success else 0.0)
-        ) / new_count
-        current["utility"] = (current["utility"] * count + outcome.utility) / new_count
-        current["count"] = new_count
+        current = store.get(
+            key,
+            {
+                "count": 0.0,
+                "success_rate": 1.0,
+                "utility": 0.0,
+                "consecutive_failures": 0.0,
+            },
+        )
+        lr = clamp01(learning_rate)
+        outcome_success = 1.0 if outcome.success else 0.0
+        current["success_rate"] = current["success_rate"] * (1.0 - lr) + outcome_success * lr
+        current["utility"] = current["utility"] * (1.0 - lr) + outcome.utility * lr
+        current["consecutive_failures"] = (
+            0.0 if outcome.success else current.get("consecutive_failures", 0.0) + 1.0
+        )
+        current["count"] = current.get("count", 0.0) + 1.0
         store[key] = current
+
+    def decay(self, rate: float = 0.03) -> None:
+        """Forgive old scars gradually in non-stationary environments."""
+
+        for store in (self.domain_stats, self.action_stats, self.tool_stats):
+            for stats in store.values():
+                stats["success_rate"] = stats.get("success_rate", 1.0) * (1.0 - rate) + rate
+                stats["utility"] = stats.get("utility", 0.0) * (1.0 - rate)
+                stats["consecutive_failures"] = max(
+                    0.0, stats.get("consecutive_failures", 0.0) - rate
+                )
+
+    def _tool_learning_rate(self, tool_name: str, outcome: BrainOutcome) -> float:
+        if outcome.success:
+            return 0.10
+        mode_rates = {
+            "tool_error": 0.20,
+            "hallucination": 0.20,
+            "bad_data": 0.18,
+            "timeout": 0.05,
+            "rate_limit": 0.05,
+            "user_abandon": 0.00,
+            "environment_noise": 0.03,
+            "unknown": self.base_learning_rate,
+        }
+        rate = mode_rates.get(outcome.failure_mode, self.base_learning_rate)
+        failures = self.tool_stats.get(tool_name, {}).get("consecutive_failures", 0.0)
+        if failures >= 3:
+            rate *= 1.5
+        return min(0.6, rate)
 
 
 @dataclass
