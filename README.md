@@ -134,7 +134,40 @@ while making monopoly capture unstable.
 
 ## Engines in this repo
 
-### 0. TrustRouter
+### 0. MANIFOLD Brain
+
+MANIFOLD Brain is the broader adaptive decision layer. It sits above agents,
+tools, memory, and task goals, then decides the next action:
+
+```text
+answer | clarify | retrieve | verify | use_tool | delegate | plan | explore |
+exploit | wait | escalate | refuse | stop
+```
+
+Example:
+
+```bash
+python3 -m manifold \
+  --mode brain \
+  --prompt "Use the best tool to solve this task safely" \
+  --domain coding \
+  --uncertainty 0.55 \
+  --complexity 0.85 \
+  --stakes 0.65 \
+  --tool-relevance 0.8
+```
+
+BrainBench compares MANIFOLD Brain against common agentic baselines:
+
+```bash
+python3 -m manifold --mode brainbench --generations 10 --population 32 --grid-size 5
+```
+
+Baselines include always-answer, ReAct-style, tool-first, retrieve-first, and a
+static risk policy. This is the competitive testbed for positioning MANIFOLD as
+an agent "executive function" rather than another generator.
+
+### 1. TrustRouter
 
 TrustRouter is the first niche product built on MANIFOLD. It maps an AI-agent or
 dialogue task into GridMapper OS and returns an action policy:
@@ -181,7 +214,7 @@ verification, and unnecessary verification for:
 Use this mode to prove whether TrustRouter is actually competitive before
 deploying it into an LLM or agent workflow.
 
-### 0. GridMapper OS
+### 2. GridMapper OS
 
 GridMapper OS is the reusable intelligent-system layer. It lets you define a
 problem directly as cells, targets, and rules, then drops in the gen-2000
@@ -219,7 +252,7 @@ python3 -m manifold \
   --rule late_delivery,8.2,miss_target
 ```
 
-### 1. Social intelligence engine
+### 3. Social intelligence engine
 
 Run the current MANIFOLD model:
 
@@ -255,7 +288,7 @@ Predatory Scouts now carry an evolvable sixth gene, `predation_threshold`. This
 lets the substrate discover whether the reputation cap is really near 0.85 under
 real load instead of hardcoding that value.
 
-### 2. Path / teacher engine
+### 4. Path / teacher engine
 
 The earlier energy-budgeting world is still available:
 
@@ -269,8 +302,8 @@ python3 -m manifold --mode path --generations 60 --population 36 --grid-size 11
 streamlit run app.py
 ```
 
-The dashboard lets you switch between the social engine and the path/teacher
-engine.
+The dashboard lets you switch between MANIFOLD Brain, BrainBench, TrustRouter,
+TrustBench, GridMapper OS, the social engine, and the path/teacher engine.
 
 ## Application presets
 

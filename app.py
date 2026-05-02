@@ -9,13 +9,19 @@ import streamlit as st
 
 from manifold import (
     AgentPopulation,
+    BrainConfig,
+    BrainTask,
     DialogueTask,
     GridWorld,
+    ManifoldBrain,
     TrustRouterConfig,
     ManifoldExperiment,
     SimulationConfig,
     TrustRouter,
+    default_tools,
+    run_brain_benchmark,
     run_trust_benchmark,
+    sample_brain_tasks,
     sample_trust_tasks,
 )
 from manifold.social import (
@@ -149,7 +155,15 @@ with st.sidebar:
     st.header("Experiment controls")
     mode = st.radio(
         "Engine",
-        ["TrustRouter", "TrustBench", "GridMapper OS", "Social intelligence", "Path / teacher"],
+        [
+            "MANIFOLD Brain",
+            "BrainBench",
+            "TrustRouter",
+            "TrustBench",
+            "GridMapper OS",
+            "Social intelligence",
+            "Path / teacher",
+        ],
         horizontal=True,
     )
     population_size = st.slider(
@@ -164,7 +178,7 @@ with st.sidebar:
         5,
         500,
         40
-        if mode == "TrustRouter"
+        if mode in {"MANIFOLD Brain", "TrustRouter"}
         else 80
         if mode == "GridMapper OS"
         else 120
@@ -174,7 +188,85 @@ with st.sidebar:
     )
     seed = st.number_input("Seed", value=2500 if mode != "Path / teacher" else 13, step=1)
 
-if mode == "TrustBench":
+if mode == "BrainBench":
+    config = BrainConfig(
+        generations=generations,
+        population_size=population_size,
+        grid_size=5,
+        seed=int(seed),
+    )
+    report = run_brain_benchmark(sample_brain_tasks(), config)
+    rows = [asdict(score) for score in report.scores]
+    scores = pd.DataFrame(rows).sort_values("utility", ascending=False)
+    st.subheader("BrainBench: agentic policy comparison")
+    cols = st.columns(3)
+    cols[0].metric("Best policy", report.best_policy)
+    cols[1].metric("Brain rank", f"#{report.brain_rank}")
+    brain_score = scores[scores["name"] == "manifold_brain"].iloc[0]
+    cols[2].metric("Brain utility", f"{brain_score.utility:.3f}")
+    st.dataframe(scores, use_container_width=True)
+    st.subheader("Benchmark recommendations")
+    for recommendation in report.recommendations:
+        st.write("- " + recommendation)
+elif mode == "MANIFOLD Brain":
+    with st.sidebar:
+        grid_size = st.select_slider("Grid size", options=[5, 11, 21], value=11)
+        prompt = st.text_area("Task", value="Use the best available tool to solve this task safely.")
+        domain = st.text_input("Domain", value="general")
+        uncertainty = st.slider("Uncertainty", 0.0, 1.0, 0.5, step=0.05)
+        complexity = st.slider("Complexity", 0.0, 1.0, 0.6, step=0.05)
+        stakes = st.slider("Stakes", 0.0, 1.0, 0.6, step=0.05)
+        source_confidence = st.slider("Source confidence", 0.0, 1.0, 0.7, step=0.05)
+        tool_relevance = st.slider("Tool relevance", 0.0, 1.0, 0.7, step=0.05)
+        time_pressure = st.slider("Time pressure", 0.0, 1.0, 0.4, step=0.05)
+        safety_sensitivity = st.slider("Safety sensitivity", 0.0, 1.0, 0.2, step=0.05)
+        collaboration_value = st.slider("Collaboration value", 0.0, 1.0, 0.3, step=0.05)
+        user_patience = st.slider("User patience", 0.0, 1.0, 0.7, step=0.05)
+        dynamic_goal = st.toggle("Dynamic goal", value=False)
+    brain = ManifoldBrain(
+        BrainConfig(
+            generations=generations,
+            population_size=population_size,
+            grid_size=grid_size,
+            seed=int(seed),
+        ),
+        default_tools(),
+    )
+    decision = brain.decide(
+        BrainTask(
+            prompt=prompt,
+            domain=domain,
+            uncertainty=uncertainty,
+            complexity=complexity,
+            stakes=stakes,
+            source_confidence=source_confidence,
+            tool_relevance=tool_relevance,
+            time_pressure=time_pressure,
+            safety_sensitivity=safety_sensitivity,
+            collaboration_value=collaboration_value,
+            user_patience=user_patience,
+            dynamic_goal=dynamic_goal,
+        )
+    )
+    history = pd.DataFrame([asdict(item) for item in decision.result.history])
+    cols = st.columns(6)
+    cols[0].metric("Action", decision.action)
+    cols[1].metric("Tool", decision.selected_tool or "none")
+    cols[2].metric("Confidence", f"{decision.confidence:.0%}")
+    cols[3].metric("Risk", f"{decision.risk_score:.0%}")
+    cols[4].metric("Utility", f"{decision.expected_utility:.2f}")
+    cols[5].metric("Robustness", f"{decision.robustness_score:.2f}")
+    for note in decision.notes:
+        st.write("- " + note)
+    st.subheader("Brain policy trace")
+    st.line_chart(
+        history.set_index("generation")[
+            ["average_verification", "average_gossip", "average_predation_threshold"]
+        ]
+    )
+    with st.expander("Raw Brain generation data"):
+        st.dataframe(history, use_container_width=True)
+elif mode == "TrustBench":
     config = TrustRouterConfig(
         generations=generations,
         population_size=population_size,

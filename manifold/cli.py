@@ -5,6 +5,8 @@ from __future__ import annotations
 import argparse
 import json
 
+from manifold.brain import BrainConfig, BrainTask, ManifoldBrain, default_tools
+from manifold.brainbench import run_brain_benchmark, sample_brain_tasks
 from manifold.gridmapper import AgentPopulation, GridWorld
 from manifold.simulation import SimulationConfig, run_experiment
 from manifold.social import (
@@ -27,7 +29,15 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--mode",
-        choices=["path", "social", "gridmapper", "trustrouter", "trustbench"],
+        choices=[
+            "path",
+            "social",
+            "gridmapper",
+            "trustrouter",
+            "trustbench",
+            "brain",
+            "brainbench",
+        ],
         default="social",
         help="Run the path/teacher engine or the social-intelligence engine.",
     )
@@ -73,6 +83,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--user-patience", type=float, default=0.7)
     parser.add_argument("--safety-sensitivity", type=float, default=0.2)
     parser.add_argument("--dynamic-intent", action="store_true")
+    parser.add_argument("--tool-relevance", type=float, default=0.5)
+    parser.add_argument("--time-pressure", type=float, default=0.4)
+    parser.add_argument("--collaboration-value", type=float, default=0.3)
     parser.add_argument(
         "--tasks-path",
         help="Optional TrustBench CSV with prompt,expected_action and task feature columns.",
@@ -95,6 +108,10 @@ def main() -> None:
         history = run_trustrouter_mode(args)
     elif args.mode == "trustbench":
         history = run_trustbench_mode(args)
+    elif args.mode == "brain":
+        history = run_brain_mode(args)
+    elif args.mode == "brainbench":
+        history = run_brainbench_mode(args)
     else:
         history = run_social_mode(args)
 
@@ -298,6 +315,77 @@ def run_trustbench_mode(args: argparse.Namespace):
                 f"risk_penalty={score.average_risk_penalty:.3f}, "
                 f"missed={score.missed_verification_rate:.2%}, "
                 f"unnecessary={score.unnecessary_verification_rate:.2%}"
+            )
+        print("Recommendations:")
+        for recommendation in report.recommendations:
+            print(f"  - {recommendation}")
+    return []
+
+
+def run_brain_mode(args: argparse.Namespace):
+    brain = ManifoldBrain(
+        BrainConfig(
+            generations=args.generations,
+            population_size=args.population_size,
+            grid_size=args.grid_size if args.grid_size in (5, 11, 21, 31) else 11,
+            seed=args.seed,
+        ),
+        default_tools(),
+    )
+    task = BrainTask(
+        prompt=args.prompt,
+        domain=args.domain,
+        uncertainty=args.uncertainty,
+        complexity=args.complexity,
+        stakes=args.stakes,
+        source_confidence=args.source_confidence,
+        tool_relevance=args.tool_relevance,
+        time_pressure=args.time_pressure,
+        safety_sensitivity=args.safety_sensitivity,
+        collaboration_value=args.collaboration_value,
+        user_patience=args.user_patience,
+        dynamic_goal=args.dynamic_intent,
+    )
+    decision = brain.decide(task)
+    if not args.json:
+        print("Project MANIFOLD - Brain")
+        print(f"Action: {decision.action}")
+        print(f"Selected tool: {decision.selected_tool or 'none'}")
+        print(f"Confidence: {decision.confidence:.2%}")
+        print(f"Risk score: {decision.risk_score:.2%}")
+        print(f"Expected utility: {decision.expected_utility:.3f}")
+        print(f"Verification: {decision.verification_rate:.2%}")
+        print(f"Reputation cap: {decision.reputation_cap:.2%}")
+        print(f"Robustness score: {decision.robustness_score:.2f}")
+        print("Notes:")
+        for note in decision.notes:
+            print(f"  - {note}")
+    return decision.result.history
+
+
+def run_brainbench_mode(args: argparse.Namespace):
+    report = run_brain_benchmark(
+        sample_brain_tasks(),
+        BrainConfig(
+            generations=args.generations,
+            population_size=args.population_size,
+            grid_size=args.grid_size if args.grid_size in (5, 11, 21, 31) else 11,
+            seed=args.seed,
+        ),
+    )
+    if not args.json:
+        print("Project MANIFOLD - BrainBench")
+        print(f"Tasks: {len(sample_brain_tasks())}")
+        print(f"Best policy: {report.best_policy}")
+        print(f"MANIFOLD Brain rank: {report.brain_rank}")
+        for score in sorted(report.scores, key=lambda item: item.utility, reverse=True):
+            print(
+                f"{score.name}: utility={score.utility:.3f}, "
+                f"accuracy={score.accuracy:.2%}, "
+                f"cost={score.average_action_cost:.3f}, "
+                f"risk_penalty={score.average_risk_penalty:.3f}, "
+                f"missed_safety={score.missed_safety_rate:.2%}, "
+                f"over_tool={score.over_tool_rate:.2%}"
             )
         print("Recommendations:")
         for recommendation in report.recommendations:
