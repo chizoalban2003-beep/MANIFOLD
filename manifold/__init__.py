@@ -17,6 +17,7 @@ from .trustrouter import (
     TrustRouterDecision,
     route_task,
 )
+from .live import GossipBus, LiveBrain
 from .brain import (
     BrainConfig,
     BrainDecision,
@@ -90,10 +91,12 @@ __all__ = [
     "DialogueTask",
     "DynamicTarget",
     "GenerationSummary",
+    "GossipBus",
     "GossipNote",
     "GridOptimizationResult",
     "GridWorld",
     "LifeResult",
+    "LiveBrain",
     "ManifoldExperiment",
     "ManifoldBrain",
     "PolicyAudit",

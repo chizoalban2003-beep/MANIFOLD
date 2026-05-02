@@ -163,10 +163,10 @@ class ScoutRecord:
     exceeds 0.80, the discount lifts to 0.9 — it has earned increased trust.
     """
 
-    _DISCOUNT_DEFAULT: float = 0.7
-    _DISCOUNT_PROMOTED: float = 0.9
-    _PROMOTION_MIN_CLAIMS: int = 50
-    _PROMOTION_PRECISION: float = 0.80
+    DISCOUNT_DEFAULT: float = 0.7
+    DISCOUNT_PROMOTED: float = 0.9
+    PROMOTION_MIN_CLAIMS: int = 50
+    PROMOTION_PRECISION: float = 0.80
 
     _predictions: list[bool] = field(default_factory=list)  # True == gossip matched reality
 
@@ -182,11 +182,11 @@ class ScoutRecord:
     @property
     def discount(self) -> float:
         if (
-            len(self._predictions) >= self._PROMOTION_MIN_CLAIMS
-            and self.precision >= self._PROMOTION_PRECISION
+            len(self._predictions) >= self.PROMOTION_MIN_CLAIMS
+            and self.precision >= self.PROMOTION_PRECISION
         ):
-            return self._DISCOUNT_PROMOTED
-        return self._DISCOUNT_DEFAULT
+            return self.DISCOUNT_PROMOTED
+        return self.DISCOUNT_DEFAULT
 
 
 @dataclass
@@ -200,8 +200,8 @@ class BrainMemory:
     base_learning_rate: float = 0.15
 
     # Gossip hyperparameters
-    _GOSSIP_LR: float = field(default=0.06, init=False, repr=False)
-    _GOSSIP_DECAY_RATE: float = field(default=0.97, init=False, repr=False)
+    GOSSIP_LR: float = field(default=0.06, init=False, repr=False)
+    GOSSIP_DECAY_RATE: float = field(default=0.97, init=False, repr=False)
 
     def prior_risk_adjustment(self, task: BrainTask) -> float:
         stats = self.domain_stats.get(task.domain)
@@ -311,7 +311,7 @@ class BrainMemory:
         If *actual_outcome* is supplied, the scout's prediction accuracy is
         logged so its discount can be adjusted over time.
         """
-        w = clamp01(note.source_reputation) * (self._GOSSIP_DECAY_RATE ** note.age_minutes)
+        w = clamp01(note.source_reputation) * (self.GOSSIP_DECAY_RATE ** note.age_minutes)
         if note.source_is_scout:
             record = self.scout_tracker.setdefault(note.source_id, ScoutRecord())
             w *= record.discount
@@ -348,7 +348,7 @@ class BrainMemory:
             virtual_success: 1.0 for a success signal, 0.0 for failure.
             weight: Dimensionless influence weight.
         """
-        effective_lr = min(3 * self._GOSSIP_LR, self._GOSSIP_LR * max(0.0, weight))
+        effective_lr = min(3 * self.GOSSIP_LR, self.GOSSIP_LR * max(0.0, weight))
         stats = self.tool_stats.get(
             tool,
             {
