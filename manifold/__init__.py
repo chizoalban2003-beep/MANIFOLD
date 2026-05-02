@@ -186,6 +186,28 @@ from .b2b import (
     OrgPolicy,
     PolicyHandshake,
 )
+from .crypto import (
+    GossipSigner,
+    OrgPolicySigner,
+    PolicySigningKey,
+    SignatureVerificationError,
+    SignedGossipNote,
+    SignedOrgPolicy,
+    VerifiedPolicyHandshake,
+)
+from .fleet import (
+    B2BEconomySnapshot,
+    CIBuildHistory,
+    CIBuildRecord,
+    FleetDashboardData,
+    FleetPanelRenderer,
+)
+from .polyglot import (
+    ManifoldOpenAPISpec,
+    generate_openapi_spec,
+    spec_to_json,
+    spec_to_yaml,
+)
 
 __all__ = [
     "ActiveInterceptor",
@@ -336,4 +358,23 @@ __all__ = [
     "HandshakeResult",
     "OrgPolicy",
     "PolicyHandshake",
+    # Phase 21 — Zero-Trust Cryptography
+    "GossipSigner",
+    "OrgPolicySigner",
+    "PolicySigningKey",
+    "SignatureVerificationError",
+    "SignedGossipNote",
+    "SignedOrgPolicy",
+    "VerifiedPolicyHandshake",
+    # Phase 22 — Fleet Dashboard
+    "B2BEconomySnapshot",
+    "CIBuildHistory",
+    "CIBuildRecord",
+    "FleetDashboardData",
+    "FleetPanelRenderer",
+    # Phase 23 — Polyglot Protocol
+    "ManifoldOpenAPISpec",
+    "generate_openapi_spec",
+    "spec_to_json",
+    "spec_to_yaml",
 ]
