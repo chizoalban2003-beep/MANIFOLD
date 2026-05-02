@@ -232,7 +232,7 @@ def test_bridge_org_registry():
 def test_cold_start_basic():
     ledger = GlobalReputationLedger(min_orgs_required=1)
     ledger.ingest_snapshot(OrgReputationSnapshot("org_a", {"web_search": (0.6, 10)}))
-    tools = [ToolProfile(name="web_search", cost=0.05, risk=0.1, asset=0.7, reliability=0.9)]
+    tools = [ToolProfile(name="web_search", cost=0.05, latency=0.1, risk=0.1, asset=0.7, reliability=0.9)]
     memory = cold_start_from_ledger(ledger, tools=tools, alpha=0.5)
     assert "web_search" in memory.tool_stats
     # alpha=0.5: 0.5*0.6 + 0.5*0.9 = 0.75
