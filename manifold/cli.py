@@ -6,7 +6,7 @@ import argparse
 import json
 
 from manifold.brain import BrainConfig, BrainTask, ManifoldBrain, default_tools
-from manifold.brainbench import run_brain_benchmark, sample_brain_tasks
+from manifold.brainbench import load_brain_tasks_csv, run_brain_benchmark, sample_brain_tasks
 from manifold.gridmapper import AgentPopulation, GridWorld
 from manifold.simulation import SimulationConfig, run_experiment
 from manifold.social import (
@@ -364,8 +364,9 @@ def run_brain_mode(args: argparse.Namespace):
 
 
 def run_brainbench_mode(args: argparse.Namespace):
+    tasks = load_brain_tasks_csv(args.tasks_path) if args.tasks_path else sample_brain_tasks()
     report = run_brain_benchmark(
-        sample_brain_tasks(),
+        tasks,
         BrainConfig(
             generations=args.generations,
             population_size=args.population_size,
@@ -375,7 +376,7 @@ def run_brainbench_mode(args: argparse.Namespace):
     )
     if not args.json:
         print("Project MANIFOLD - BrainBench")
-        print(f"Tasks: {len(sample_brain_tasks())}")
+        print(f"Tasks: {len(tasks)}")
         print(f"Best policy: {report.best_policy}")
         print(f"MANIFOLD Brain rank: {report.brain_rank}")
         for score in sorted(report.scores, key=lambda item: item.utility, reverse=True):

@@ -167,6 +167,62 @@ Baselines include always-answer, ReAct-style, tool-first, retrieve-first, and a
 static risk policy. This is the competitive testbed for positioning MANIFOLD as
 an agent "executive function" rather than another generator.
 
+BrainBench can also evaluate real agent or LLM task logs:
+
+```bash
+python3 -m manifold --mode brainbench --tasks-path data/agent_logs.csv
+```
+
+CSV schema:
+
+```text
+prompt,expected_action,domain,uncertainty,complexity,stakes,source_confidence,
+tool_relevance,time_pressure,safety_sensitivity,collaboration_value,
+user_patience,dynamic_goal,weight
+```
+
+Only `prompt` and `expected_action` are required. The numeric fields can be
+derived from production telemetry: model confidence, retrieval confidence, tool
+failure rate, latency, user tier, severity, safety classifier scores, or human
+review labels.
+
+## How MANIFOLD translates to LLMs and generative AI
+
+MANIFOLD is not a replacement for an LLM. It does not generate prose, code, or
+images. Its plausible role is the **executive decision layer** around generative
+systems:
+
+```text
+LLM / tool / agent produces candidate capability
+MANIFOLD Brain decides when to use, verify, defer, escalate, or refuse
+```
+
+What is plausible today:
+
+- routing between answer, retrieve, verify, clarify, use_tool, plan, escalate,
+  and refuse;
+- turning task logs into cost/risk/asset benchmark rows;
+- learning domain-level policy adjustments from outcomes;
+- tracking tool/source reputation and over-reliance;
+- benchmarking against ReAct-style, retrieve-first, tool-first, static-risk, and
+  always-answer baselines.
+
+What is still theoretical or early-stage:
+
+- claiming open-ended general intelligence;
+- replacing gradient-trained LLM reasoning;
+- proving universal optimality across arbitrary problem maps;
+- discovering high-quality cell vectors without telemetry or human labels;
+- robustly learning from subjective outcomes unless they are mapped to measurable
+  proxies such as churn, satisfaction, resolution rate, incident severity, or
+  human-review labels.
+
+The honest product claim is narrower and stronger:
+
+> MANIFOLD Brain is an adaptive policy compiler for AI agents. It maps a task
+> into measurable cost/risk/asset features and chooses the next action more
+> safely and economically than naive fixed policies.
+
 ### 1. TrustRouter
 
 TrustRouter is the first niche product built on MANIFOLD. It maps an AI-agent or

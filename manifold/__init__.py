@@ -32,6 +32,7 @@ from .brainbench import (
     BrainBenchmarkReport,
     BrainLabelledTask,
     BrainPolicyScore,
+    load_brain_tasks_csv,
     run_brain_benchmark,
     sample_brain_tasks,
 )
@@ -102,6 +103,7 @@ __all__ = [
     "decide_task",
     "default_tools",
     "LabelledTask",
+    "load_brain_tasks_csv",
     "load_labelled_tasks_csv",
     "recommended_prices",
     "route_task",
