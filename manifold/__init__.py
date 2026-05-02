@@ -47,7 +47,7 @@ from .trustaudit import (
     run_support_trust_audit,
     sample_support_tasks,
 )
-from .research import ResearchFinding, ResearchReport, run_research_suite
+from .research import ResearchFinding, ResearchReport, run_research_suite, run_gossip_research_suite
 from .trustbench import (
     BenchmarkReport,
     LabelledTask,
@@ -134,6 +134,7 @@ __all__ = [
     "run_brain_benchmark",
     "run_trust_benchmark",
     "run_support_trust_audit",
+    "run_gossip_research_suite",
     "run_research_suite",
     "sample_brain_tasks",
     "sample_support_tasks",

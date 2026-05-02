@@ -290,6 +290,17 @@ class BrainMemory:
     # Gossip ingestion
     # ------------------------------------------------------------------
 
+    def _compute_gossip_weight(self, note: GossipNote) -> float:
+        """Return the effective influence weight for *note*.
+
+        w = clamp(source_reputation) × GOSSIP_DECAY_RATE^age_minutes × scout_discount
+        """
+        w = clamp01(note.source_reputation) * (self.GOSSIP_DECAY_RATE ** note.age_minutes)
+        if note.source_is_scout:
+            record = self.scout_tracker.setdefault(note.source_id, ScoutRecord())
+            w *= record.discount
+        return w
+
     def ingest_gossip(self, note: GossipNote, actual_outcome: bool | None = None) -> None:
         """Apply a weighted virtual update to a tool's memory from a gossip note.
 
@@ -311,10 +322,7 @@ class BrainMemory:
         If *actual_outcome* is supplied, the scout's prediction accuracy is
         logged so its discount can be adjusted over time.
         """
-        w = clamp01(note.source_reputation) * (self.GOSSIP_DECAY_RATE ** note.age_minutes)
-        if note.source_is_scout:
-            record = self.scout_tracker.setdefault(note.source_id, ScoutRecord())
-            w *= record.discount
+        w = self._compute_gossip_weight(note)
 
         virtual_success = 0.0 if note.claim == "failing" else 1.0
         self.update_tool_memory(

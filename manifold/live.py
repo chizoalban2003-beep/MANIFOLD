@@ -167,10 +167,10 @@ class GossipBus:
                 if item is _STOP:
                     return
                 envelope: _GossipEnvelope = item
-                age_minutes = (time.monotonic() - envelope.published_at) / 60.0
-                if age_minutes * 60.0 > self.ttl_seconds:
+                age_seconds = time.monotonic() - envelope.published_at
+                if age_seconds > self.ttl_seconds:
                     continue  # perishable note expired in transit; drop it
-                aged_note = dataclasses.replace(envelope.note, age_minutes=age_minutes)
+                aged_note = dataclasses.replace(envelope.note, age_minutes=age_seconds / 60.0)
                 memory.ingest_gossip(aged_note)
             finally:
                 q.task_done()
