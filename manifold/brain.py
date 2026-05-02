@@ -376,6 +376,183 @@ class BrainMemory:
         self.tool_stats[tool] = stats
 
 
+# ---------------------------------------------------------------------------
+# Phase 2: Price learning — inverse RL from observed outcomes
+# ---------------------------------------------------------------------------
+
+_FAILURE_BLAME_TABLE: dict[str, float] = {
+    "tool_error": 0.95,
+    "hallucination": 0.90,
+    "bad_data": 0.85,
+    "unknown": 0.50,
+    "user_abandon": 0.10,
+    "timeout": 0.15,
+    "rate_limit": 0.10,
+    "environment_noise": 0.05,
+}
+
+
+def attribute_to_tool(failure_mode: str) -> float:
+    """Return the probability [0, 1] that a failure was caused by the tool itself.
+
+    Used by ``PriceAdapter`` to weight observed cost/risk signals during
+    learning.  Environment-driven modes (timeout, rate_limit,
+    environment_noise) contribute little to the tool's learned price, while
+    tool-intrinsic modes (tool_error, hallucination) are attributed almost
+    entirely to the tool.
+
+    Parameters
+    ----------
+    failure_mode:
+        The ``BrainOutcome.failure_mode`` string from the outcome feedback.
+
+    Returns
+    -------
+    float
+        A blame weight in [0, 1].  Unrecognised modes return 0.50.
+    """
+    return _FAILURE_BLAME_TABLE.get(failure_mode, 0.50)
+
+
+@dataclass
+class LearnedPrices:
+    """Learned additive corrections to a tool's declared C/R/A prices.
+
+    Each delta is applied on top of the corresponding ``ToolProfile`` value:
+
+    * A positive ``cost_delta`` means the tool consistently costs more than
+      declared — future utility calculations will discount it accordingly.
+    * A positive ``risk_delta`` means the tool's realized risk exceeds its
+      stated ``risk`` field.
+    * A negative ``asset_delta`` means the tool delivers less value than
+      expected on success.
+    """
+
+    cost_delta: float = 0.0
+    risk_delta: float = 0.0
+    asset_delta: float = 0.0
+    n_observations: int = 0
+
+
+@dataclass
+class PriceAdapter:
+    """Inverse-RL price learner that infers true C/R/A from observed outcomes.
+
+    ``PriceAdapter`` sits alongside a ``ManifoldBrain`` and continuously
+    reconciles each tool's declared prices (cost, risk, asset) with what is
+    actually observed in ``BrainOutcome`` feedback.  Corrections are learned
+    via exponential moving averages (EMA), with causal attribution controlling
+    how much of each failure is charged to the tool vs the environment.
+
+    The three learning channels:
+
+    * **Cost** — always updated; we always pay cost regardless of success.
+    * **Risk** — weighted by the ``attribute_to_tool`` blame score so that
+      environment-driven failures (timeout, rate_limit) do not incorrectly
+      inflate a tool's learned risk.
+    * **Asset** — only updated on success; failure-path asset loss is already
+      captured by ``BrainMemory`` reliability tracking.
+
+    After ``min_observations`` have been accumulated, ``adapt()`` returns a
+    corrected ``ToolProfile`` whose prices reflect lived experience.  Before
+    that threshold, ``adapt()`` returns the original profile unchanged to
+    avoid over-reacting to sparse noise.
+
+    Parameters
+    ----------
+    lr:
+        EMA learning rate for price corrections.  Defaults to 0.12.
+    min_observations:
+        Minimum observations before ``adapt()`` applies corrections.
+        Defaults to 3.
+
+    Example
+    -------
+    ::
+
+        adapter = PriceAdapter()
+        brain = ManifoldBrain(config, tools=tools, price_adapter=adapter)
+
+        # After each decision/outcome cycle, the adapter silently updates.
+        decision = brain.decide(task)
+        brain.learn(task, decision, outcome)   # calls adapter.observe internally
+
+        # Inspect what was learned:
+        corrections = adapter.price_corrections()
+        print(corrections["web_search"].cost_delta)
+    """
+
+    lr: float = 0.12
+    min_observations: int = 3
+
+    _corrections: dict[str, LearnedPrices] = field(
+        default_factory=dict, init=False, repr=False
+    )
+
+    def observe(self, tool: ToolProfile, outcome: BrainOutcome) -> None:
+        """Update learned price corrections from an observed outcome.
+
+        Parameters
+        ----------
+        tool:
+            The ``ToolProfile`` that was used to produce *outcome*.
+        outcome:
+            The observed feedback from executing the tool.
+        """
+        corr = self._corrections.setdefault(tool.name, LearnedPrices())
+        blame = 1.0 if outcome.success else attribute_to_tool(outcome.failure_mode)
+
+        # Cost: compare observed cost_paid to declared cost + latency.
+        stated_cost = tool.cost + tool.latency
+        cost_gap = outcome.cost_paid - stated_cost
+        corr.cost_delta = corr.cost_delta * (1.0 - self.lr) + cost_gap * self.lr
+
+        # Risk: weight by causal blame so env noise doesn't taint tool risk.
+        risk_gap = outcome.risk_realized - tool.risk
+        corr.risk_delta = corr.risk_delta * (1.0 - self.lr) + risk_gap * self.lr * blame
+
+        # Asset: success path only — failure asset is handled by reliability.
+        if outcome.success:
+            asset_gap = outcome.asset_gained - tool.asset
+            corr.asset_delta = corr.asset_delta * (1.0 - self.lr) + asset_gap * self.lr
+
+        corr.n_observations += 1
+
+    def adapt(self, tool: ToolProfile) -> ToolProfile:
+        """Return a ``ToolProfile`` with learned price corrections applied.
+
+        Returns the original *tool* unchanged if fewer than
+        ``min_observations`` have been accumulated.
+
+        Parameters
+        ----------
+        tool:
+            The tool whose prices should be adjusted.
+
+        Returns
+        -------
+        ToolProfile
+            A new profile with corrected cost, risk, and asset, or the
+            original profile if there is insufficient data.
+        """
+        corr = self._corrections.get(tool.name)
+        if corr is None or corr.n_observations < self.min_observations:
+            return tool
+        return ToolProfile(
+            name=tool.name,
+            cost=clamp01(tool.cost + corr.cost_delta),
+            latency=tool.latency,
+            reliability=tool.reliability,
+            risk=clamp01(tool.risk + corr.risk_delta),
+            asset=clamp01(tool.asset + corr.asset_delta),
+            domain=tool.domain,
+        )
+
+    def price_corrections(self) -> dict[str, LearnedPrices]:
+        """Return a copy of all learned price corrections keyed by tool name."""
+        return dict(self._corrections)
+
+
 @dataclass
 class ManifoldBrain:
     """Adaptive meta-controller for agent decisions."""
@@ -383,6 +560,7 @@ class ManifoldBrain:
     config: BrainConfig = field(default_factory=BrainConfig)
     tools: list[ToolProfile] = field(default_factory=list)
     memory: BrainMemory = field(default_factory=BrainMemory)
+    price_adapter: PriceAdapter | None = None
 
     def decide(self, task: BrainTask) -> BrainDecision:
         task = task.normalized()
@@ -417,6 +595,10 @@ class ManifoldBrain:
 
     def learn(self, task: BrainTask, decision: BrainDecision, outcome: BrainOutcome) -> None:
         self.memory.update(task.normalized(), decision, outcome)
+        if self.price_adapter and decision.selected_tool:
+            tool = next((t for t in self.tools if t.name == decision.selected_tool), None)
+            if tool:
+                self.price_adapter.observe(tool, outcome)
 
     def map_task_to_world(self, task: BrainTask) -> GridWorld:
         size = self.config.grid_size
@@ -461,9 +643,11 @@ class ManifoldBrain:
             return None
         adjusted = []
         for tool in candidates:
-            reliability = clamp01(tool.reliability + self.memory.tool_reliability_adjustment(tool))
-            utility = tool.asset * reliability - tool.cost - tool.latency - tool.risk
-            adjusted.append((utility, tool))
+            # Use price-adapted profile for utility pricing if adapter has enough data.
+            effective = self.price_adapter.adapt(tool) if self.price_adapter else tool
+            reliability = clamp01(effective.reliability + self.memory.tool_reliability_adjustment(effective))
+            utility = effective.asset * reliability - effective.cost - effective.latency - effective.risk
+            adjusted.append((utility, tool))  # return original tool to preserve name/domain
         best_utility, best_tool = max(adjusted, key=lambda item: item[0])
         return best_tool if best_utility > 0.0 else None
 

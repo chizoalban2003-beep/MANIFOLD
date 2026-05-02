@@ -25,9 +25,12 @@ from .brain import (
     BrainOutcome,
     BrainTask,
     GossipNote,
+    LearnedPrices,
     ManifoldBrain,
+    PriceAdapter,
     ScoutRecord,
     ToolProfile,
+    attribute_to_tool,
     decide_task,
     default_tools,
 )
@@ -47,7 +50,7 @@ from .trustaudit import (
     run_support_trust_audit,
     sample_support_tasks,
 )
-from .research import ResearchFinding, ResearchReport, run_research_suite, run_gossip_research_suite
+from .research import ResearchFinding, ResearchReport, run_research_suite, run_gossip_research_suite, run_price_learning_suite
 from .trustbench import (
     BenchmarkReport,
     LabelledTask,
@@ -97,10 +100,12 @@ __all__ = [
     "GridWorld",
     "LifeResult",
     "LiveBrain",
+    "LearnedPrices",
     "ManifoldExperiment",
     "ManifoldBrain",
     "PolicyAudit",
     "PolicyScore",
+    "PriceAdapter",
     "Rule",
     "ResearchFinding",
     "ResearchReport",
@@ -119,6 +124,7 @@ __all__ = [
     "TrustRouterDecision",
     "ToolProfile",
     "VectorGenome",
+    "attribute_to_tool",
     "compile_policy_audit",
     "config_for_preset",
     "decide_task",
@@ -135,6 +141,7 @@ __all__ = [
     "run_trust_benchmark",
     "run_support_trust_audit",
     "run_gossip_research_suite",
+    "run_price_learning_suite",
     "run_research_suite",
     "sample_brain_tasks",
     "sample_support_tasks",

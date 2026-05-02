@@ -28,7 +28,19 @@ from dataclasses import dataclass
 import random
 from statistics import fmean
 
-from .brain import BrainConfig, BrainMemory, BrainOutcome, BrainTask, GossipNote, ManifoldBrain, default_tools
+from .brain import (
+    BrainConfig,
+    BrainMemory,
+    BrainOutcome,
+    BrainTask,
+    GossipNote,
+    ManifoldBrain,
+    PriceAdapter,
+    ScoutRecord,
+    ToolProfile,
+    attribute_to_tool,
+    default_tools,
+)
 from .brainbench import BrainLabelledTask, run_brain_benchmark, sample_brain_tasks
 
 
@@ -346,7 +358,6 @@ def sybil_resilience_probe(seed: int = 2500, n_agents: int = 30) -> ResearchFind
     scout_agents = _make_agents(n_agents)
 
     # Give scout_agents a ScoutRecord for "bad_actor" so the discount is applied.
-    from .brain import ScoutRecord
     for mem in scout_agents:
         mem.scout_tracker["bad_actor"] = ScoutRecord()  # 0 predictions → discount=0.7
 
@@ -410,7 +421,6 @@ def social_recovery_probe(seed: int = 2500, n_agents: int = 30) -> ResearchFindi
         }
         # Give each agent a promoted ScoutRecord for the three veteran scouts
         # so their discount is 0.9 instead of the default 0.7.
-        from .brain import ScoutRecord
         for scout_id in ("scout_alpha", "scout_beta", "scout_gamma"):
             record = ScoutRecord()
             record._predictions = [True] * 50  # 50 correct predictions → promoted
@@ -471,5 +481,181 @@ def run_gossip_research_suite(seed: int = 2500, n_agents: int = 30) -> ResearchR
             "Veteran-scout 'healthy' notes restore tool reputation significantly faster than temporal decay alone.",
             "These properties emerge from the weight formula w = reputation × 0.97^age × scout_discount, not from ad-hoc rules.",
             "The social layer hardens collective intelligence against both deception and stale information.",
+        ),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Phase 2 research probes: learning prices from outcomes (inverse RL)
+# ---------------------------------------------------------------------------
+
+
+def price_convergence_probe(seed: int = 2500, n_rounds: int = 35) -> ResearchFinding:
+    """Test whether ``PriceAdapter`` converges ``cost_delta`` toward the true cost gap.
+
+    A tool is declared with ``cost=0.10`` but consistently observes
+    ``cost_paid=0.35`` (gap = 0.25).  After *n_rounds* of EMA updates with
+    ``lr=0.12``::
+
+        cost_delta ≈ 0.25 × (1 − 0.88^n_rounds)
+
+    For n_rounds=35: cost_delta ≈ 0.247, well above the 0.15 pass threshold
+    (60% convergence), demonstrating Phase 2 automatic price discovery from
+    raw outcome observations — no human labelling required.
+    """
+    adapter = PriceAdapter()
+    tool = ToolProfile(
+        "benchmark_api",
+        cost=0.10, latency=0.0, reliability=0.85, risk=0.05, asset=0.70, domain="general",
+    )
+    true_cost_paid = 0.35
+    for _ in range(n_rounds):
+        adapter.observe(tool, BrainOutcome(
+            success=True,
+            cost_paid=true_cost_paid,
+            risk_realized=0.05,
+            asset_gained=0.70,
+        ))
+    cost_delta = adapter.price_corrections()["benchmark_api"].cost_delta
+    gap = true_cost_paid - tool.cost
+    convergence_pct = 100.0 * cost_delta / gap if gap > 0 else 0.0
+    return ResearchFinding(
+        name="price_convergence",
+        metric=cost_delta,
+        passed=cost_delta >= 0.15,
+        interpretation=(
+            f"After {n_rounds} observations, cost_delta={cost_delta:.3f} "
+            f"(true gap={gap:.2f}, convergence={convergence_pct:.0f}%). "
+            "PriceAdapter successfully infers true cost from observed outcomes, "
+            "enabling automatic price discovery without hand-labelling."
+        ),
+    )
+
+
+def causal_attribution_probe(seed: int = 2500, n_rounds: int = 35) -> ResearchFinding:
+    """Test that ``tool_error`` failures build far more ``risk_delta`` than ``environment_noise``.
+
+    Two identical tools both observe ``risk_realized=0.80`` (vs stated 0.10)
+    but under different failure modes: one sees only ``tool_error``
+    (blame=0.95), the other only ``environment_noise`` (blame=0.05).
+
+    Expected ratio ≈ 0.95 / 0.05 = 19.  The probe passes when the ratio
+    exceeds 10, confirming that causal attribution correctly insulates a
+    tool's learned risk price from environment noise.
+    """
+    tool_kwargs = dict(cost=0.10, latency=0.0, reliability=0.85, risk=0.10, asset=0.70, domain="general")
+    tool_a = ToolProfile("api_tool_error", **tool_kwargs)
+    tool_b = ToolProfile("api_env_noise", **tool_kwargs)
+    adapter_a = PriceAdapter()
+    adapter_b = PriceAdapter()
+
+    base = dict(success=False, cost_paid=0.10, risk_realized=0.80, asset_gained=0.0)
+    tool_error_outcome = BrainOutcome(**base, failure_mode="tool_error")
+    env_outcome = BrainOutcome(**base, failure_mode="environment_noise")
+
+    for _ in range(n_rounds):
+        adapter_a.observe(tool_a, tool_error_outcome)
+        adapter_b.observe(tool_b, env_outcome)
+
+    delta_a = adapter_a.price_corrections()["api_tool_error"].risk_delta
+    delta_b = adapter_b.price_corrections()["api_env_noise"].risk_delta
+    ratio = delta_a / max(delta_b, 1e-9)
+    return ResearchFinding(
+        name="causal_attribution",
+        metric=ratio,
+        passed=ratio >= 10.0,
+        interpretation=(
+            f"tool_error failures build {ratio:.1f}× more risk_delta than "
+            f"environment_noise failures (delta_tool={delta_a:.3f}, delta_env={delta_b:.3f}). "
+            "Causal attribution correctly insulates tool prices from environmental effects "
+            "so a tool's learned risk score reflects intrinsic failure modes only."
+        ),
+    )
+
+
+def adaptation_improves_selection_probe(seed: int = 2500, n_rounds: int = 35) -> ResearchFinding:
+    """Test that ``PriceAdapter`` integration stops a brain selecting a prohibitively expensive tool.
+
+    A tool has stated ``cost=0.05`` (stated utility=0.30 > 0 → selected) but
+    true ``cost_paid=0.45`` (true utility≈-0.09 < 0 → should not be selected).
+
+    After *n_rounds* of burn-in, the brain should stop selecting the tool
+    because the adapted cost makes its utility negative.
+
+    Pass condition: baseline selects the tool; post-burn-in does not.
+    """
+    tool = ToolProfile(
+        "pricey_lookup",
+        cost=0.05, latency=0.0, reliability=0.80, risk=0.05, asset=0.50, domain="general",
+    )
+    # Stated: utility = 0.50 × 0.80 − 0.05 − 0.05 = 0.30 > 0  (selected)
+    # True:   utility = 0.50 × 0.80 − 0.45 − 0.05 ≈ −0.10 < 0  (should not be selected)
+    cfg = BrainConfig(generations=2, population_size=12, grid_size=5, seed=seed)
+    adapter = PriceAdapter()
+    brain = ManifoldBrain(cfg, tools=[tool], price_adapter=adapter)
+    task = BrainTask(
+        "lookup", domain="general", tool_relevance=0.90,
+        source_confidence=0.80, uncertainty=0.3, stakes=0.5,
+    )
+    baseline_selection = brain.select_tool(task)
+    for _ in range(n_rounds):
+        adapter.observe(tool, BrainOutcome(
+            success=True, cost_paid=0.45, risk_realized=0.05, asset_gained=0.50,
+        ))
+    post_selection = brain.select_tool(task)
+    passed = baseline_selection is not None and post_selection is None
+    cost_delta = adapter.price_corrections()["pricey_lookup"].cost_delta
+    return ResearchFinding(
+        name="adaptation_improves_selection",
+        metric=cost_delta,
+        passed=passed,
+        interpretation=(
+            f"Before burn-in: tool {'selected' if baseline_selection else 'not selected'}. "
+            f"After {n_rounds} observations (cost_delta={cost_delta:.3f}): "
+            f"tool {'selected' if post_selection else 'not selected'}. "
+            "PriceAdapter correctly identifies and avoids prohibitively expensive tools, "
+            "demonstrating that learned prices feed back into real-time decisions."
+        ),
+    )
+
+
+def run_price_learning_suite(seed: int = 2500, n_rounds: int = 35) -> ResearchReport:
+    """Run Phase 2 research probes: inverse RL price learning from outcomes.
+
+    Three bounded experiments validate MANIFOLD's ability to infer true tool
+    prices (C, R, A) from observed ``BrainOutcome`` feedback, closing the
+    "auto-mapping gap" described in the Phase 2 roadmap:
+
+    1. **Price convergence** — cost corrections converge toward the true gap
+       within 35 EMA updates, no human labelling needed.
+    2. **Causal attribution** — environment noise is correctly separated from
+       tool-intrinsic failures in the learned risk correction (>10× signal
+       ratio).
+    3. **Adaptation improves selection** — a brain with ``PriceAdapter`` stops
+       selecting a tool once its true cost has been learned to be
+       utility-negative.
+
+    Parameters
+    ----------
+    seed:
+        Random seed (for reproducibility; not currently used in probes but
+        passed for future stochastic variants).
+    n_rounds:
+        Number of simulated observation rounds for convergence probes.
+        Defaults to 35.
+    """
+    findings = (
+        price_convergence_probe(seed, n_rounds),
+        causal_attribution_probe(seed, n_rounds),
+        adaptation_improves_selection_probe(seed, n_rounds),
+    )
+    return ResearchReport(
+        findings=findings,
+        honest_summary=(
+            "PriceAdapter learns true tool costs within 35 EMA steps — no human labelling required.",
+            "Causal attribution isolates tool-intrinsic risk from environment noise with a >10× signal ratio.",
+            "Learned prices feed back into real-time tool selection, steering agents away from expensive tools.",
+            "Phase 2 closes the cost/risk auto-mapping gap: MANIFOLD now infers C and R from experience.",
+            "The remaining gap to general intelligence: MANIFOLD still cannot discover A (asset value) without an external goal model.",
         ),
     )
