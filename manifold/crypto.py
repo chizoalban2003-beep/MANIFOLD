@@ -123,7 +123,7 @@ class PolicySigningKey:
 
     @classmethod
     def from_passphrase(cls, passphrase: str, key_id: str = "default") -> "PolicySigningKey":
-        """Derive a deterministic key from a passphrase via SHA-256.
+        """Derive a deterministic key from a passphrase via PBKDF2-HMAC-SHA256.
 
         Parameters
         ----------
@@ -136,7 +136,13 @@ class PolicySigningKey:
         -------
         PolicySigningKey
         """
-        digest = hashlib.sha256(passphrase.encode()).digest()
+        digest = hashlib.pbkdf2_hmac(
+            "sha256",
+            passphrase.encode(),
+            b"manifold-policy-salt",
+            100_000,
+            dklen=32,
+        )
         return cls(key_id=key_id, secret=digest)
 
     def sign(self, data: bytes) -> str:
