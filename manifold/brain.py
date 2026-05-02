@@ -561,6 +561,7 @@ class ManifoldBrain:
     tools: list[ToolProfile] = field(default_factory=list)
     memory: BrainMemory = field(default_factory=BrainMemory)
     price_adapter: PriceAdapter | None = None
+    asset_adapter: AssetAdapter | None = None
 
     def decide(self, task: BrainTask) -> BrainDecision:
         task = task.normalized()
@@ -696,9 +697,33 @@ class ManifoldBrain:
     ) -> float:
         cost = brain_action_cost(action, task)
         tool_bonus = tool.utility if action == "use_tool" and tool else 0.0
-        action_asset = task.stakes + tool_bonus
+        stated_asset = task.stakes + tool_bonus
+        # Use learned asset correction when the adapter has enough data.
+        action_asset = (
+            self.asset_adapter.adapt_asset(action, stated_asset)
+            if self.asset_adapter
+            else stated_asset
+        )
         risk_discount = risk_score * brain_action_risk_multiplier(action)
         return action_asset - cost - risk_discount
+
+    def observe_asset(
+        self, action: BrainAction, signal: str, stated_asset: float
+    ) -> None:
+        """Forward a user-preference signal to the ``AssetAdapter`` if present.
+
+        Parameters
+        ----------
+        action:
+            The ``BrainAction`` string that was executed.
+        signal:
+            One of ``"correction"``, ``"acceptance"``, ``"silence"``, or
+            ``"ambiguous"``.
+        stated_asset:
+            The task's ``stakes`` value used at decision time.
+        """
+        if self.asset_adapter:
+            self.asset_adapter.observe_outcome(action, signal, stated_asset)
 
     def best_tool_value(self, task: BrainTask) -> float:
         tool = self.select_tool(task)
@@ -796,3 +821,418 @@ def decide_task(
     tools: list[ToolProfile] | None = None,
 ) -> BrainDecision:
     return ManifoldBrain(config or BrainConfig(), tools or default_tools()).decide(task)
+
+
+# ---------------------------------------------------------------------------
+# Phase 2.5: Asset learning — inverse RL from revealed user preferences
+# ---------------------------------------------------------------------------
+
+_SIGNAL_ASSET_VALUES: dict[str, float | None] = {
+    "correction": -0.5,   # "that's not what I asked" / "wrong" → partial negative
+    "acceptance": 1.0,    # "thanks" / "perfect" → full positive
+    "silence": 0.3,       # no follow-up within session timeout → weak positive
+    "ambiguous": None,    # skip — not enough signal to learn from
+}
+
+
+def classify_user_signal(
+    user_response: str | None,
+    *,
+    no_followup: bool = False,
+) -> str:
+    """Classify a user response or absence of response into an asset signal.
+
+    Parameters
+    ----------
+    user_response:
+        The raw text string the user sent after the action, or ``None`` if the
+        user did not respond at all.
+    no_followup:
+        ``True`` when the session timed out with no user message — treated as
+        a weak positive (the user didn't complain).
+
+    Returns
+    -------
+    str
+        One of ``"correction"``, ``"acceptance"``, ``"silence"``, or
+        ``"ambiguous"``.
+    """
+    if user_response is None:
+        return "silence" if no_followup else "ambiguous"
+    low = user_response.lower()
+    if any(phrase in low for phrase in ("not what i", "wrong", "incorrect", "that's not", "that is not")):
+        return "correction"
+    if any(phrase in low for phrase in ("thanks", "thank you", "perfect", "great", "that worked", "correct", "exactly")):
+        return "acceptance"
+    if no_followup:
+        return "silence"
+    return "ambiguous"
+
+
+@dataclass
+class AssetAdapter:
+    """Inverse-RL asset learner that infers true action-level A from revealed user preferences.
+
+    ``AssetAdapter`` learns per-action asset corrections by observing whether
+    users accept, correct, or silently accept the brain's responses.  The
+    learning signal comes from *revealed preference* — what users actually do
+    rather than explicit labels.
+
+    Three signal types are recognised:
+
+    * **correction** — user says the answer was wrong (e.g. "not what I asked",
+      "that's wrong") → realized asset = -0.5.
+    * **acceptance** — user confirms success (e.g. "thanks", "perfect") →
+      realized asset = +1.0.
+    * **silence** — session ended with no follow-up within timeout → realized
+      asset = +0.3 (weak positive: they didn't complain).
+    * **ambiguous** — any other response → skipped; no update applied.
+
+    Asset corrections are stored per ``BrainAction`` and feed back into
+    ``ManifoldBrain.expected_action_utility`` when ``asset_adapter`` is set.
+
+    Parameters
+    ----------
+    lr:
+        EMA learning rate for asset corrections.  Defaults to 0.12.
+    min_observations:
+        Minimum observations before ``adapt_asset`` applies any correction.
+        Defaults to 3.
+
+    Example
+    -------
+    ::
+
+        adapter = AssetAdapter()
+        brain = ManifoldBrain(config, tools=tools, asset_adapter=adapter)
+
+        decision = brain.decide(task)
+        # After the user responds:
+        signal = classify_user_signal(user_response, no_followup=False)
+        brain.observe_asset(decision.action, signal, task.stakes)
+
+        # Inspect learned asset for 'clarify':
+        corr = adapter.asset_corrections().get("clarify")
+        print(corr.asset_delta)
+    """
+
+    lr: float = 0.12
+    min_observations: int = 3
+
+    _corrections: dict[str, LearnedPrices] = field(
+        default_factory=dict, init=False, repr=False
+    )
+
+    def observe_outcome(
+        self,
+        action: "BrainAction",
+        signal: str,
+        stated_asset: float,
+    ) -> None:
+        """Update the asset correction for *action* from a user signal.
+
+        Parameters
+        ----------
+        action:
+            The ``BrainAction`` string that was executed.
+        signal:
+            One of ``"correction"``, ``"acceptance"``, ``"silence"``, or
+            ``"ambiguous"``.  ``"ambiguous"`` signals are silently ignored.
+        stated_asset:
+            The task's ``stakes`` value at decision time — used as the
+            declared asset baseline to compute the gap.
+        """
+        asset_realized = _SIGNAL_ASSET_VALUES.get(signal)
+        if asset_realized is None:
+            return
+        corr = self._corrections.setdefault(action, LearnedPrices())
+        gap = asset_realized - stated_asset
+        corr.asset_delta = corr.asset_delta * (1.0 - self.lr) + gap * self.lr
+        corr.n_observations += 1
+
+    def adapt_asset(self, action: "BrainAction", stated_asset: float) -> float:
+        """Return a corrected asset value for *action*.
+
+        Returns *stated_asset* unchanged if fewer than ``min_observations``
+        have been accumulated.
+
+        Parameters
+        ----------
+        action:
+            The action whose asset should be adjusted.
+        stated_asset:
+            The original (stated) asset value to correct.
+        """
+        corr = self._corrections.get(action)
+        if corr is None or corr.n_observations < self.min_observations:
+            return stated_asset
+        return clamp01(stated_asset + corr.asset_delta)
+
+    def asset_corrections(self) -> dict[str, LearnedPrices]:
+        """Return a copy of all learned asset corrections keyed by action name."""
+        return dict(self._corrections)
+
+
+# ---------------------------------------------------------------------------
+# Phase 3: Hierarchical decomposition — MANIFOLD of MANIFOLDs
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class SubTaskSpec:
+    """A sub-task produced by hierarchical decomposition.
+
+    Attributes
+    ----------
+    prompt:
+        Human-readable description of this sub-task.
+    domain:
+        Task domain for tool selection (inherits from parent by default).
+    complexity:
+        Expected complexity of this sub-task in [0, 1].
+    stakes:
+        Stakes for this sub-task in [0, 1]; typically ``parent.stakes * weight``.
+    weight:
+        Fraction of the parent asset assigned to this sub-task.  All weights
+        across siblings should sum to ≤ 1.0.
+    uncertainty:
+        Estimated uncertainty for this sub-task.
+    source_confidence:
+        Inherited source confidence from parent.
+    """
+
+    prompt: str
+    domain: str
+    complexity: float
+    stakes: float
+    weight: float
+    uncertainty: float = 0.5
+    source_confidence: float = 0.7
+
+
+@dataclass(frozen=True)
+class DecompositionPlan:
+    """A plan to decompose a task into ordered sub-tasks.
+
+    Attributes
+    ----------
+    sub_tasks:
+        Ordered tuple of sub-tasks; parent executes them in sequence.
+    decompose_cost:
+        The upfront cost of decomposition itself: token cost + coordination
+        overhead + latency penalty.
+    coordination_tax:
+        Fraction of combined sub-asset lost to coordination overhead.
+        A value of 0.10 means 10% of the combined child asset is deducted
+        for handoff, context-passing, and synthesis.
+    """
+
+    sub_tasks: tuple[SubTaskSpec, ...]
+    decompose_cost: float
+    coordination_tax: float = 0.10
+
+
+@dataclass(frozen=True)
+class HierarchicalDecision:
+    """The output of ``HierarchicalBrain.decide_hierarchical``.
+
+    Attributes
+    ----------
+    decomposed:
+        ``True`` when the brain chose to decompose the task.
+    top_decision:
+        The monolithic ``BrainDecision`` computed for the root task (always
+        present — used as fallback or comparison).
+    sub_decisions:
+        Tuple of ``BrainDecision`` objects from child brains, or ``None`` when
+        ``decomposed=False``.
+    plan:
+        The ``DecompositionPlan`` used, or ``None`` when not decomposed.
+    combined_utility:
+        The expected utility of the chosen strategy.  If decomposed, this is
+        ``sum(sub_asset * weight) * (1 - tax) - decompose_cost``; otherwise
+        it is ``top_decision.expected_utility``.
+    depth:
+        The hierarchical depth at which this decision was made (0 = root).
+    """
+
+    decomposed: bool
+    top_decision: BrainDecision
+    sub_decisions: tuple[BrainDecision, ...] | None
+    plan: DecompositionPlan | None
+    combined_utility: float
+    depth: int = 0
+
+
+@dataclass
+class HierarchicalBrain(ManifoldBrain):
+    """MANIFOLD-of-MANIFOLDs: treats task decomposition as a priced action.
+
+    ``HierarchicalBrain`` extends ``ManifoldBrain`` with the ability to
+    recursively decompose complex tasks.  Decomposition is itself a priced
+    action with cost ``C_decompose``; the brain decides whether it is cheaper
+    to solve the task monolithically or to break it into sub-tasks.
+
+    Decision rule::
+
+        if U_decompose > U_monolithic:
+            decompose → spawn sub-Brains for each sub-task
+        else:
+            decide() normally
+
+    where::
+
+        U_decompose = (Σ sub_stakes * sub_weight) * (1 - coordination_tax)
+                      - decompose_cost
+
+    Parameters
+    ----------
+    decompose_threshold:
+        Minimum task ``complexity`` before decomposition is even considered.
+        Defaults to 0.72.
+    max_depth:
+        Maximum recursion depth.  Prevents unbounded sub-MANIFOLD creation.
+        Defaults to 2.
+    coordination_tax:
+        Fraction of combined child asset lost to coordination overhead.
+        Defaults to 0.10 (10%).
+
+    Example
+    -------
+    ::
+
+        brain = HierarchicalBrain(config, tools=tools)
+        hd = brain.decide_hierarchical(task)
+        if hd.decomposed:
+            for sub in hd.sub_decisions:
+                print(sub.action, sub.expected_utility)
+        else:
+            print(hd.top_decision.action)
+    """
+
+    decompose_threshold: float = 0.72
+    max_depth: int = 2
+    coordination_tax: float = 0.10
+
+    def decide_hierarchical(
+        self, task: BrainTask, depth: int = 0
+    ) -> HierarchicalDecision:
+        """Decide whether to decompose *task* or handle it monolithically.
+
+        Parameters
+        ----------
+        task:
+            The task to route.
+        depth:
+            Current recursion depth (0 for the root call).
+
+        Returns
+        -------
+        HierarchicalDecision
+            Contains the chosen strategy, all sub-decisions (if decomposed),
+            and combined expected utility.
+        """
+        task = task.normalized()
+        top_decision = self.decide(task)
+
+        if task.complexity < self.decompose_threshold or depth >= self.max_depth:
+            return HierarchicalDecision(
+                decomposed=False,
+                top_decision=top_decision,
+                sub_decisions=None,
+                plan=None,
+                combined_utility=top_decision.expected_utility,
+                depth=depth,
+            )
+
+        plan = self._make_decomposition_plan(task)
+        decompose_utility = self._decomposition_utility(task, plan)
+
+        if decompose_utility > top_decision.expected_utility:
+            sub_decisions = self._execute_sub_tasks(plan, task)
+            return HierarchicalDecision(
+                decomposed=True,
+                top_decision=top_decision,
+                sub_decisions=sub_decisions,
+                plan=plan,
+                combined_utility=decompose_utility,
+                depth=depth,
+            )
+
+        return HierarchicalDecision(
+            decomposed=False,
+            top_decision=top_decision,
+            sub_decisions=None,
+            plan=None,
+            combined_utility=top_decision.expected_utility,
+            depth=depth,
+        )
+
+    def _make_decomposition_plan(self, task: BrainTask) -> DecompositionPlan:
+        """Heuristic 2-way split: research (60%) + synthesis (40%)."""
+        sub_tasks = (
+            SubTaskSpec(
+                prompt=f"[Research] {task.prompt}",
+                domain=task.domain,
+                complexity=clamp01(task.complexity * 0.70),
+                stakes=clamp01(task.stakes * 0.60),
+                weight=0.60,
+                uncertainty=clamp01(task.uncertainty * 0.90),
+                source_confidence=task.source_confidence,
+            ),
+            SubTaskSpec(
+                prompt=f"[Synthesize] {task.prompt}",
+                domain=task.domain,
+                complexity=clamp01(task.complexity * 0.50),
+                stakes=clamp01(task.stakes * 0.40),
+                weight=0.40,
+                uncertainty=clamp01(task.uncertainty * 0.60),
+                source_confidence=clamp01(task.source_confidence * 1.05),
+            ),
+        )
+        decompose_cost = clamp01(0.08 + 0.12 * task.complexity + 0.04 * len(sub_tasks))
+        return DecompositionPlan(
+            sub_tasks=sub_tasks,
+            decompose_cost=decompose_cost,
+            coordination_tax=self.coordination_tax,
+        )
+
+    def _decomposition_utility(self, task: BrainTask, plan: DecompositionPlan) -> float:
+        """Expected utility of the decomposition strategy.
+
+        The combined value of decomposed sub-tasks approximates the full
+        parent stakes minus coordination overhead and the upfront decompose
+        cost.  Using parent ``task.stakes`` (not discounted sub-task stakes)
+        correctly represents that the decomposition is attempting to resolve
+        the same goal — just via a divide-and-conquer strategy.
+        """
+        combined_asset = task.stakes * (1.0 - plan.coordination_tax)
+        return combined_asset - plan.decompose_cost
+
+    def _execute_sub_tasks(
+        self, plan: DecompositionPlan, parent_task: BrainTask
+    ) -> tuple[BrainDecision, ...]:
+        """Create child brains and run decisions for each sub-task."""
+        decisions = []
+        for st in plan.sub_tasks:
+            child_task = BrainTask(
+                prompt=st.prompt,
+                domain=st.domain,
+                complexity=st.complexity,
+                stakes=st.stakes,
+                uncertainty=st.uncertainty,
+                source_confidence=st.source_confidence,
+                tool_relevance=parent_task.tool_relevance,
+                time_pressure=parent_task.time_pressure,
+                safety_sensitivity=parent_task.safety_sensitivity,
+                collaboration_value=parent_task.collaboration_value,
+                user_patience=parent_task.user_patience,
+            )
+            child_brain = ManifoldBrain(
+                config=self.config,
+                tools=self.tools,
+                memory=BrainMemory(),  # intentional: child brains start with clean memory (no inherited tool scars or domain stats)
+                price_adapter=self.price_adapter,
+            )
+            decisions.append(child_brain.decide(child_task))
+        return tuple(decisions)

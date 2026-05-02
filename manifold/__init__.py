@@ -19,18 +19,24 @@ from .trustrouter import (
 )
 from .live import GossipBus, LiveBrain
 from .brain import (
+    AssetAdapter,
     BrainConfig,
     BrainDecision,
     BrainMemory,
     BrainOutcome,
     BrainTask,
+    DecompositionPlan,
     GossipNote,
+    HierarchicalBrain,
+    HierarchicalDecision,
     LearnedPrices,
     ManifoldBrain,
     PriceAdapter,
     ScoutRecord,
+    SubTaskSpec,
     ToolProfile,
     attribute_to_tool,
+    classify_user_signal,
     decide_task,
     default_tools,
 )
@@ -50,7 +56,15 @@ from .trustaudit import (
     run_support_trust_audit,
     sample_support_tasks,
 )
-from .research import ResearchFinding, ResearchReport, run_research_suite, run_gossip_research_suite, run_price_learning_suite
+from .research import (
+    ResearchFinding,
+    ResearchReport,
+    run_asset_learning_suite,
+    run_gossip_research_suite,
+    run_hierarchical_suite,
+    run_price_learning_suite,
+    run_research_suite,
+)
 from .trustbench import (
     BenchmarkReport,
     LabelledTask,
@@ -81,6 +95,7 @@ from .social import (
 
 __all__ = [
     "AgentPopulation",
+    "AssetAdapter",
     "BrainBenchmarkReport",
     "BrainConfig",
     "BrainDecision",
@@ -91,6 +106,7 @@ __all__ = [
     "BrainTask",
     "BenchmarkReport",
     "CellVector",
+    "DecompositionPlan",
     "DialogueTask",
     "DynamicTarget",
     "GenerationSummary",
@@ -98,6 +114,8 @@ __all__ = [
     "GossipNote",
     "GridOptimizationResult",
     "GridWorld",
+    "HierarchicalBrain",
+    "HierarchicalDecision",
     "LifeResult",
     "LiveBrain",
     "LearnedPrices",
@@ -115,6 +133,7 @@ __all__ = [
     "SocialGenerationSummary",
     "SocialGenome",
     "SocialManifoldExperiment",
+    "SubTaskSpec",
     "TrustLearningMemory",
     "TrustAuditConfig",
     "TrustAuditFinding",
@@ -125,6 +144,7 @@ __all__ = [
     "ToolProfile",
     "VectorGenome",
     "attribute_to_tool",
+    "classify_user_signal",
     "compile_policy_audit",
     "config_for_preset",
     "decide_task",
@@ -135,7 +155,9 @@ __all__ = [
     "load_labelled_tasks_csv",
     "recommended_prices",
     "route_task",
+    "run_asset_learning_suite",
     "run_experiment",
+    "run_hierarchical_suite",
     "run_social_experiment",
     "run_brain_benchmark",
     "run_trust_benchmark",

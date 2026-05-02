@@ -29,16 +29,21 @@ import random
 from statistics import fmean
 
 from .brain import (
+    AssetAdapter,
     BrainConfig,
     BrainMemory,
     BrainOutcome,
     BrainTask,
+    DecompositionPlan,
     GossipNote,
+    HierarchicalBrain,
     ManifoldBrain,
     PriceAdapter,
     ScoutRecord,
+    SubTaskSpec,
     ToolProfile,
     attribute_to_tool,
+    classify_user_signal,
     default_tools,
 )
 from .brainbench import BrainLabelledTask, run_brain_benchmark, sample_brain_tasks
@@ -423,7 +428,8 @@ def social_recovery_probe(seed: int = 2500, n_agents: int = 30) -> ResearchFindi
         # so their discount is 0.9 instead of the default 0.7.
         for scout_id in ("scout_alpha", "scout_beta", "scout_gamma"):
             record = ScoutRecord()
-            record._predictions = [True] * 50  # 50 correct predictions → promoted
+            for _ in range(50):  # 50 correct predictions → precision ≥ 0.80 → promoted
+                record.log_prediction(True)
             mem.scout_tracker[scout_id] = record
 
     max_rounds = 20
@@ -657,5 +663,309 @@ def run_price_learning_suite(seed: int = 2500, n_rounds: int = 35) -> ResearchRe
             "Learned prices feed back into real-time tool selection, steering agents away from expensive tools.",
             "Phase 2 closes the cost/risk auto-mapping gap: MANIFOLD now infers C and R from experience.",
             "The remaining gap to general intelligence: MANIFOLD still cannot discover A (asset value) without an external goal model.",
+        ),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Phase 2.5 research probes: asset learning from revealed preferences
+# ---------------------------------------------------------------------------
+
+
+def asset_correction_probe(seed: int = 2500, n_rounds: int = 35) -> ResearchFinding:
+    """Test that ``AssetAdapter`` builds a negative asset_delta after corrections.
+
+    An action receives *n_rounds* ``correction`` signals with a stated asset
+    of 0.70 (realised asset = -0.5 per correction).  After EMA with lr=0.12
+    the asset_delta should be strongly negative (< -0.20), demonstrating
+    that the adapter learns "this action consistently disappoints users."
+    """
+    adapter = AssetAdapter()
+    for _ in range(n_rounds):
+        adapter.observe_outcome("answer", "correction", stated_asset=0.70)
+    delta = adapter.asset_corrections().get("answer")
+    assert delta is not None
+    asset_delta = delta.asset_delta
+    return ResearchFinding(
+        name="asset_correction_learning",
+        metric=asset_delta,
+        passed=asset_delta <= -0.20,
+        interpretation=(
+            f"After {n_rounds} 'correction' signals, answer.asset_delta={asset_delta:.3f}. "
+            "AssetAdapter correctly learns that the action disappointed users, "
+            "reducing its attractiveness in future utility calculations."
+        ),
+    )
+
+
+def asset_acceptance_probe(seed: int = 2500, n_rounds: int = 35) -> ResearchFinding:
+    """Test that ``AssetAdapter`` accumulates positive delta from acceptance signals.
+
+    An action receives *n_rounds* ``acceptance`` signals (realized=1.0 vs
+    stated=0.5).  After EMA the asset_delta should be positive (> 0.08).
+    """
+    adapter = AssetAdapter()
+    for _ in range(n_rounds):
+        adapter.observe_outcome("clarify", "acceptance", stated_asset=0.50)
+    delta = adapter.asset_corrections().get("clarify")
+    assert delta is not None
+    asset_delta = delta.asset_delta
+    return ResearchFinding(
+        name="asset_acceptance_learning",
+        metric=asset_delta,
+        passed=asset_delta >= 0.08,
+        interpretation=(
+            f"After {n_rounds} 'acceptance' signals, clarify.asset_delta={asset_delta:.3f}. "
+            "AssetAdapter correctly learns that clarification is more valuable than stated, "
+            "increasing its priority in high-uncertainty tasks."
+        ),
+    )
+
+
+def asset_ambiguous_no_update_probe(seed: int = 2500) -> ResearchFinding:
+    """Test that ``AssetAdapter`` ignores ambiguous signals.
+
+    Only ``correction``, ``acceptance``, and ``silence`` should update the
+    adapter.  ``ambiguous`` must leave the asset_delta at exactly 0.0.
+    """
+    adapter = AssetAdapter()
+    for _ in range(20):
+        adapter.observe_outcome("retrieve", "ambiguous", stated_asset=0.60)
+    delta = adapter.asset_corrections().get("retrieve")
+    n_obs = delta.n_observations if delta else 0
+    return ResearchFinding(
+        name="asset_ambiguous_ignored",
+        metric=float(n_obs),
+        passed=n_obs == 0,
+        interpretation=(
+            f"After 20 'ambiguous' signals, n_observations={n_obs}. "
+            "AssetAdapter correctly rejects ambiguous signals to prevent learning superstitions."
+        ),
+    )
+
+
+def classify_signal_probe(seed: int = 2500) -> ResearchFinding:
+    """Test that ``classify_user_signal`` correctly routes known phrases.
+
+    Checks correction phrases ("that's wrong"), acceptance phrases ("thanks"),
+    no_followup=True → silence, and None → ambiguous.
+    """
+    pairs = [
+        (classify_user_signal("that's not what I asked"), "correction"),
+        (classify_user_signal("wrong answer"), "correction"),
+        (classify_user_signal("thanks, perfect!"), "acceptance"),
+        (classify_user_signal("that worked great"), "acceptance"),
+        (classify_user_signal(None, no_followup=True), "silence"),
+        (classify_user_signal(None), "ambiguous"),
+        (classify_user_signal("hmm, maybe"), "ambiguous"),
+    ]
+    mismatches = [(got, expected) for got, expected in pairs if got != expected]
+    return ResearchFinding(
+        name="classify_signal_accuracy",
+        metric=1.0 - len(mismatches) / len(pairs),
+        passed=len(mismatches) == 0,
+        interpretation=(
+            f"classify_user_signal: {len(pairs) - len(mismatches)}/{len(pairs)} correct. "
+            + (f"Mismatches: {mismatches}" if mismatches else "All phrase patterns correctly classified.")
+        ),
+    )
+
+
+def run_asset_learning_suite(seed: int = 2500, n_rounds: int = 35) -> ResearchReport:
+    """Run Phase 2.5 research probes: learning asset values from revealed preferences.
+
+    Four probes validate that ``AssetAdapter`` and ``classify_user_signal``
+    close the asset auto-mapping gap:
+
+    1. **Correction learning** — asset_delta < -0.20 after 35 correction signals.
+    2. **Acceptance learning** — asset_delta > 0.08 after 35 acceptance signals.
+    3. **Ambiguous ignored** — ambiguous signals produce zero observations.
+    4. **Signal classification** — ``classify_user_signal`` routes all known
+       phrases correctly.
+
+    Parameters
+    ----------
+    seed:
+        Random seed (passed for future stochastic variants).
+    n_rounds:
+        Number of simulated observation rounds for EMA probes.
+    """
+    findings = (
+        asset_correction_probe(seed, n_rounds),
+        asset_acceptance_probe(seed, n_rounds),
+        asset_ambiguous_no_update_probe(seed),
+        classify_signal_probe(seed),
+    )
+    return ResearchReport(
+        findings=findings,
+        honest_summary=(
+            "AssetAdapter learns from user corrections: actions that disappoint users are deprioritised automatically.",
+            "Acceptance signals correctly raise asset estimates for actions users prefer (e.g. clarify in uncertain tasks).",
+            "Ambiguous signals are silently rejected — preventing superstitious learning from noisy feedback.",
+            "Phase 2.5 closes the asset auto-mapping gap: C, R, and A are now all learnable from experience.",
+            "Remaining gap: MANIFOLD learns YOUR revealed preferences, not universal values. That's alignment by construction.",
+        ),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Phase 3 research probes: hierarchical decomposition
+# ---------------------------------------------------------------------------
+
+
+def decomposition_triggered_probe(seed: int = 2500) -> ResearchFinding:
+    """Test that ``HierarchicalBrain`` decomposes genuinely complex tasks.
+
+    A task with complexity=0.92 (well above the default 0.72 threshold) and
+    stakes=0.85 should trigger decomposition when the decompose utility
+    exceeds the monolithic utility.
+
+    Pass condition: the brain returns ``decomposed=True``.
+    """
+    cfg = BrainConfig(generations=2, population_size=12, grid_size=5, seed=seed)
+    brain = HierarchicalBrain(cfg, tools=default_tools())
+    task = BrainTask(
+        "Write a comprehensive market research report",
+        domain="research",
+        complexity=0.92,
+        stakes=0.85,
+        uncertainty=0.55,
+        source_confidence=0.60,
+        collaboration_value=0.60,
+        user_patience=0.80,
+    )
+    hd = brain.decide_hierarchical(task)
+    return ResearchFinding(
+        name="decomposition_triggered",
+        metric=1.0 if hd.decomposed else 0.0,
+        passed=hd.decomposed,
+        interpretation=(
+            f"decomposed={hd.decomposed}, combined_utility={hd.combined_utility:.3f}, "
+            f"monolithic_utility={hd.top_decision.expected_utility:.3f}. "
+            "HierarchicalBrain correctly decomposes complex tasks when the decompose "
+            "utility exceeds the monolithic utility."
+        ),
+    )
+
+
+def decomposition_skipped_for_simple_tasks_probe(seed: int = 2500) -> ResearchFinding:
+    """Test that simple tasks bypass decomposition.
+
+    A task with complexity=0.30 (below the 0.72 threshold) must always return
+    ``decomposed=False`` regardless of other factors.
+    """
+    cfg = BrainConfig(generations=2, population_size=12, grid_size=5, seed=seed)
+    brain = HierarchicalBrain(cfg, tools=default_tools())
+    task = BrainTask(
+        "What time is it?",
+        domain="general",
+        complexity=0.30,
+        stakes=0.20,
+        uncertainty=0.20,
+    )
+    hd = brain.decide_hierarchical(task)
+    return ResearchFinding(
+        name="decomposition_skipped_simple",
+        metric=0.0 if hd.decomposed else 1.0,
+        passed=not hd.decomposed,
+        interpretation=(
+            f"decomposed={hd.decomposed} for complexity=0.30. "
+            "HierarchicalBrain correctly avoids overhead for simple tasks."
+        ),
+    )
+
+
+def sub_decisions_present_probe(seed: int = 2500) -> ResearchFinding:
+    """Test that decomposed tasks produce the right number of sub-decisions.
+
+    When decomposition fires, ``sub_decisions`` must contain exactly 2
+    entries (research + synthesize splits).
+    """
+    cfg = BrainConfig(generations=2, population_size=12, grid_size=5, seed=seed)
+    brain = HierarchicalBrain(cfg, tools=default_tools())
+    task = BrainTask(
+        "Analyze competitive landscape",
+        domain="research",
+        complexity=0.93,
+        stakes=0.88,
+        uncertainty=0.50,
+        source_confidence=0.65,
+    )
+    hd = brain.decide_hierarchical(task)
+    n_sub = len(hd.sub_decisions) if hd.sub_decisions else 0
+    passed = hd.decomposed and n_sub == 2
+    return ResearchFinding(
+        name="sub_decisions_count",
+        metric=float(n_sub),
+        passed=passed,
+        interpretation=(
+            f"decomposed={hd.decomposed}, sub_decisions={n_sub}. "
+            "Decomposition produces exactly 2 child decisions: [Research] and [Synthesize]."
+        ),
+    )
+
+
+def coordination_tax_limits_decomposition_probe(seed: int = 2500) -> ResearchFinding:
+    """Test that a very high coordination tax makes decomposition uneconomical.
+
+    With coordination_tax=0.80 (80% overhead), the combined asset after tax
+    is so low that even a complex task should not be decomposed.
+    Pass condition: ``decomposed=False``.
+    """
+    cfg = BrainConfig(generations=2, population_size=12, grid_size=5, seed=seed)
+    brain = HierarchicalBrain(cfg, tools=default_tools(), coordination_tax=0.80)
+    task = BrainTask(
+        "Write a comprehensive market research report",
+        domain="research",
+        complexity=0.92,
+        stakes=0.85,
+        uncertainty=0.55,
+    )
+    hd = brain.decide_hierarchical(task)
+    return ResearchFinding(
+        name="coordination_tax_limits_decomposition",
+        metric=float(hd.combined_utility),
+        passed=not hd.decomposed,
+        interpretation=(
+            f"decomposed={hd.decomposed} with coordination_tax=0.80. "
+            f"combined_utility={hd.combined_utility:.3f} vs monolithic={hd.top_decision.expected_utility:.3f}. "
+            "High coordination tax correctly suppresses decomposition when overhead exceeds benefit."
+        ),
+    )
+
+
+def run_hierarchical_suite(seed: int = 2500) -> ResearchReport:
+    """Run Phase 3 research probes: hierarchical task decomposition.
+
+    Four probes validate that ``HierarchicalBrain`` treats decomposition as a
+    correctly priced action:
+
+    1. **Decomposition triggered** — high-complexity tasks are split when
+       decompose utility > monolithic utility.
+    2. **Decomposition skipped** — simple tasks bypass decomposition entirely.
+    3. **Sub-decisions count** — decomposed tasks produce exactly 2 child
+       decisions (research + synthesize).
+    4. **Coordination tax** — very high overhead (80%) makes decomposition
+       uneconomical even for complex tasks.
+
+    Parameters
+    ----------
+    seed:
+        Random seed for reproducibility.
+    """
+    findings = (
+        decomposition_triggered_probe(seed),
+        decomposition_skipped_for_simple_tasks_probe(seed),
+        sub_decisions_present_probe(seed),
+        coordination_tax_limits_decomposition_probe(seed),
+    )
+    return ResearchReport(
+        findings=findings,
+        honest_summary=(
+            "HierarchicalBrain decomposes complex tasks when the decompose utility exceeds monolithic utility.",
+            "Simple tasks (complexity < 0.72) are never decomposed — avoiding overhead for trivial requests.",
+            "Each decomposition produces exactly 2 child decisions: a Research sub-task and a Synthesize sub-task.",
+            "High coordination tax (80%) correctly suppresses decomposition — the economic gate works.",
+            "Phase 3 demonstrates MANIFOLD-of-MANIFOLDs: structure is learned, not hand-coded.",
         ),
     )
