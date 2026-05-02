@@ -8,6 +8,7 @@ import json
 from manifold.brain import BrainConfig, BrainTask, ManifoldBrain, default_tools
 from manifold.brainbench import load_brain_tasks_csv, run_brain_benchmark, sample_brain_tasks
 from manifold.gridmapper import AgentPopulation, GridWorld
+from manifold.research import format_research_report, run_research_suite
 from manifold.simulation import SimulationConfig, run_experiment
 from manifold.social import (
     SocialConfig,
@@ -37,6 +38,7 @@ def build_parser() -> argparse.ArgumentParser:
             "trustbench",
             "brain",
             "brainbench",
+            "research",
         ],
         default="social",
         help="Run the path/teacher engine or the social-intelligence engine.",
@@ -112,6 +114,8 @@ def main() -> None:
         history = run_brain_mode(args)
     elif args.mode == "brainbench":
         history = run_brainbench_mode(args)
+    elif args.mode == "research":
+        history = run_research_mode(args)
     else:
         history = run_social_mode(args)
 
@@ -391,6 +395,13 @@ def run_brainbench_mode(args: argparse.Namespace):
         print("Recommendations:")
         for recommendation in report.recommendations:
             print(f"  - {recommendation}")
+    return []
+
+
+def run_research_mode(args: argparse.Namespace):
+    report = run_research_suite(seed=args.seed)
+    if not args.json:
+        print(format_research_report(report))
     return []
 
 

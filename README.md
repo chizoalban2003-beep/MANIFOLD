@@ -223,6 +223,36 @@ The honest product claim is narrower and stronger:
 > into measurable cost/risk/asset features and chooses the next action more
 > safely and economically than naive fixed policies.
 
+### How it compares to Copilot, agentic AI, and LLM products
+
+MANIFOLD Brain is closest to an **agent router / orchestration policy layer**,
+not to a code assistant like Copilot and not to a foundation model.
+
+| System type | What it does | MANIFOLD's relationship |
+| --- | --- | --- |
+| Copilot / code LLM | Generates code and text from context | MANIFOLD could decide when to use a code model, verify output, run tests, or ask for clarification |
+| ReAct-style agent | Loops between reasoning and tool calls | MANIFOLD competes with the policy that decides when to reason, act, retrieve, or stop |
+| RAG system | Retrieves evidence for generation | MANIFOLD decides when retrieval is worth its cost and when source confidence is too low |
+| Safety router | Blocks or escalates risky tasks | MANIFOLD generalizes this into priced risk, verification, escalation, and refusal |
+| Workflow orchestrator | Routes tasks through tools | MANIFOLD adds adaptive trust, reputation, and outcome learning |
+
+So the competitive niche is not "better than an LLM at language." It is:
+
+> Better executive judgment around LLMs, tools, agents, and human escalation.
+
+Run bounded research probes with:
+
+```bash
+python3 -m manifold --mode research
+```
+
+These probes currently test three modest claims:
+
+1. Bad problem maps reduce utility, so telemetry/labels matter.
+2. Negative outcomes increase future domain risk pressure.
+3. MANIFOLD Brain can beat naive ReAct-like, tool-first, retrieve-first, and
+   always-answer baselines on bundled benchmarks.
+
 ### 1. TrustRouter
 
 TrustRouter is the first niche product built on MANIFOLD. It maps an AI-agent or

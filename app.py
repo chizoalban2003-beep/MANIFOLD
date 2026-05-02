@@ -19,11 +19,13 @@ from manifold import (
     SimulationConfig,
     TrustRouter,
     default_tools,
+    run_research_suite,
     run_brain_benchmark,
     run_trust_benchmark,
     sample_brain_tasks,
     sample_trust_tasks,
 )
+from manifold.research import format_research_report
 from manifold.social import (
     SocialConfig,
     compile_policy_audit,
@@ -156,6 +158,7 @@ with st.sidebar:
     mode = st.radio(
         "Engine",
         [
+            "Research probes",
             "MANIFOLD Brain",
             "BrainBench",
             "TrustRouter",
@@ -188,7 +191,19 @@ with st.sidebar:
     )
     seed = st.number_input("Seed", value=2500 if mode != "Path / teacher" else 13, step=1)
 
-if mode == "BrainBench":
+if mode == "Research probes":
+    report = run_research_suite(seed=int(seed))
+    st.subheader("Bounded research probes")
+    for finding in report.findings:
+        st.metric(
+            finding.name,
+            f"{finding.metric:.3f}",
+            "PASS" if finding.passed else "WARN",
+        )
+        st.write(finding.interpretation)
+    with st.expander("Honest research summary"):
+        st.text(format_research_report(report))
+elif mode == "BrainBench":
     config = BrainConfig(
         generations=generations,
         population_size=population_size,

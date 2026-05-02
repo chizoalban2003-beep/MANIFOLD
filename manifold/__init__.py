@@ -36,6 +36,7 @@ from .brainbench import (
     run_brain_benchmark,
     sample_brain_tasks,
 )
+from .research import ResearchFinding, ResearchReport, run_research_suite
 from .trustbench import (
     BenchmarkReport,
     LabelledTask,
@@ -87,6 +88,8 @@ __all__ = [
     "PolicyAudit",
     "PolicyScore",
     "Rule",
+    "ResearchFinding",
+    "ResearchReport",
     "SimulationConfig",
     "SocialConfig",
     "SocialGenerationSummary",
@@ -111,6 +114,7 @@ __all__ = [
     "run_social_experiment",
     "run_brain_benchmark",
     "run_trust_benchmark",
+    "run_research_suite",
     "sample_brain_tasks",
     "sample_trust_tasks",
     "transfer_population",
