@@ -17,7 +17,8 @@ from .trustrouter import (
     TrustRouterDecision,
     route_task,
 )
-from .live import GossipBus, LiveBrain
+from .live import GossipBus, HierarchicalLiveBrain, LiveBrain
+from .encoder import EncoderCorrection, PromptEncoder, PromptFeatures
 from .brain import (
     AssetAdapter,
     BrainConfig,
@@ -60,6 +61,8 @@ from .research import (
     ResearchFinding,
     ResearchReport,
     run_asset_learning_suite,
+    run_encoder_suite,
+    run_gossip_hierarchical_suite,
     run_gossip_research_suite,
     run_hierarchical_suite,
     run_price_learning_suite,
@@ -110,14 +113,18 @@ __all__ = [
     "DialogueTask",
     "DynamicTarget",
     "GenerationSummary",
+    "EncoderCorrection",
     "GossipBus",
     "GossipNote",
     "GridOptimizationResult",
     "GridWorld",
     "HierarchicalBrain",
     "HierarchicalDecision",
+    "HierarchicalLiveBrain",
     "LifeResult",
     "LiveBrain",
+    "PromptEncoder",
+    "PromptFeatures",
     "LearnedPrices",
     "ManifoldExperiment",
     "ManifoldBrain",
@@ -156,7 +163,9 @@ __all__ = [
     "recommended_prices",
     "route_task",
     "run_asset_learning_suite",
+    "run_encoder_suite",
     "run_experiment",
+    "run_gossip_hierarchical_suite",
     "run_hierarchical_suite",
     "run_social_experiment",
     "run_brain_benchmark",

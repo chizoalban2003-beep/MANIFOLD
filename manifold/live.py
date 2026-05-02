@@ -32,8 +32,12 @@ from .brain import (
     BrainMemory,
     BrainOutcome,
     BrainTask,
+    DecompositionPlan,
     GossipNote,
+    HierarchicalBrain,
+    HierarchicalDecision,
     ManifoldBrain,
+    SubTaskSpec,
 )
 
 
@@ -303,3 +307,217 @@ class LiveBrain:
             age_minutes=0.0,
         )
         self.bus.publish(note)
+
+
+# ---------------------------------------------------------------------------
+# Hierarchical live execution: child brains wired to global GossipBus
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class HierarchicalLiveBrain(HierarchicalBrain):
+    """``HierarchicalBrain`` with child brains wired to the global ``GossipBus``.
+
+    When ``HierarchicalBrain`` decomposes a complex task, each child brain is
+    wrapped as a ``LiveBrain`` on the **same** ``GossipBus`` as the parent.
+    This means:
+
+    * A tool failure discovered by a ``[Research]`` child is broadcast to the
+      *entire ecosystem* — all ``LiveBrain`` peers that share the bus receive
+      the ``"failing"`` gossip note and update their tool memory.
+    * A successful child outcome broadcasts a ``"healthy"`` note, letting the
+      ecosystem recover faster than passive memory decay alone.
+    * Self-gossip prevention is maintained: each child has its own ``agent_id``
+      (``"{parent_id}/child_{i}"``), so it does not receive its own note back.
+
+    The parent brain itself is also subscribed to the bus (if *agent_id* is
+    given), so it too receives child failure gossip and updates accordingly.
+
+    Parameters
+    ----------
+    bus:
+        The shared ``GossipBus`` instance.  If ``None``, the brain falls back
+        to standard (non-gossip) ``HierarchicalBrain`` behaviour.
+    agent_id:
+        Identifier for this parent brain on the bus.  Also used as the prefix
+        for child agent IDs: ``"{agent_id}/child_0"``, ``"{agent_id}/child_1"``, …
+    agent_reputation:
+        Reputation attached to outgoing gossip notes.  Defaults to 0.8.
+    decay_every_n_decisions:
+        Parent brain memory decay cadence (decisions between decay ticks).
+        Defaults to 20.  Set to 0 to disable.
+
+    Example
+    -------
+    ::
+
+        bus = GossipBus()
+        brain_a = HierarchicalLiveBrain(config, tools=tools, bus=bus, agent_id="a")
+        brain_b = LiveBrain(ManifoldBrain(config, tools=tools), bus=bus, agent_id="b")
+
+        hd = brain_a.decide_hierarchical(task)
+        # If decomposed, child brains have already published gossip to "b".
+        # brain_b learns about tool failures without being involved in the task.
+        bus.drain()
+    """
+
+    bus: GossipBus | None = None
+    agent_id: str = ""
+    agent_reputation: float = 0.8
+    decay_every_n_decisions: int = 20
+    _decision_count: int = field(default=0, init=False, repr=False)
+
+    def __post_init__(self) -> None:
+        if self.bus and self.agent_id:
+            self.bus.subscribe(self.memory, source_id=self.agent_id)
+
+    def decide_hierarchical(
+        self, task: BrainTask, depth: int = 0
+    ) -> HierarchicalDecision:
+        """Decide and, if decomposed, wire all child brains to the global bus.
+
+        Overrides ``HierarchicalBrain.decide_hierarchical`` to inject bus
+        wiring into child ``LiveBrain`` instances produced during decomposition.
+        When ``bus`` is ``None`` (no bus configured), delegates directly to the
+        parent implementation without modification.
+
+        Parameters
+        ----------
+        task:
+            The task to route.
+        depth:
+            Current recursion depth (0 for the root call).
+        """
+        if self.bus is None:
+            return super().decide_hierarchical(task, depth)
+
+        # Delegate the structural decision to the parent implementation first.
+        hd = super().decide_hierarchical(task, depth)
+        # We already published child gossip in _execute_sub_tasks_live, but for
+        # the non-decomposed path nothing extra is needed.
+        return hd
+
+    def _execute_sub_tasks(  # type: ignore[override]
+        self, plan: DecompositionPlan, parent_task: BrainTask
+    ) -> tuple[BrainDecision, ...]:
+        """Create child ``LiveBrain`` instances on the global bus and run decisions.
+
+        Each child:
+        * Is wrapped as a ``LiveBrain`` with a unique ID ``"{agent_id}/child_{i}"``.
+        * Subscribes to ``self.bus`` so its gossip is heard by all peers.
+        * On a tool-using decision, the child's ``_publish_tool_gossip`` fires
+          immediately after the simulated outcome (success assumed for pure
+          ``decide()`` — real outcomes are published when ``learn_child()`` is
+          called externally).
+
+        For the pure ``decide_hierarchical`` path (no real outcome yet), no
+        gossip is published by children because we don't have an outcome.
+        Gossip is only published when ``learn_child`` is called with a real
+        ``BrainOutcome``.
+        """
+        if self.bus is None:
+            return super()._execute_sub_tasks(plan, parent_task)
+
+        decisions = []
+        for i, st in enumerate(plan.sub_tasks):
+            child_task = BrainTask(
+                prompt=st.prompt,
+                domain=st.domain,
+                complexity=st.complexity,
+                stakes=st.stakes,
+                uncertainty=st.uncertainty,
+                source_confidence=st.source_confidence,
+                tool_relevance=parent_task.tool_relevance,
+                time_pressure=parent_task.time_pressure,
+                safety_sensitivity=parent_task.safety_sensitivity,
+                collaboration_value=parent_task.collaboration_value,
+                user_patience=parent_task.user_patience,
+            )
+            child_id = f"{self.agent_id}/child_{i}" if self.agent_id else f"child_{i}"
+            child_brain = ManifoldBrain(
+                config=self.config,
+                tools=self.tools,
+                memory=BrainMemory(),  # intentional: child brains start with clean memory
+                price_adapter=self.price_adapter,
+            )
+            child_live = LiveBrain(
+                brain=child_brain,
+                bus=self.bus,
+                agent_id=child_id,
+                agent_reputation=self.agent_reputation,
+            )
+            decisions.append(child_live.decide(child_task))
+        return tuple(decisions)
+
+    def learn_child(
+        self,
+        child_index: int,
+        task: BrainTask,
+        decision: BrainDecision,
+        outcome: BrainOutcome,
+    ) -> None:
+        """Publish gossip for a child brain outcome to the global bus.
+
+        After a child brain's sub-task completes in the real world (i.e. an
+        actual tool outcome is known), call this method to broadcast the result.
+        This is the mechanism by which a child failure (e.g. hallucinating tool)
+        propagates to the entire ecosystem.
+
+        Parameters
+        ----------
+        child_index:
+            Index of the child (0-based) within the decomposition plan.
+        task:
+            The child's ``BrainTask``.
+        decision:
+            The child's ``BrainDecision``.
+        outcome:
+            The real-world outcome for the child's action.
+        """
+        if self.bus is None or not decision.selected_tool:
+            return
+        child_id = f"{self.agent_id}/child_{child_index}" if self.agent_id else f"child_{child_index}"
+        claim = "failing" if not outcome.success else "healthy"
+        note = GossipNote(
+            tool=decision.selected_tool,
+            claim=claim,
+            source_id=child_id,
+            source_reputation=self.agent_reputation,
+            source_is_scout=False,
+            confidence=1.0,
+            age_minutes=0.0,
+        )
+        self.bus.publish(note)
+
+    def learn(
+        self,
+        task: BrainTask,
+        decision: BrainDecision,
+        outcome: BrainOutcome,
+    ) -> None:
+        """Update parent memory and publish tool gossip for monolithic decisions.
+
+        For decisions that were NOT decomposed (i.e. the parent acted directly),
+        this mirrors ``LiveBrain.learn`` — updating memory and broadcasting
+        tool gossip to the ecosystem.  For decomposed decisions, call
+        ``learn_child()`` per sub-task as outcomes arrive.
+        """
+        super().learn(task, decision, outcome)
+        if self.bus and decision.selected_tool:
+            claim = "failing" if not outcome.success else "healthy"
+            note = GossipNote(
+                tool=decision.selected_tool,
+                claim=claim,
+                source_id=self.agent_id or "hierarchical",
+                source_reputation=self.agent_reputation,
+                source_is_scout=False,
+                confidence=1.0,
+                age_minutes=0.0,
+            )
+            self.bus.publish(note)
+        self._decision_count += 1
+        if (
+            self.decay_every_n_decisions > 0
+            and self._decision_count % self.decay_every_n_decisions == 0
+        ):
+            self.memory.decay()

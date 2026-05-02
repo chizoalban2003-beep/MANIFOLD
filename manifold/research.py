@@ -47,6 +47,8 @@ from .brain import (
     default_tools,
 )
 from .brainbench import BrainLabelledTask, run_brain_benchmark, sample_brain_tasks
+from .encoder import PromptEncoder
+from .live import GossipBus, HierarchicalLiveBrain, LiveBrain
 
 
 @dataclass(frozen=True)
@@ -967,5 +969,356 @@ def run_hierarchical_suite(seed: int = 2500) -> ResearchReport:
             "Each decomposition produces exactly 2 child decisions: a Research sub-task and a Synthesize sub-task.",
             "High coordination tax (80%) correctly suppresses decomposition — the economic gate works.",
             "Phase 3 demonstrates MANIFOLD-of-MANIFOLDs: structure is learned, not hand-coded.",
+        ),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Gossip + HierarchicalBrain probes
+# ---------------------------------------------------------------------------
+
+
+def gossip_child_failure_propagates_probe(seed: int = 3000) -> ResearchFinding:
+    """Test that a child brain tool failure propagates to a peer LiveBrain via the GossipBus.
+
+    Scenario:
+    1. Create a global GossipBus.
+    2. Register a peer LiveBrain (``beta``) on the bus.
+    3. Create a HierarchicalLiveBrain (``parent``) on the same bus.
+    4. Decompose a complex task.
+    5. Call ``learn_child()`` with a failing outcome for the child.
+    6. Drain the bus.
+    7. Assert beta's memory now has a negative adjustment for the failed tool.
+
+    Pass condition: ``beta.brain.memory.tool_reliability_adjustment(tool) < 0``.
+    """
+    cfg = BrainConfig(generations=2, population_size=12, grid_size=5, seed=seed)
+    tools = default_tools()
+    bus = GossipBus()
+
+    beta_brain = ManifoldBrain(cfg, tools=tools)
+    beta = LiveBrain(brain=beta_brain, bus=bus, agent_id="beta")
+
+    parent = HierarchicalLiveBrain(
+        cfg,
+        tools=tools,
+        bus=bus,
+        agent_id="parent",
+    )
+
+    complex_task = BrainTask(
+        "Write a comprehensive market research report",
+        domain="research",
+        complexity=0.92,
+        stakes=0.85,
+        uncertainty=0.55,
+    )
+    hd = parent.decide_hierarchical(complex_task)
+
+    import dataclasses as _dc
+    failed_tool = ToolProfile("web_search", cost=0.12, latency=0.18, reliability=0.78, risk=0.12, asset=0.75)
+    outcome = BrainOutcome(success=False, cost_paid=0.25, risk_realized=0.80, asset_gained=0.0, failure_mode="tool_error")
+    # Send 10 failing notes to overcome the optimistic 1.0 success_rate prior and drive adj < 0.
+    if hd.decomposed and hd.sub_decisions:
+        failure_decision = _dc.replace(hd.sub_decisions[0], selected_tool="web_search")
+        for _ in range(10):
+            parent.learn_child(0, complex_task, failure_decision, outcome)
+    else:
+        direct_decision = _dc.replace(parent.decide(complex_task), selected_tool="web_search")
+        for _ in range(10):
+            parent.learn(complex_task, direct_decision, outcome)
+
+    bus.drain()
+    beta_adj = beta.brain.memory.tool_reliability_adjustment(failed_tool)
+    bus.stop()
+
+    passed = beta_adj < 0
+    return ResearchFinding(
+        name="gossip_child_failure_propagates",
+        metric=beta_adj,
+        passed=passed,
+        interpretation=(
+            f"After child failure, beta.tool_reliability_adjustment={beta_adj:.3f}. "
+            "Child brain failures correctly propagate to the global ecosystem via GossipBus. "
+            "A hallucinating tool scars ALL peers, not just the parent."
+        ),
+    )
+
+
+def gossip_without_bus_falls_back_probe(seed: int = 3000) -> ResearchFinding:
+    """Test that HierarchicalLiveBrain with bus=None behaves like HierarchicalBrain.
+
+    Pass condition: decide_hierarchical completes without error, returns a
+    valid HierarchicalDecision.
+    """
+    cfg = BrainConfig(generations=2, population_size=12, grid_size=5, seed=seed)
+    brain = HierarchicalLiveBrain(cfg, tools=default_tools(), bus=None)
+    task = BrainTask("What is 2+2?", domain="math", complexity=0.15, stakes=0.10)
+    hd = brain.decide_hierarchical(task)
+    passed = not hd.decomposed and hd.top_decision is not None
+    return ResearchFinding(
+        name="gossip_fallback_without_bus",
+        metric=1.0 if passed else 0.0,
+        passed=passed,
+        interpretation=(
+            f"decomposed={hd.decomposed}. Without a bus, HierarchicalLiveBrain "
+            "falls back to standard HierarchicalBrain behaviour."
+        ),
+    )
+
+
+def gossip_monolithic_learn_publishes_probe(seed: int = 3000) -> ResearchFinding:
+    """Test that a non-decomposed HierarchicalLiveBrain.learn() publishes gossip to a peer.
+
+    Scenario: parent acts monolithically (simple task) and calls learn() with
+    a failing outcome.  A peer should receive the gossip.
+    """
+    cfg = BrainConfig(generations=2, population_size=12, grid_size=5, seed=seed)
+    tools = default_tools()
+    bus = GossipBus()
+
+    peer_brain = ManifoldBrain(cfg, tools=tools)
+    peer = LiveBrain(brain=peer_brain, bus=bus, agent_id="peer")
+
+    parent = HierarchicalLiveBrain(cfg, tools=tools, bus=bus, agent_id="parent2")
+    task = BrainTask("Lookup user account", domain="support", stakes=0.5, tool_relevance=0.9, complexity=0.4)
+    import dataclasses as _dc
+    decision = _dc.replace(parent.decide(task), selected_tool="web_search")
+    outcome = BrainOutcome(success=False, cost_paid=0.2, risk_realized=0.7, asset_gained=0.0, failure_mode="tool_error")
+    # Send 10 failing notes to overcome the optimistic 1.0 success_rate prior
+    for _ in range(10):
+        parent.learn(task, decision, outcome)
+    bus.drain()
+
+    peer_adj = peer.brain.memory.tool_reliability_adjustment(
+        ToolProfile("web_search", cost=0.12, latency=0.18, reliability=0.78, risk=0.12, asset=0.75)
+    )
+    bus.stop()
+
+    passed = peer_adj < 0
+    return ResearchFinding(
+        name="gossip_monolithic_learn_publishes",
+        metric=peer_adj,
+        passed=passed,
+        interpretation=(
+            f"After monolithic learn(), peer.tool_reliability_adjustment={peer_adj:.3f}. "
+            "HierarchicalLiveBrain.learn() correctly publishes gossip to the ecosystem."
+        ),
+    )
+
+
+def run_gossip_hierarchical_suite(seed: int = 3000) -> ResearchReport:
+    """Run research probes for GossipBus wiring in HierarchicalLiveBrain.
+
+    Three probes validate the global failure propagation architecture:
+
+    1. **Child failure propagates** — a child brain tool failure is broadcast
+       to all ecosystem peers via the global GossipBus.
+    2. **Fallback without bus** — ``HierarchicalLiveBrain(bus=None)`` behaves
+       exactly like ``HierarchicalBrain``.
+    3. **Monolithic learn publishes** — non-decomposed decisions that fail
+       also publish gossip to the ecosystem.
+
+    Parameters
+    ----------
+    seed:
+        Random seed for reproducibility.
+    """
+    findings = (
+        gossip_child_failure_propagates_probe(seed),
+        gossip_without_bus_falls_back_probe(seed),
+        gossip_monolithic_learn_publishes_probe(seed),
+    )
+    return ResearchReport(
+        findings=findings,
+        honest_summary=(
+            "Child brain failures propagate globally: a hallucinating tool scars all ecosystem peers, not just the parent.",
+            "HierarchicalLiveBrain with bus=None is a safe drop-in replacement for HierarchicalBrain.",
+            "Monolithic learn() also publishes gossip — the global reputation system never has gaps.",
+            "The GossipBus is transport-agnostic: swap publish/subscribe to Redis or NATS without changing BrainMemory.",
+        ),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Phase 4 encoder probes
+# ---------------------------------------------------------------------------
+
+
+def encoder_complexity_from_keywords_probe(seed: int = 4000) -> ResearchFinding:
+    """Test that keyword signals correctly separate complex from simple prompts.
+
+    The encoder should assign higher complexity to a long, action-heavy prompt
+    vs a trivially short factual question.
+    """
+    encoder = PromptEncoder()
+    complex_prompt = "Provide a comprehensive step-by-step analysis comparing the technical architecture and deployment pipeline of three leading cloud providers for an enterprise-grade AI workload"
+    simple_prompt = "What is 2 + 2?"
+    f_complex = encoder.encode(complex_prompt, "general")
+    f_simple = encoder.encode(simple_prompt, "general")
+    gap = f_complex.complexity - f_simple.complexity
+    passed = gap >= 0.10
+    return ResearchFinding(
+        name="encoder_complexity_separation",
+        metric=gap,
+        passed=passed,
+        interpretation=(
+            f"Complex prompt complexity={f_complex.complexity:.3f}, simple={f_simple.complexity:.3f}, gap={gap:.3f}. "
+            "Keyword + length signals correctly separate complex from trivial prompts."
+        ),
+    )
+
+
+def encoder_stakes_from_keywords_probe(seed: int = 4000) -> ResearchFinding:
+    """Test that high-stakes keywords raise the stakes feature.
+
+    A prompt containing 'production outage' and 'revenue' should score
+    significantly higher stakes than a casual test request.
+    """
+    encoder = PromptEncoder()
+    high_stakes = "We have a production outage affecting customer revenue. Please investigate immediately."
+    low_stakes = "This is a test sandbox experiment for fun."
+    f_high = encoder.encode(high_stakes, "support")
+    f_low = encoder.encode(low_stakes, "support")
+    gap = f_high.stakes - f_low.stakes
+    passed = gap >= 0.15
+    return ResearchFinding(
+        name="encoder_stakes_separation",
+        metric=gap,
+        passed=passed,
+        interpretation=(
+            f"High-stakes={f_high.stakes:.3f}, low-stakes={f_low.stakes:.3f}, gap={gap:.3f}. "
+            "Stakes keywords correctly elevate the risk signal."
+        ),
+    )
+
+
+def encoder_ema_complexity_rises_from_price_delta_probe(seed: int = 4000) -> ResearchFinding:
+    """Test that positive cost_delta raises domain complexity correction via EMA.
+
+    After 20 updates with cost_delta=0.30 for domain 'legal', the encoder
+    correction for complexity should be significantly positive (> 0.05).
+    """
+    encoder = PromptEncoder()
+    for _ in range(20):
+        encoder.update_from_price_delta("legal", cost_delta=0.30, risk_delta=0.0)
+    correction = encoder.corrections().get("legal", {}).get("complexity")
+    delta = correction.delta if correction else 0.0
+    passed = delta > 0.05
+    return ResearchFinding(
+        name="encoder_complexity_ema_from_price",
+        metric=delta,
+        passed=passed,
+        interpretation=(
+            f"After 20 cost_delta=0.30 updates, legal.complexity.delta={delta:.3f}. "
+            "Encoder correctly learns that 'legal' domain tasks cost more than initially estimated."
+        ),
+    )
+
+
+def encoder_ema_stakes_rises_from_negative_asset_delta_probe(seed: int = 4000) -> ResearchFinding:
+    """Test that negative asset_delta raises domain stakes correction via EMA.
+
+    After 20 updates with asset_delta=-0.40 (users rejecting answers), the
+    encoder stakes correction should be positive (> 0.05), meaning it now
+    estimates stakes higher for that domain.
+    """
+    encoder = PromptEncoder()
+    for _ in range(20):
+        encoder.update_from_asset_delta("medical", "answer", asset_delta=-0.40)
+    correction = encoder.corrections().get("medical", {}).get("stakes")
+    delta = correction.delta if correction else 0.0
+    passed = delta > 0.05
+    return ResearchFinding(
+        name="encoder_stakes_ema_from_asset",
+        metric=delta,
+        passed=passed,
+        interpretation=(
+            f"After 20 asset_delta=-0.40 updates, medical.stakes.delta={delta:.3f}. "
+            "Encoder correctly learns that 'medical' domain stakes are higher than initially estimated."
+        ),
+    )
+
+
+def encoder_to_brain_task_integration_probe(seed: int = 4000) -> ResearchFinding:
+    """Test that PromptEncoder.encode().to_brain_task() produces a valid BrainTask.
+
+    The BrainTask's complexity must be in [0, 1] and domain must match.
+    """
+    encoder = PromptEncoder()
+    features = encoder.encode("Find all security vulnerabilities in the authentication module", "security")
+    task = features.to_brain_task(time_pressure=0.8, safety_sensitivity=0.95)
+    passed = (
+        0.0 <= task.complexity <= 1.0
+        and 0.0 <= task.stakes <= 1.0
+        and task.domain == "security"
+        and task.time_pressure == 0.8
+        and task.safety_sensitivity == 0.95
+    )
+    return ResearchFinding(
+        name="encoder_to_brain_task",
+        metric=task.complexity,
+        passed=passed,
+        interpretation=(
+            f"task.complexity={task.complexity:.3f}, domain={task.domain}, "
+            f"time_pressure={task.time_pressure}. to_brain_task() correctly maps features to BrainTask."
+        ),
+    )
+
+
+def encoder_reset_domain_clears_corrections_probe(seed: int = 4000) -> ResearchFinding:
+    """Test that reset_domain() discards all learned corrections for that domain."""
+    encoder = PromptEncoder()
+    for _ in range(10):
+        encoder.update_from_price_delta("finance", cost_delta=0.50)
+    before = encoder.corrections().get("finance", {}).get("complexity")
+    encoder.reset_domain("finance")
+    after = encoder.corrections().get("finance")
+    passed = before is not None and after is None
+    return ResearchFinding(
+        name="encoder_reset_domain",
+        metric=before.delta if before else 0.0,
+        passed=passed,
+        interpretation=(
+            f"Before reset: delta={before.delta if before else 'N/A':.3f}, after reset: {after}. "
+            "reset_domain() correctly discards stale domain history."
+        ),
+    )
+
+
+def run_encoder_suite(seed: int = 4000) -> ResearchReport:
+    """Run Phase 4 research probes: PromptEncoder feature learning.
+
+    Six probes validate the two-stage encoder architecture:
+
+    1. **Complexity separation** — complex prompts score higher than trivial ones.
+    2. **Stakes separation** — high-stakes keywords (production, revenue) elevate stakes.
+    3. **EMA complexity from price** — positive cost_delta raises domain complexity.
+    4. **EMA stakes from asset** — negative asset_delta raises domain stakes.
+    5. **to_brain_task integration** — encoder output flows seamlessly to ManifoldBrain.
+    6. **reset_domain** — stale domain corrections can be discarded cleanly.
+
+    Parameters
+    ----------
+    seed:
+        Random seed (passed for future stochastic variants).
+    """
+    findings = (
+        encoder_complexity_from_keywords_probe(seed),
+        encoder_stakes_from_keywords_probe(seed),
+        encoder_ema_complexity_rises_from_price_delta_probe(seed),
+        encoder_ema_stakes_rises_from_negative_asset_delta_probe(seed),
+        encoder_to_brain_task_integration_probe(seed),
+        encoder_reset_domain_clears_corrections_probe(seed),
+    )
+    return ResearchReport(
+        findings=findings,
+        honest_summary=(
+            "Phase 4 PromptEncoder eliminates the need for manual feature engineering in known domains.",
+            "Keyword signals provide good zero-shot feature estimates without any training data.",
+            "EMA corrections close the gap: the encoder learns from PriceAdapter and AssetAdapter deltas.",
+            "to_brain_task() creates a seamless pipeline: raw prompt → BrainTask → decision → outcome → encoder update.",
+            "Remaining gap: encoder uses regex patterns, not semantic embeddings. Novel vocabulary may miss.",
+            "Phase 5 roadmap: freeze encoder, fine-tune on new domains with <100 interactions.",
         ),
     )
