@@ -18,7 +18,15 @@ from .trustrouter import (
     route_task,
 )
 from .live import GossipBus, HierarchicalLiveBrain, LiveBrain
-from .encoder import EncoderCorrection, PromptEncoder, PromptFeatures
+from .encoder import (
+    DualPathEncoder,
+    EncoderCorrection,
+    PromptCluster,
+    PromptEncoder,
+    PromptFeatures,
+    SemanticBridge,
+)
+from .transfer import ReputationRegistry, WarmStartConfig, warm_start_memory
 from .brain import (
     AssetAdapter,
     BrainConfig,
@@ -61,12 +69,15 @@ from .research import (
     ResearchFinding,
     ResearchReport,
     run_asset_learning_suite,
+    run_dual_encoder_suite,
     run_encoder_suite,
     run_gossip_hierarchical_suite,
     run_gossip_research_suite,
     run_hierarchical_suite,
     run_price_learning_suite,
     run_research_suite,
+    run_server_telemetry_suite,
+    run_warm_start_suite,
 )
 from .trustbench import (
     BenchmarkReport,
@@ -113,6 +124,7 @@ __all__ = [
     "DialogueTask",
     "DynamicTarget",
     "GenerationSummary",
+    "DualPathEncoder",
     "EncoderCorrection",
     "GossipBus",
     "GossipNote",
@@ -123,6 +135,7 @@ __all__ = [
     "HierarchicalLiveBrain",
     "LifeResult",
     "LiveBrain",
+    "PromptCluster",
     "PromptEncoder",
     "PromptFeatures",
     "LearnedPrices",
@@ -131,10 +144,12 @@ __all__ = [
     "PolicyAudit",
     "PolicyScore",
     "PriceAdapter",
+    "ReputationRegistry",
     "Rule",
     "ResearchFinding",
     "ResearchReport",
     "ScoutRecord",
+    "SemanticBridge",
     "SimulationConfig",
     "SocialConfig",
     "SocialGenerationSummary",
@@ -150,6 +165,7 @@ __all__ = [
     "TrustRouterDecision",
     "ToolProfile",
     "VectorGenome",
+    "WarmStartConfig",
     "attribute_to_tool",
     "classify_user_signal",
     "compile_policy_audit",
@@ -163,10 +179,12 @@ __all__ = [
     "recommended_prices",
     "route_task",
     "run_asset_learning_suite",
+    "run_dual_encoder_suite",
     "run_encoder_suite",
     "run_experiment",
     "run_gossip_hierarchical_suite",
     "run_hierarchical_suite",
+    "run_server_telemetry_suite",
     "run_social_experiment",
     "run_brain_benchmark",
     "run_trust_benchmark",
@@ -174,8 +192,10 @@ __all__ = [
     "run_gossip_research_suite",
     "run_price_learning_suite",
     "run_research_suite",
+    "run_warm_start_suite",
     "sample_brain_tasks",
     "sample_support_tasks",
     "sample_trust_tasks",
     "transfer_population",
+    "warm_start_memory",
 ]
