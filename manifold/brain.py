@@ -126,6 +126,69 @@ class BrainOutcome:
         return self.asset_gained - self.cost_paid - self.risk_realized - self.rule_violations
 
 
+@dataclass(frozen=True)
+class GossipNote:
+    """A second-order signal about a tool's health, originating from another agent.
+
+    Gossip is treated as a priced tool, not as ground truth.  The Brain computes
+    an effective weight from source reputation, signal age, and whether the source
+    is a Predatory Scout before applying any update.
+
+    Attributes:
+        tool: Name of the tool the claim is about.
+        claim: ``"failing"`` or ``"healthy"``.
+        source_id: Unique identifier of the reporting agent.
+        source_reputation: Normalised reputation score of the reporting agent [0, 1].
+        source_is_scout: ``True`` when the source has been auto-flagged as a
+            Predatory Scout (high gossip rate, low direct usage, oscillating rep).
+        confidence: The reporting agent's own stated confidence in the claim [0, 1].
+        age_minutes: How many minutes old the gossip is at ingestion time.
+    """
+
+    tool: str
+    claim: str
+    source_id: str
+    source_reputation: float = 0.5
+    source_is_scout: bool = False
+    confidence: float = 1.0
+    age_minutes: float = 0.0
+
+
+@dataclass
+class ScoutRecord:
+    """Per-source accuracy ledger used to set the scout discount dynamically.
+
+    A Predatory Scout starts with a discount of 0.7 (its gossip is heard but
+    down-weighted).  Once it has logged at least 50 claims and its precision
+    exceeds 0.80, the discount lifts to 0.9 — it has earned increased trust.
+    """
+
+    _DISCOUNT_DEFAULT: float = 0.7
+    _DISCOUNT_PROMOTED: float = 0.9
+    _PROMOTION_MIN_CLAIMS: int = 50
+    _PROMOTION_PRECISION: float = 0.80
+
+    _predictions: list[bool] = field(default_factory=list)  # True == gossip matched reality
+
+    def log_prediction(self, matched_reality: bool) -> None:
+        self._predictions.append(matched_reality)
+
+    @property
+    def precision(self) -> float:
+        if not self._predictions:
+            return 0.0
+        return sum(self._predictions) / len(self._predictions)
+
+    @property
+    def discount(self) -> float:
+        if (
+            len(self._predictions) >= self._PROMOTION_MIN_CLAIMS
+            and self.precision >= self._PROMOTION_PRECISION
+        ):
+            return self._DISCOUNT_PROMOTED
+        return self._DISCOUNT_DEFAULT
+
+
 @dataclass
 class BrainMemory:
     """Cross-world memory for domains, actions, and tools."""
@@ -133,7 +196,12 @@ class BrainMemory:
     domain_stats: dict[str, dict[str, float]] = field(default_factory=dict)
     action_stats: dict[str, dict[str, float]] = field(default_factory=dict)
     tool_stats: dict[str, dict[str, float]] = field(default_factory=dict)
+    scout_tracker: dict[str, ScoutRecord] = field(default_factory=dict)
     base_learning_rate: float = 0.15
+
+    # Gossip hyperparameters
+    _GOSSIP_LR: float = field(default=0.06, init=False, repr=False)
+    _GOSSIP_DECAY_RATE: float = field(default=0.97, init=False, repr=False)
 
     def prior_risk_adjustment(self, task: BrainTask) -> float:
         stats = self.domain_stats.get(task.domain)
@@ -217,6 +285,87 @@ class BrainMemory:
         if failures >= 3:
             rate *= 1.5
         return min(0.6, rate)
+
+    # ------------------------------------------------------------------
+    # Gossip ingestion
+    # ------------------------------------------------------------------
+
+    def ingest_gossip(self, note: GossipNote, actual_outcome: bool | None = None) -> None:
+        """Apply a weighted virtual update to a tool's memory from a gossip note.
+
+        The update follows:
+
+            effective_lr = GOSSIP_LR * w
+            S_new = S_old * (1 - effective_lr) + virtual_success * effective_lr
+
+        where:
+
+            w = source_reputation * decay(age_minutes) * scout_discount
+            virtual_success = 0.0 if claim == "failing" else 1.0
+
+        A single malicious note barely moves the needle (typical w ≈ 0.44 →
+        effective_lr ≈ 2.6%).  Three independent non-scout notes within the
+        decay window sum w > 1.2, triggering a meaningful update — that is
+        consensus, not manipulation.
+
+        If *actual_outcome* is supplied, the scout's prediction accuracy is
+        logged so its discount can be adjusted over time.
+        """
+        w = clamp01(note.source_reputation) * (self._GOSSIP_DECAY_RATE ** note.age_minutes)
+        if note.source_is_scout:
+            record = self.scout_tracker.setdefault(note.source_id, ScoutRecord())
+            w *= record.discount
+
+        virtual_success = 0.0 if note.claim == "failing" else 1.0
+        self.update_tool_memory(
+            tool=note.tool,
+            virtual_success=virtual_success,
+            weight=w,
+        )
+
+        if note.source_is_scout and actual_outcome is not None:
+            record = self.scout_tracker.setdefault(note.source_id, ScoutRecord())
+            claim_was_correct = (note.claim == "failing" and not actual_outcome) or (
+                note.claim != "failing" and actual_outcome
+            )
+            record.log_prediction(claim_was_correct)
+
+    def update_tool_memory(
+        self,
+        tool: str,
+        virtual_success: float,
+        weight: float = 1.0,
+    ) -> None:
+        """Apply a weighted success/failure signal to a tool's stats bucket.
+
+        The effective learning rate is ``GOSSIP_LR * weight``, capped at
+        ``GOSSIP_LR`` so a single gossip note never exceeds the gossip budget.
+        For consensus signals (weight > 1.0 from multiple independent sources)
+        the effective rate is allowed to scale linearly up to 3× GOSSIP_LR.
+
+        Parameters:
+            tool: The tool name to update.
+            virtual_success: 1.0 for a success signal, 0.0 for failure.
+            weight: Dimensionless influence weight.
+        """
+        effective_lr = min(3 * self._GOSSIP_LR, self._GOSSIP_LR * max(0.0, weight))
+        stats = self.tool_stats.get(
+            tool,
+            {
+                "count": 0.0,
+                "success_rate": 1.0,
+                "utility": 0.0,
+                "consecutive_failures": 0.0,
+            },
+        )
+        stats["success_rate"] = stats["success_rate"] * (1.0 - effective_lr) + virtual_success * effective_lr
+        if virtual_success == 0.0:
+            stats["consecutive_failures"] = stats.get("consecutive_failures", 0.0) + effective_lr
+        else:
+            stats["consecutive_failures"] = max(
+                0.0, stats.get("consecutive_failures", 0.0) - effective_lr
+            )
+        self.tool_stats[tool] = stats
 
 
 @dataclass
