@@ -169,6 +169,23 @@ from .policy import (
     PolicyLoader,
     RuleDiff,
 )
+from .gitops import (
+    CIRiskDelta,
+    CIRiskReport,
+    ManifoldCICheck,
+    AutonomousPRProposal,
+    PRDraft,
+    generate_github_action,
+)
+from .b2b import (
+    AgentEconomyLedger,
+    B2BRouteResult,
+    B2BRouter,
+    EconomyEntry,
+    HandshakeResult,
+    OrgPolicy,
+    PolicyHandshake,
+)
 
 __all__ = [
     "ActiveInterceptor",
@@ -304,4 +321,19 @@ __all__ = [
     "SovereignRecruiter",
     "transfer_population",
     "warm_start_memory",
+    # Phase 19 — GitOps Loop
+    "CIRiskDelta",
+    "CIRiskReport",
+    "ManifoldCICheck",
+    "AutonomousPRProposal",
+    "PRDraft",
+    "generate_github_action",
+    # Phase 20 — B2B Routing
+    "AgentEconomyLedger",
+    "B2BRouteResult",
+    "B2BRouter",
+    "EconomyEntry",
+    "HandshakeResult",
+    "OrgPolicy",
+    "PolicyHandshake",
 ]

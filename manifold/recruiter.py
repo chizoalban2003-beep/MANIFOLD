@@ -496,9 +496,6 @@ class SovereignRecruiter:
             if profile.domain in (domain, "general"):
                 if profile.reliability >= self.reliability_threshold:
                     return True
-        # If registry is empty or domain-specific, also check general tools
-        if not list(self.registry.names()):
-            return False
         return False
 
     def _discover_and_onboard(self, task: BrainTask) -> RecruitmentResult:
