@@ -37,12 +37,14 @@ from manifold.social import (
 from manifold.adversarial import AdversarialPricingDetector
 from manifold.autodiscovery import PenaltyOptimizer, PolicySynthesizer
 from manifold import (
+    ActiveInterceptor,
     AutoRuleDiscovery,
     ConnectorRegistry,
     FederatedGossipBridge,
     GlobalReputationLedger,
     HITLConfig,
     HITLGate,
+    InterceptorConfig,
     OrgReputationSnapshot,
     ShadowModeWrapper,
     ToolConnector,
@@ -630,7 +632,7 @@ elif mode == "Path / teacher":
 elif mode == "Shadow Mode":
     import random as _random
 
-    st.subheader("Shadow Mode — Phases 10-12 Live Dashboard")
+    st.subheader("Shadow Mode — Phases 8-14 Live Dashboard")
     st.caption(
         "Runs MANIFOLD in parallel with a naive ReAct agent over a synthetic customer-support stream. "
         "No production traffic is touched. All results are computed in shadow (observation-only) mode."
@@ -640,9 +642,10 @@ elif mode == "Shadow Mode":
         n_tasks = st.slider("Stream size (tasks)", 50, 500, 120, step=10)
         sm_seed = st.number_input("Shadow seed", value=2500, step=1)
         failure_start = st.slider("Honey-pot failure after N calls", 5, 50, 15, step=1)
+        veto_threshold = st.slider("Interceptor veto threshold", 0.20, 0.80, 0.40, step=0.05)
 
     @st.cache_data(show_spinner="Running MANIFOLD shadow simulation...")
-    def _run_shadow(n: int, seed: int, fs: int) -> dict:
+    def _run_shadow(n: int, seed: int, fs: int, veto_thresh: float) -> dict:
         rng = _random.Random(seed)
         tool_names = ["support_kb", "crm_lookup", "billing_api", "ticket_system", "email_sender"]
         _PROMPTS_LOCAL = [
@@ -702,6 +705,16 @@ elif mode == "Shadow Mode":
             synthesizer=PolicySynthesizer(min_occurrences=3),
         )
 
+        # Phase 13 — active interceptor
+        interceptor = ActiveInterceptor(
+            registry=registry,
+            brain=brain,
+            config=InterceptorConfig(
+                risk_veto_threshold=veto_thresh,
+                redirect_strategy="hitl",
+            ),
+        )
+
         # tracking
         hitl_count = 0
         tool_failures = 0
@@ -711,6 +724,9 @@ elif mode == "Shadow Mode":
         inoculation_speed = -1
         billing_inoculated = False
         ledger_rates: dict[str, list[float]] = {t: [] for t in tool_names}
+        # Trust ROI tracking
+        gross_exposure = 0.0
+        regret_avoided = 0.0
 
         for i in range(n):
             domain = rng.choice(_DOMAINS_LOCAL)
@@ -751,11 +767,23 @@ elif mode == "Shadow Mode":
                         billing_inoculated = True
                 discovery.observe_rule_event(tool_name, "tool_failure", outcome, penalty=1.0)
 
+            # Phase 13: interceptor pre-flight (non-blocking, log only)
+            try:
+                ir = interceptor.intercept(task, tool_name)
+                profile = registry.get(tool_name)
+                risk_exposure = task.stakes * (profile.refreshed_profile().risk if profile else 0.1)
+                gross_exposure += risk_exposure
+                if not ir.permitted:
+                    regret_avoided += risk_exposure
+            except KeyError:
+                pass
+
             for t in tool_names:
                 c = registry.get(t)
                 ledger_rates[t].append(c.observed_reliability())
 
         shadow_rpt = wrapper.shadow_report()
+        interceptor_summary = interceptor.summary()
         return {
             "shadow": shadow_rpt,
             "hitl": hitl_count,
@@ -776,9 +804,12 @@ elif mode == "Shadow Mode":
             "ledger_rates": {t: v[-1] if v else 1.0 for t, v in ledger_rates.items()},
             "ledger_series": ledger_rates,
             "status": discovery.status(),
+            "interceptor": interceptor_summary,
+            "gross_exposure": round(gross_exposure, 4),
+            "regret_avoided": round(regret_avoided, 4),
         }
 
-    data = _run_shadow(n_tasks, int(sm_seed), failure_start)
+    data = _run_shadow(n_tasks, int(sm_seed), failure_start, veto_threshold)
     shadow = data["shadow"]
 
     # ── Top-level metrics ──────────────────────────────────────────────
@@ -843,6 +874,62 @@ elif mode == "Shadow Mode":
             f"No proposals yet — triggers observed: {status['known_triggers']}  |  "
             f"min_observations threshold: {status.get('min_observations', 5)}"
         )
+
+    # ── Phase 13: Active Interceptor ─────────────────────────────────
+    st.subheader("Phase 13 — Active Interceptor")
+    ic = data.get("interceptor", {})
+    if ic:
+        i0, i1, i2, i3, i4 = st.columns(5)
+        i0.metric("Calls evaluated", ic.get("total_calls", 0))
+        i1.metric("Permitted", ic.get("permitted", 0))
+        i2.metric("Vetoed", ic.get("vetoed", 0))
+        i3.metric("Veto rate", f"{ic.get('veto_rate', 0):.1%}")
+        i4.metric("Redirected to HITL", ic.get("redirected_to_hitl", 0))
+        st.caption(f"Avg risk score: {ic.get('avg_risk_score', 0):.3f}  |  Veto threshold: {veto_threshold:.2f}")
+    else:
+        st.caption("(interceptor not active)")
+
+    # ── Phase 16: Trust ROI Economic Impact View ──────────────────────
+    st.subheader("Phase 16 — Trust ROI: Economic Impact View")
+    st.caption(
+        "The metrics below quantify the **financial value** MANIFOLD provides. "
+        "Gross Exposure = total potential damage if tools ran unmonitored. "
+        "Regret Avoided = savings from vetoed high-risk calls."
+    )
+    gross = data.get("gross_exposure", 0.0)
+    avoided = data.get("regret_avoided", 0.0)
+    veto_rate = ic.get("veto_rate", 0.0) if ic else 0.0
+    hitl_rate = data["hitl"] / max(1, shadow["total_observations"])
+    gossip_speed = data["inoculation_speed"]
+
+    e0, e1, e2, e3, e4 = st.columns(5)
+    e0.metric(
+        "Gross Exposure",
+        f"{gross:.3f}",
+        help="Σ(Risk × Stakes) — total potential damage if unmonitored.",
+    )
+    e1.metric(
+        "Regret Avoided",
+        f"{avoided:.3f}",
+        delta=f"+{avoided:.3f}" if avoided > 0 else None,
+        help="Exposure saved by veto — the 'Value Shield' metric.",
+    )
+    shield_pct = avoided / gross if gross > 0 else 0.0
+    e2.metric(
+        "Shield Efficiency",
+        f"{shield_pct:.1%}",
+        help="Regret Avoided / Gross Exposure — how much exposure MANIFOLD eliminated.",
+    )
+    e3.metric(
+        "Gossip Lead-Time",
+        f"{gossip_speed} tasks" if gossip_speed >= 0 else "n/a",
+        help="Tasks between first tool failure and global inoculation.",
+    )
+    e4.metric(
+        "Human Efficiency",
+        f"{hitl_rate:.1%}",
+        help="Fraction of tasks that needed HITL — lower is better post-automation.",
+    )
 
     # ── Top disagreements ─────────────────────────────────────────────
     st.subheader("Top MANIFOLD ↔ Naive disagreement pairs")

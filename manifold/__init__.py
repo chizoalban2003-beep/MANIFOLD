@@ -148,6 +148,14 @@ from .social import (
     recommended_prices,
     run_social_experiment,
 )
+from .adapters import (
+    ManifoldCallbackHandler,
+    ManifoldOpenAIWrapper,
+)
+from .hub import (
+    CommunityBaseline,
+    ReputationHub,
+)
 
 __all__ = [
     "ActiveInterceptor",
@@ -167,6 +175,7 @@ __all__ = [
     "BrainTask",
     "BenchmarkReport",
     "CellVector",
+    "CommunityBaseline",
     "DecompositionTemplate",
     "DecompositionPlan",
     "DialogueTask",
@@ -194,7 +203,9 @@ __all__ = [
     "LifeResult",
     "LiveBrain",
     "ManifoldBrain",
+    "ManifoldCallbackHandler",
     "ManifoldExperiment",
+    "ManifoldOpenAIWrapper",
     "NashEquilibriumGate",
     "OrgReputationSnapshot",
     "PenaltyOptimizer",
@@ -206,6 +217,7 @@ __all__ = [
     "PromptCluster",
     "PromptEncoder",
     "PromptFeatures",
+    "ReputationHub",
     "ReputationLaunderingDetector",
     "ReputationRegistry",
     "Rule",

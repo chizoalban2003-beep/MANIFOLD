@@ -2,13 +2,15 @@
 
 Run this script to execute a complete Trust Audit V2 against a synthetic
 customer-support stream or a real historical log file.  It wires together
-all 12 phases:
+all 14 phases:
 
   Phase 8  — ConnectorRegistry + ShadowModeWrapper
   Phase 9  — HITLGate (escalation detection)
   Phase 10 — FederatedGossipBridge / GlobalReputationLedger
   Phase 11 — AdversarialPricingDetector + NashEquilibriumGate
   Phase 12 — AutoRuleDiscovery (PenaltyOptimizer + PolicySynthesizer)
+  Phase 13 — ActiveInterceptor (pre-flight safety veto + @shield)
+  Phase 14 — Ecosystem Adapters (ManifoldCallbackHandler / ManifoldOpenAIWrapper)
 
 Usage::
 
