@@ -24,7 +24,7 @@ independent of the async ``GossipBus`` transport (which is covered by
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace as dc_replace
 import random
 from statistics import fmean
 
@@ -1012,16 +1012,15 @@ def gossip_child_failure_propagates_probe(seed: int = 3000) -> ResearchFinding:
     )
     hd = parent.decide_hierarchical(complex_task)
 
-    import dataclasses as _dc
     failed_tool = ToolProfile("web_search", cost=0.12, latency=0.18, reliability=0.78, risk=0.12, asset=0.75)
     outcome = BrainOutcome(success=False, cost_paid=0.25, risk_realized=0.80, asset_gained=0.0, failure_mode="tool_error")
     # Send 10 failing notes to overcome the optimistic 1.0 success_rate prior and drive adj < 0.
     if hd.decomposed and hd.sub_decisions:
-        failure_decision = _dc.replace(hd.sub_decisions[0], selected_tool="web_search")
+        failure_decision = dc_replace(hd.sub_decisions[0], selected_tool="web_search")
         for _ in range(10):
             parent.learn_child(0, complex_task, failure_decision, outcome)
     else:
-        direct_decision = _dc.replace(parent.decide(complex_task), selected_tool="web_search")
+        direct_decision = dc_replace(parent.decide(complex_task), selected_tool="web_search")
         for _ in range(10):
             parent.learn(complex_task, direct_decision, outcome)
 
@@ -1079,8 +1078,7 @@ def gossip_monolithic_learn_publishes_probe(seed: int = 3000) -> ResearchFinding
 
     parent = HierarchicalLiveBrain(cfg, tools=tools, bus=bus, agent_id="parent2")
     task = BrainTask("Lookup user account", domain="support", stakes=0.5, tool_relevance=0.9, complexity=0.4)
-    import dataclasses as _dc
-    decision = _dc.replace(parent.decide(task), selected_tool="web_search")
+    decision = dc_replace(parent.decide(task), selected_tool="web_search")
     outcome = BrainOutcome(success=False, cost_paid=0.2, risk_realized=0.7, asset_gained=0.0, failure_mode="tool_error")
     # Send 10 failing notes to overcome the optimistic 1.0 success_rate prior
     for _ in range(10):
@@ -1630,13 +1628,12 @@ def server_region_failure_reroute_probe(seed: int = 7000) -> ResearchFinding:
     gamma = LiveBrain(ManifoldBrain(cfg, tools=tools), bus=bus, agent_id="gamma")
 
     us_east = ToolProfile("region_us_east", cost=0.08, latency=0.10, reliability=0.90, risk=0.05, asset=0.85)
-    import dataclasses as _dc
     task = BrainTask("Process request via server", domain="infra", tool_relevance=0.9, complexity=0.5)
 
     # Simulate 15 consecutive failures for region_us_east observed by alpha
     for _ in range(15):
         decision = alpha.decide(task)
-        decision = _dc.replace(decision, selected_tool="region_us_east")
+        decision = dc_replace(decision, selected_tool="region_us_east")
         outcome = BrainOutcome(success=False, cost_paid=0.12, risk_realized=0.70, asset_gained=0.0, failure_mode="tool_error")
         alpha.learn(task, decision, outcome)
 
@@ -1675,12 +1672,11 @@ def server_region_recovery_gossip_probe(seed: int = 7000) -> ResearchFinding:
     beta = LiveBrain(ManifoldBrain(cfg, tools=tools), bus=bus, agent_id="beta2")
 
     us_east = ToolProfile("region_us_east2", cost=0.08, latency=0.10, reliability=0.90, risk=0.05, asset=0.85)
-    import dataclasses as _dc
     task = BrainTask("Process request", domain="infra", tool_relevance=0.9, complexity=0.5)
 
     # Phase 1: failures
     for _ in range(15):
-        decision = _dc.replace(alpha.decide(task), selected_tool="region_us_east2")
+        decision = dc_replace(alpha.decide(task), selected_tool="region_us_east2")
         outcome_fail = BrainOutcome(success=False, cost_paid=0.12, risk_realized=0.70, asset_gained=0.0, failure_mode="tool_error")
         alpha.learn(task, decision, outcome_fail)
     bus.drain()
@@ -1688,7 +1684,7 @@ def server_region_recovery_gossip_probe(seed: int = 7000) -> ResearchFinding:
 
     # Phase 2: recovery — healthy outcomes
     for _ in range(15):
-        decision = _dc.replace(alpha.decide(task), selected_tool="region_us_east2")
+        decision = dc_replace(alpha.decide(task), selected_tool="region_us_east2")
         outcome_ok = BrainOutcome(success=True, cost_paid=0.08, risk_realized=0.0, asset_gained=0.85)
         alpha.learn(task, decision, outcome_ok)
     bus.drain()

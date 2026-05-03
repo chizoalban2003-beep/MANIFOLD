@@ -35,7 +35,7 @@ Key classes
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace as dc_replace
 from typing import Any, Callable
 
 from .brain import (
@@ -265,7 +265,6 @@ class ToolConnector:
         Blends stated profile values with observed telemetry using a 50/50 weight.
         After enough calls, the observed values dominate.
         """
-        import dataclasses as _dc
         obs_rel = self.observed_reliability()
         obs_lat = min(1.0, self.mean_latency())
         blend = min(1.0, self._call_count / 20.0)  # reaches full weight at 20 calls
@@ -273,7 +272,7 @@ class ToolConnector:
             (1.0 - blend) * self.profile.reliability + blend * obs_rel
         )
         new_latency = (1.0 - blend) * self.profile.latency + blend * obs_lat
-        return _dc.replace(self.profile, reliability=new_reliability, latency=new_latency)
+        return dc_replace(self.profile, reliability=new_reliability, latency=new_latency)
 
     def call_count(self) -> int:
         """Return total number of calls (successes + failures)."""
