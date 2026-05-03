@@ -15,6 +15,8 @@ import random
 from statistics import fmean
 from typing import Iterable, Literal
 
+from ._mathutils import binary_correlation
+
 
 Position = tuple[int, int]
 TeacherMode = Literal["periodic", "reactive", "random", "adversarial", "multi"]
@@ -516,19 +518,6 @@ def population_diversity(genomes: Iterable[VectorGenome]) -> float:
         for right in points[index + 1 :]
     ]
     return fmean(distances)
-
-
-def binary_correlation(left: list[int], right: list[int]) -> float:
-    if len(left) != len(right) or not left:
-        return 0.0
-    left_mean = fmean(left)
-    right_mean = fmean(right)
-    numerator = sum((a - left_mean) * (b - right_mean) for a, b in zip(left, right))
-    left_var = sum((a - left_mean) ** 2 for a in left)
-    right_var = sum((b - right_mean) ** 2 for b in right)
-    if left_var == 0.0 or right_var == 0.0:
-        return 0.0
-    return numerator / math.sqrt(left_var * right_var)
 
 
 def transfer_population(

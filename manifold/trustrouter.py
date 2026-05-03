@@ -22,6 +22,7 @@ from statistics import fmean
 from typing import Literal
 
 from .gridmapper import AgentPopulation, GridOptimizationResult, GridWorld
+from ._mathutils import clamp
 
 
 TrustAction = Literal["answer", "clarify", "retrieve", "verify", "escalate", "refuse"]
@@ -289,10 +290,6 @@ def route_task(task: DialogueTask, config: TrustRouterConfig | None = None) -> T
 
 def clamp01(value: float) -> float:
     return max(0.0, min(1.0, value))
-
-
-def clamp(value: float, low: float, high: float) -> float:
-    return max(low, min(high, value))
 
 
 def average_decision_risk(decisions: list[TrustRouterDecision]) -> float:

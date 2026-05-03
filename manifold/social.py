@@ -15,6 +15,8 @@ import random
 from statistics import fmean
 from typing import Iterable, Literal
 
+from ._mathutils import binary_correlation, clamp
+
 
 Position = tuple[int, int]
 PresetName = Literal["trust", "birmingham", "misinformation", "compute", "collusion"]
@@ -678,19 +680,6 @@ def social_diversity(genomes: Iterable[SocialGenome]) -> float:
     )
 
 
-def binary_correlation(left: list[int], right: list[int]) -> float:
-    if len(left) != len(right) or not left:
-        return 0.0
-    left_mean = fmean(left)
-    right_mean = fmean(right)
-    numerator = sum((a - left_mean) * (b - right_mean) for a, b in zip(left, right))
-    left_var = sum((a - left_mean) ** 2 for a in left)
-    right_var = sum((b - right_mean) ** 2 for b in right)
-    if left_var == 0.0 or right_var == 0.0:
-        return 0.0
-    return numerator / math.sqrt(left_var * right_var)
-
-
 def traffic_band(row: int, col: int, grid_size: int) -> float:
     hubs = ((grid_size // 2, grid_size // 2), (grid_size // 3, grid_size // 3), (2 * grid_size // 3, grid_size // 3))
     return max(0.0, 1.0 - min(abs(row - hr) + abs(col - hc) for hr, hc in hubs) / grid_size)
@@ -704,7 +693,3 @@ def order_cluster(row: int, col: int, grid_size: int) -> float:
 def server_heat(row: int, col: int, grid_size: int) -> float:
     edge = min(row, col, grid_size - row - 1, grid_size - col - 1)
     return max(0.0, 1.0 - edge / max(1, grid_size // 2))
-
-
-def clamp(value: float, low: float, high: float) -> float:
-    return max(low, min(high, value))
