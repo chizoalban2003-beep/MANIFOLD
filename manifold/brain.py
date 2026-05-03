@@ -9,8 +9,7 @@ rule pressure.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from statistics import fmean
-from typing import Callable, Literal
+from typing import Literal
 
 from .gridmapper import AgentPopulation, GridOptimizationResult, GridWorld
 from .trustrouter import clamp01

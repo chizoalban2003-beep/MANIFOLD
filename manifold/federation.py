@@ -38,7 +38,7 @@ from dataclasses import dataclass, field
 from typing import Literal
 
 from .brain import BrainMemory, ToolProfile
-from .transfer import ReputationRegistry, warm_start_memory
+from .transfer import ReputationRegistry
 from .trustrouter import clamp01
 
 

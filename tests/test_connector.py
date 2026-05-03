@@ -4,7 +4,6 @@ import pytest
 
 from manifold import (
     BrainConfig,
-    BrainDecision,
     BrainTask,
     ConnectorRegistry,
     ManifoldBrain,

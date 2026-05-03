@@ -38,8 +38,7 @@ from typing import Sequence
 from .autodiscovery import AutoRuleDiscovery, PenaltyProposal
 from .brain import ToolProfile
 from .connector import ConnectorRegistry
-from .interceptor import InterceptorConfig
-from .policy import ManifoldPolicy, PolicyLoader, RuleDiff
+from .policy import ManifoldPolicy, RuleDiff
 
 
 # ---------------------------------------------------------------------------

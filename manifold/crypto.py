@@ -44,7 +44,7 @@ import hashlib
 import hmac
 import json
 import secrets
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 from .b2b import HandshakeResult, OrgPolicy, PolicyHandshake

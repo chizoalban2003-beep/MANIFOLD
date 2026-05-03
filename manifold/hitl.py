@@ -34,7 +34,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Literal
 
-from .brain import BrainDecision, BrainMemory, BrainOutcome, BrainTask, GossipNote
+from .brain import BrainDecision, BrainMemory, BrainOutcome, BrainTask
 from .trustrouter import clamp01
 
 

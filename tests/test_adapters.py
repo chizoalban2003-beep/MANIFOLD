@@ -6,7 +6,6 @@ import pytest
 
 from manifold import (
     BrainConfig,
-    BrainTask,
     ConnectorRegistry,
     GossipBus,
     InterceptorConfig,

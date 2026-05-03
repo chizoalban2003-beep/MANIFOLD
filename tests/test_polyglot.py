@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import json
 
-import pytest
-
 from manifold.polyglot import (
     ManifoldOpenAPISpec,
     generate_openapi_spec,

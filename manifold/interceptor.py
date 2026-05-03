@@ -55,8 +55,8 @@ import functools
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
-from .brain import BrainConfig, BrainDecision, BrainTask, ManifoldBrain, ToolProfile, default_tools
-from .connector import ConnectorRegistry, ToolConnector, ToolConnectorResult
+from .brain import BrainDecision, BrainTask, ManifoldBrain
+from .connector import ConnectorRegistry, ToolConnectorResult
 from .trustrouter import clamp01
 
 

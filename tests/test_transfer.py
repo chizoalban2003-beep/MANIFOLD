@@ -1,19 +1,13 @@
 """Tests for Phase 6: ReputationRegistry, WarmStartConfig, warm_start_memory, and Phase 7 telemetry probes."""
 
-import dataclasses
-
 import pytest
 
 from manifold import (
     BrainConfig,
     BrainMemory,
-    BrainOutcome,
     BrainTask,
-    GossipBus,
-    LiveBrain,
     ManifoldBrain,
     ReputationRegistry,
-    ToolProfile,
     WarmStartConfig,
     default_tools,
     warm_start_memory,

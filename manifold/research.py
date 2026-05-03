@@ -34,20 +34,17 @@ from .brain import (
     BrainMemory,
     BrainOutcome,
     BrainTask,
-    DecompositionPlan,
     GossipNote,
     HierarchicalBrain,
     ManifoldBrain,
     PriceAdapter,
     ScoutRecord,
-    SubTaskSpec,
     ToolProfile,
-    attribute_to_tool,
     classify_user_signal,
     default_tools,
 )
 from .brainbench import BrainLabelledTask, run_brain_benchmark, sample_brain_tasks
-from .encoder import DualPathEncoder, PromptEncoder, SemanticBridge
+from .encoder import DualPathEncoder, PromptEncoder
 from .live import GossipBus, HierarchicalLiveBrain, LiveBrain
 from .transfer import ReputationRegistry, WarmStartConfig, warm_start_memory
 
@@ -415,7 +412,6 @@ def social_recovery_probe(seed: int = 2500, n_agents: int = 30) -> ResearchFindi
     compared to temporal decay alone (which would take ~40+ rounds to reach
     the same level).
     """
-    rng = random.Random(seed)
     tool = "traffic_routing"
     agents = _make_agents(n_agents)
 
@@ -1450,7 +1446,6 @@ def warm_start_reduces_cold_start_regret_probe(seed: int = 6000) -> ResearchFind
 
     Pass condition: warm_start adj < cold adj (warm start inherits the scar).
     """
-    cfg = BrainConfig(generations=2, population_size=12, grid_size=5, seed=seed)
     tools = default_tools()
 
     registry = ReputationRegistry()
@@ -1493,7 +1488,6 @@ def reputation_transfer_alpha_scales_probe(seed: int = 6000) -> ResearchFinding:
 
     registry = ReputationRegistry()
     registry.observe("web_search", success_rate=global_rep, n_observations=30)
-    cfg = BrainConfig(generations=2, population_size=12, grid_size=5, seed=seed)
     warm_memory = warm_start_memory(registry, tools, alpha=alpha)
 
     actual_rep = warm_memory.tool_stats.get("web_search", {}).get("success_rate", -1.0)
@@ -1549,8 +1543,6 @@ def registry_observe_from_memory_probe(seed: int = 6000) -> ResearchFinding:
     Scenario: create a memory with known tool stats, ingest into registry,
     verify global success rates match the memory's recorded values.
     """
-    cfg = BrainConfig(generations=2, population_size=12, grid_size=5, seed=seed)
-    tools = default_tools()
     memory = BrainMemory()
     memory.tool_stats["web_search"] = {
         "success_rate": 0.55, "count": 20.0, "utility": 0.6, "consecutive_failures": 0.0

@@ -322,7 +322,6 @@ def test_policy_synthesizer_non_decomposed_ignored():
     synth = PolicySynthesizer(min_occurrences=1)
     decision = _make_non_decomposed_decision()
     # If the brain chose not to decompose, record should not count it
-    before = synth.decision_count("legal")
     synth.record(decision, domain="legal")
     if not decision.decomposed:
         # Non-decomposed decisions are silently skipped

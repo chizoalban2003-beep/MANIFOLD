@@ -10,14 +10,7 @@ from manifold import (
     SemanticBridge,
     run_dual_encoder_suite,
 )
-from manifold.encoder import (
-    _bow_vector,
-    _cosine_similarity,
-    _length_complexity,
-    _sum_to_signal,
-    _tokenize,
-    _DEFAULT_CLUSTERS,
-)
+from manifold.encoder import _bow_vector, _cosine_similarity, _tokenize, _DEFAULT_CLUSTERS
 
 
 # ---------------------------------------------------------------------------
@@ -226,7 +219,7 @@ def test_dual_encoder_inherits_ema_corrections() -> None:
     enc = DualPathEncoder()
     for _ in range(15):
         enc.update_from_price_delta("legal", cost_delta=0.50)
-    f = enc.encode("legal contract review", "legal")
+    enc.encode("legal contract review", "legal")
     corr = enc.corrections().get("legal", {}).get("complexity")
     assert corr is not None and corr.delta > 0.0
 

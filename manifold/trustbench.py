@@ -13,6 +13,7 @@ from statistics import fmean
 from typing import Callable
 
 from .trustrouter import DialogueTask, TrustAction, TrustRouter, TrustRouterConfig
+from .brainbench import parse_bool, parse_float
 
 
 @dataclass(frozen=True)
@@ -263,12 +264,3 @@ def sample_trust_tasks() -> list[LabelledTask]:
         ),
     ]
 
-
-def parse_float(value: str | None, default: float) -> float:
-    if value in (None, ""):
-        return default
-    return float(value)
-
-
-def parse_bool(value: str | None) -> bool:
-    return str(value).strip().lower() in {"1", "true", "yes", "y"}

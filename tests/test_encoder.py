@@ -9,7 +9,7 @@ from manifold import (
     default_tools,
     run_encoder_suite,
 )
-from manifold.encoder import EncoderCorrection, _sum_to_signal, _length_complexity
+from manifold.encoder import _length_complexity, _sum_to_signal
 
 
 # ---------------------------------------------------------------------------

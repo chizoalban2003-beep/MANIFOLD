@@ -27,7 +27,6 @@ import time
 from dataclasses import dataclass, field
 
 from .brain import (
-    BrainConfig,
     BrainDecision,
     BrainMemory,
     BrainOutcome,
@@ -37,7 +36,6 @@ from .brain import (
     HierarchicalBrain,
     HierarchicalDecision,
     ManifoldBrain,
-    SubTaskSpec,
 )
 
 

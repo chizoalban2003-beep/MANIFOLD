@@ -42,8 +42,6 @@ Key classes
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Sequence
-
 from .hub import ReputationHub
 from .policy import ManifoldPolicy, PolicyDomain
 from .trustrouter import clamp01

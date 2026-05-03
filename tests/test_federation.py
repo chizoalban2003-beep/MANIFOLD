@@ -1,7 +1,5 @@
 """Tests for Phase 10: Federated Gossip & Global Reputation Ledger."""
 
-import pytest
-
 from manifold.federation import (
     FederatedGossipBridge,
     FederatedGossipPacket,

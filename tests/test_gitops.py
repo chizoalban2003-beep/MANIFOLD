@@ -5,7 +5,6 @@ from __future__ import annotations
 import pytest
 
 from manifold import (
-    BrainTask,
     ConnectorRegistry,
     ToolConnector,
     ToolProfile,
@@ -13,7 +12,6 @@ from manifold import (
 from manifold.gitops import (
     AutonomousPRProposal,
     CIRiskDelta,
-    CIRiskReport,
     ManifoldCICheck,
     PRDraft,
     generate_github_action,

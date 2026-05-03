@@ -458,7 +458,7 @@ def boost_needed(risk: float, max_risk: float) -> float:
 def base_risk(cell: Position, grid_size: int = DEFAULT_GRID_SIZE) -> float:
     """Static risk field: one calm corridor, expensive detours, teacher bottleneck."""
 
-    row, col = cell
+    _, col = cell
     mid = grid_size // 2
     if col == mid:
         return 5.0

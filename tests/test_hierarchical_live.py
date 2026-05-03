@@ -2,8 +2,6 @@
 
 import dataclasses
 
-import pytest
-
 from manifold import (
     BrainConfig,
     BrainOutcome,
@@ -61,7 +59,7 @@ def test_no_bus_construction() -> None:
 
 def test_with_bus_subscribes_parent() -> None:
     bus = GossipBus()
-    brain = HierarchicalLiveBrain(_CFG, tools=default_tools(), bus=bus, agent_id="parent")
+    HierarchicalLiveBrain(_CFG, tools=default_tools(), bus=bus, agent_id="parent")
     # Parent should be subscribed (1 subscriber = the parent)
     assert len(bus._subscribers) == 1
     bus.stop()

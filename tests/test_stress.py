@@ -14,14 +14,11 @@ from __future__ import annotations
 
 import random
 
-import pytest
-
 from manifold.adversarial import AdversarialPricingDetector, NashEquilibriumGate
 from manifold.autodiscovery import AutoRuleDiscovery, PenaltyOptimizer, RuleObservation
-from manifold.brain import BrainConfig, BrainOutcome, BrainTask, ManifoldBrain, ToolProfile
+from manifold.brain import BrainConfig, BrainTask, ManifoldBrain, ToolProfile
 from manifold.connector import ConnectorRegistry, ToolConnector
 from manifold.interceptor import ActiveInterceptor, InterceptorConfig
-from manifold.trustrouter import clamp01
 
 
 # ---------------------------------------------------------------------------

@@ -11,7 +11,6 @@ from manifold import (
     HITLRecord,
     ManifoldBrain,
     TeacherSpike,
-    ToolProfile,
     default_tools,
 )
 
