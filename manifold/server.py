@@ -43,6 +43,8 @@ from typing import Any
 from .b2b import AgentEconomyLedger, B2BRouter, OrgPolicy
 from .brain import BrainConfig, BrainTask, ManifoldBrain
 from .connector import ConnectorRegistry
+from .consensus import Braintrust
+from .entropy import ReputationDecay, VolatilityTable
 from .fleet import B2BEconomySnapshot, CIBuildHistory, FleetDashboardData, FleetPanelRenderer
 from .hub import ReputationHub
 from .interceptor import ActiveInterceptor, InterceptorConfig
@@ -86,6 +88,12 @@ _VAULT = ManifoldVault(data_dir=_VAULT_DIR)
 # Phase 22: Fleet Dashboard data (CI history + economy snapshot)
 _CI_HISTORY = CIBuildHistory()
 _ECONOMY_LEDGER = AgentEconomyLedger()
+
+# Phase 26: Reputation Decay engine
+_DECAY = ReputationDecay(volatility=VolatilityTable.default())
+
+# Phase 27: Braintrust Consensus panel
+_BRAINTRUST = Braintrust(config=_INTERCEPTOR_CONFIG)
 
 # Thread lock guarding mutable singletons during parallel requests
 _LOCK = threading.Lock()
@@ -323,8 +331,22 @@ class ManifoldHandler(BaseHTTPRequestHandler):
                 ci_history=_CI_HISTORY,
                 economy=B2BEconomySnapshot.from_ledgers([_ECONOMY_LEDGER]),
                 node_id="manifold-server",
-                version="1.2.0",
+                version="1.3.0",
             )
+            # Phase 26: system entropy
+            sys_entropy = _HUB.system_entropy()
+            tool_entropy_map = _DECAY.all_tool_entropy()
+
+            # Phase 27: quick Braintrust probe on a neutral task
+            probe_task = BrainTask(
+                prompt="dashboard_probe",
+                domain="general",
+                stakes=0.3,
+                uncertainty=0.3,
+                complexity=0.3,
+            )
+            bt_result = _BRAINTRUST.evaluate(probe_task)
+
         renderer = FleetPanelRenderer(fleet_data)
         ci_text = renderer.ci_summary_text()
         eco_text = renderer.economy_summary_text()
@@ -364,6 +386,35 @@ class ManifoldHandler(BaseHTTPRequestHandler):
         vault_economy = _VAULT.economy_count()
         now_utc = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
 
+        # Phase 26: entropy sparkline — CSS bar per tracked tool (max 8)
+        entropy_rows = ""
+        for tool_name, entropy in list(tool_entropy_map.items())[:8]:
+            bar_w = int(entropy * 100)
+            color = "bg-green-400" if entropy < 0.3 else ("bg-yellow-400" if entropy < 0.7 else "bg-red-400")
+            entropy_rows += (
+                f"<tr><td class='p-2 font-mono text-sm'>{tool_name}</td>"
+                f"<td class='p-2'><div class='{color} h-4 rounded' style='width:{bar_w}%'></div></td>"
+                f"<td class='p-2 text-right text-sm'>{entropy:.4f}</td></tr>\n"
+            )
+        if not entropy_rows:
+            entropy_rows = "<tr><td colspan='3' class='p-2 text-gray-400 text-center'>No entropy signals recorded yet</td></tr>"
+
+        sys_entropy_pct = int(sys_entropy * 100)
+        entropy_color = "text-green-400" if sys_entropy_pct < 30 else ("text-yellow-400" if sys_entropy_pct < 70 else "text-red-400")
+
+        # Phase 27: Braintrust vote table
+        bt_rows = ""
+        for vote in bt_result.votes:
+            approve_icon = "✅" if vote.approves else "🚫"
+            bt_rows += (
+                f"<tr><td class='p-2 font-mono text-sm'>{vote.genome_name}</td>"
+                f"<td class='p-2 text-center'>{approve_icon}</td>"
+                f"<td class='p-2 text-right text-sm'>{vote.decision.action}</td>"
+                f"<td class='p-2 text-right text-sm'>{vote.weighted_confidence:.4f}</td></tr>\n"
+            )
+        bt_approved_icon = "✅ APPROVED" if bt_result.approved else "🚫 VETOED"
+        bt_approved_color = "text-green-400" if bt_result.approved else "text-red-400"
+
         html = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -382,6 +433,7 @@ class ManifoldHandler(BaseHTTPRequestHandler):
     tr:hover td {{ background:#1a2a3b; }}
     pre {{ white-space:pre-wrap; font-size:0.8rem; color:#94a3b8; background:#0f172a;
            padding:1rem; border-radius:0.5rem; }}
+    .sparkline-bar {{ height:8px; border-radius:4px; display:inline-block; }}
   </style>
 </head>
 <body class="p-6">
@@ -392,8 +444,8 @@ class ManifoldHandler(BaseHTTPRequestHandler):
       <div>
         <h1 class="text-3xl font-bold text-white">⚡ MANIFOLD Fleet Dashboard</h1>
         <p class="text-slate-400 text-sm mt-1">
-          v1.2.0 &nbsp;|&nbsp; 757 Tests Passing &nbsp;|&nbsp; 0 External Dependencies
-          &nbsp;|&nbsp; Universal Grid OS
+          v1.3.0 &nbsp;|&nbsp; 800+ Tests Passing &nbsp;|&nbsp; 0 External Dependencies
+          &nbsp;|&nbsp; Sovereign Executive OS
         </p>
       </div>
       <span class="text-slate-500 text-xs">{now_utc}</span>
@@ -423,6 +475,46 @@ class ManifoldHandler(BaseHTTPRequestHandler):
           <div class="h-3 rounded bg-yellow-400" style="width:{block_rate_pct}%"></div>
         </div>
       </div>
+    </div>
+
+    <!-- Phase 26: System Entropy Sparkline -->
+    <div class="card">
+      <h2 class="text-xl font-semibold text-white mb-3">🌡️ System Entropy (Phase 26 — Reputation Decay)</h2>
+      <div class="flex items-center gap-4 mb-4">
+        <div>
+          <span class="text-slate-400 text-sm">Mean System Entropy:</span>
+          <span class="ml-2 font-bold text-2xl {entropy_color}">{sys_entropy_pct}%</span>
+        </div>
+        <div class="flex-1 h-3 rounded bg-slate-700">
+          <div class="h-3 rounded {'bg-green-400' if sys_entropy_pct < 30 else 'bg-yellow-400' if sys_entropy_pct < 70 else 'bg-red-400'}"
+               style="width:{sys_entropy_pct}%"></div>
+        </div>
+      </div>
+      <table>
+        <thead><tr>
+          <th>Tool</th><th>Entropy Sparkline</th><th class="text-right">Score</th>
+        </tr></thead>
+        <tbody>
+          {entropy_rows}
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Phase 27: Braintrust Consensus Status -->
+    <div class="card">
+      <h2 class="text-xl font-semibold text-white mb-3">🧠 Braintrust Consensus (Phase 27)</h2>
+      <div class="flex items-center gap-4 mb-4">
+        <span class="font-bold text-xl {bt_approved_color}">{bt_approved_icon}</span>
+        <span class="text-slate-400 text-sm">Score: {bt_result.consensus_score:.4f} / threshold: {bt_result.threshold:.4f}</span>
+      </div>
+      <table>
+        <thead><tr>
+          <th>Genome</th><th class="text-center">Vote</th><th class="text-right">Action</th><th class="text-right">W·Confidence</th>
+        </tr></thead>
+        <tbody>
+          {bt_rows}
+        </tbody>
+      </table>
     </div>
 
     <!-- CI Risk Trends -->
@@ -467,6 +559,10 @@ class ManifoldHandler(BaseHTTPRequestHandler):
              <span class="ml-2 text-white font-mono">{vault_gossip}</span></div>
         <div><span class="text-slate-400">Economy records persisted:</span>
              <span class="ml-2 text-white font-mono">{vault_economy}</span></div>
+        <div><span class="text-slate-400">Volatility coefficients persisted:</span>
+             <span class="ml-2 text-white font-mono">{_VAULT.volatility_count()}</span></div>
+        <div><span class="text-slate-400">Probationary records persisted:</span>
+             <span class="ml-2 text-white font-mono">{_VAULT.probationary_count()}</span></div>
       </div>
     </div>
 

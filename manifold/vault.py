@@ -50,6 +50,8 @@ _VALID_SIGNALS = frozenset({"failing", "healthy", "degraded"})
 
 _TAG_GOSSIP = "gossip"
 _TAG_ECONOMY = "economy"
+_TAG_VOLATILITY = "volatility"
+_TAG_PROBATIONARY = "probationary"
 
 
 # ---------------------------------------------------------------------------
@@ -89,6 +91,8 @@ class ManifoldVault:
     data_dir: str | os.PathLike[str] = field(default_factory=os.getcwd)
     gossip_log: str = "gossip.jsonl"
     economy_log: str = "economy.jsonl"
+    volatility_log: str = "volatility.jsonl"
+    probationary_log: str = "probationary.jsonl"
 
     _lock: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False)
 
@@ -110,6 +114,14 @@ class ManifoldVault:
     @property
     def _economy_path(self) -> Path:
         return Path(self.data_dir) / self.economy_log
+
+    @property
+    def _volatility_path(self) -> Path:
+        return Path(self.data_dir) / self.volatility_log
+
+    @property
+    def _probationary_path(self) -> Path:
+        return Path(self.data_dir) / self.probationary_log
 
     def _append_line(self, path: Path, record: dict[str, Any]) -> None:
         """Append a single JSON record to *path* (thread-safe)."""
@@ -158,6 +170,53 @@ class ManifoldVault:
             "block_reason": entry.block_reason,
         }
         self._append_line(self._economy_path, record)
+
+    def append_volatility(self, domain: str, lambda_value: float) -> None:
+        """Persist a Volatility Coefficient override to the WAL (Phase 26).
+
+        Parameters
+        ----------
+        domain:
+            The domain whose λ (decay rate) is being persisted.
+        lambda_value:
+            The λ value to store.
+        """
+        record: dict[str, Any] = {
+            "_type": _TAG_VOLATILITY,
+            "domain": domain,
+            "lambda": lambda_value,
+        }
+        self._append_line(self._volatility_path, record)
+
+    def append_probationary(
+        self,
+        tool_name: str,
+        *,
+        original_reliability: float,
+        successful_outcomes: int,
+        graduated: bool,
+    ) -> None:
+        """Persist a Probationary tool state snapshot to the WAL (Phase 28).
+
+        Parameters
+        ----------
+        tool_name:
+            The probationary tool's name.
+        original_reliability:
+            The un-penalised reliability score.
+        successful_outcomes:
+            Number of successful outcomes recorded so far.
+        graduated:
+            Whether the tool has graduated from probationary status.
+        """
+        record: dict[str, Any] = {
+            "_type": _TAG_PROBATIONARY,
+            "tool_name": tool_name,
+            "original_reliability": original_reliability,
+            "successful_outcomes": successful_outcomes,
+            "graduated": graduated,
+        }
+        self._append_line(self._probationary_path, record)
 
     # ------------------------------------------------------------------
     # State recovery
@@ -258,10 +317,23 @@ class ManifoldVault:
         """Return the number of economy records in the WAL."""
         return self._count_lines(self._economy_path)
 
+    def volatility_count(self) -> int:
+        """Return the number of volatility records in the WAL (Phase 26)."""
+        return self._count_lines(self._volatility_path)
+
+    def probationary_count(self) -> int:
+        """Return the number of probationary records in the WAL (Phase 28)."""
+        return self._count_lines(self._probationary_path)
+
     def purge(self) -> None:
-        """Delete both WAL files (irreversible).  Useful in tests."""
+        """Delete all WAL files (irreversible).  Useful in tests."""
         with self._lock:
-            for path in (self._gossip_path, self._economy_path):
+            for path in (
+                self._gossip_path,
+                self._economy_path,
+                self._volatility_path,
+                self._probationary_path,
+            ):
                 if path.exists():
                     path.unlink()
 

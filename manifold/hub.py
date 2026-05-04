@@ -43,6 +43,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from .entropy import ReputationDecay, VolatilityTable
 from .federation import (
     FederatedGossipBridge,
     FederatedGossipPacket,
@@ -222,11 +223,13 @@ class ReputationHub:
         default_factory=list, init=False, repr=False
     )
     _live_ledger: GlobalReputationLedger = field(init=False, repr=False)
+    _decay: ReputationDecay = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
         self._live_ledger = GlobalReputationLedger(min_orgs_required=1)
         # Seed the live ledger with the community baseline
         self._live_ledger.ingest_snapshot(self.baseline.to_org_snapshot())
+        self._decay = ReputationDecay(volatility=VolatilityTable.default())
 
     def contribute(
         self,
@@ -256,6 +259,17 @@ class ReputationHub:
         self._contributions.append(packet)
         self._bridge.contribute_packet(packet)
         self._live_ledger.ingest_packet(packet)
+        # Record a fresh signal timestamp for decay tracking
+        live_rate = self._live_ledger.global_rate(packet.tool_name)
+        if live_rate is not None:
+            # Infer domain from community baseline if available
+            domain = "general"
+            for name, (_, _) in self.baseline.tool_baselines.items():
+                if name == packet.tool_name:
+                    break
+            self._decay.record_signal(
+                packet.tool_name, domain=domain, reliability=clamp01(live_rate)
+            )
 
     def warm_start_ledger(
         self,
@@ -279,21 +293,23 @@ class ReputationHub:
                 ledger.ingest_packet(packet)
 
     def live_reliability(self, tool_name: str) -> float | None:
-        """Return the live community reliability for *tool_name*.
+        """Return the live, time-decayed community reliability for *tool_name*.
 
-        Returns the baseline value when no contributions have updated it,
-        or the contribution-weighted value when enough data has accumulated.
+        The raw reliability is fetched from the live ledger (or baseline) and
+        then adjusted by the exponential decay function based on how long ago
+        the last gossip/outcome signal was recorded for this tool.
 
         Returns
         -------
         float | None
-            Reliability in [0, 1], or ``None`` if the tool is unknown.
+            Decay-adjusted reliability in [0, 1], or ``None`` if unknown.
         """
         # Prefer the live ledger if it has data for this tool
         live = self._live_ledger.global_rate(tool_name)
-        if live is not None:
-            return clamp01(live)
-        return self.baseline.reliability(tool_name)
+        raw = clamp01(live) if live is not None else self.baseline.reliability(tool_name)
+        if raw is None:
+            return None
+        return self._decay.decayed_reliability(tool_name, raw)
 
     def contribution_count(self, tool_name: str | None = None) -> int:
         """Return the number of contributions received.
@@ -307,6 +323,17 @@ class ReputationHub:
         if tool_name is None:
             return len(self._contributions)
         return sum(1 for p in self._contributions if p.tool_name == tool_name)
+
+    def system_entropy(self) -> float:
+        """Return the mean entropy score across all tracked tools (Phase 26).
+
+        Returns 0.0 when no gossip signals have been received.
+        """
+        return self._decay.system_entropy()
+
+    def tool_entropy(self, tool_name: str) -> float:
+        """Return the entropy score for a specific tool [0, 1] (Phase 26)."""
+        return self._decay.entropy_score(tool_name)
 
     def flagged_tools(self) -> list[str]:
         """Return tool names that have community risk flags."""

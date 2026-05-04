@@ -156,7 +156,8 @@ class ActiveInterceptor:
     execution.  For every requested tool call it:
 
     1. Retrieves the tool's current ``ToolProfile`` from the registry.
-    2. Asks ``ManifoldBrain`` to decide the task.
+    2. Asks ``ManifoldBrain`` (or a ``Braintrust`` panel if
+       ``consensus_mode=True``) to decide the task.
     3. Computes ``risk_score = task.stakes * tool.risk``.
     4. If ``risk_score >= config.risk_veto_threshold`` *or* the brain says
        ``refuse`` / ``escalate``, applies the configured redirect strategy.
@@ -166,9 +167,12 @@ class ActiveInterceptor:
     registry:
         The ``ConnectorRegistry`` containing all available tools.
     brain:
-        A ``ManifoldBrain`` used for decision-making.
+        A ``ManifoldBrain`` used for decision-making (single-brain mode).
     config:
         Tunable intercept parameters (see ``InterceptorConfig``).
+    consensus_mode:
+        When ``True``, replaces the single-brain decision with a three-brain
+        ``Braintrust`` weighted consensus (Phase 27).
 
     Example
     -------
@@ -187,10 +191,12 @@ class ActiveInterceptor:
     registry: ConnectorRegistry
     brain: ManifoldBrain
     config: InterceptorConfig = field(default_factory=InterceptorConfig)
+    consensus_mode: bool = False
 
     _intercept_log: list[InterceptResult] = field(
         default_factory=list, init=False, repr=False
     )
+    _braintrust: object = field(default=None, init=False, repr=False)
 
     def intercept(self, task: BrainTask, requested_tool: str) -> InterceptResult:
         """Perform a pre-flight check for a tool call.
@@ -219,7 +225,10 @@ class ActiveInterceptor:
             raise KeyError(f"Tool {requested_tool!r} is not registered.")
 
         profile = connector.refreshed_profile()
-        decision = self.brain.decide(task)
+        if self.consensus_mode:
+            decision = self._braintrust_decide(task)
+        else:
+            decision = self.brain.decide(task)
         risk_score = clamp01(task.stakes * profile.risk)
 
         # Permit if risk is below threshold and brain does not veto
@@ -336,6 +345,24 @@ class ActiveInterceptor:
                 error_message=f"Fallback {target!r} not found; escalated to HITL",
             )
         return fallback_connector.call(*args, **kwargs)
+
+    def _braintrust_decide(self, task: BrainTask) -> BrainDecision:
+        """Use the Braintrust panel for consensus-based decision making (Phase 27)."""
+        # Lazy import to avoid circular dependency
+        from .consensus import Braintrust  # noqa: PLC0415
+
+        if self._braintrust is None:
+            self._braintrust = Braintrust(config=self.config, tools=self.brain.tools)
+        bt = self._braintrust  # type: ignore[assignment]
+        cr = bt.evaluate(task)
+        # Return the decision from the winning approving vote, or the highest-
+        # weighted vote overall (which will be a refuse/escalate) if no one approved.
+        for v in cr.votes:
+            if v.approves and v.decision.action == cr.winning_action:
+                return v.decision
+        # No approving vote — return the decision from the highest-weight brain
+        best = max(cr.votes, key=lambda v: v.vote_weight)
+        return best.decision
 
     def _resolve_redirect(self, vetoed_tool: str) -> str | None:
         """Return the redirect target based on the configured strategy.

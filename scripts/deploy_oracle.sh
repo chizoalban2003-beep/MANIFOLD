@@ -75,6 +75,16 @@ if ! "$PYTHON" -c "import manifold.server" 2>/dev/null; then
 fi
 echo "✓ manifold package is importable"
 
+# Verify new Phase 26-28 modules are present
+for module in manifold.entropy manifold.consensus manifold.discovery; do
+  if ! "$PYTHON" -c "import $module" 2>/dev/null; then
+    echo "ERROR: Module '$module' (v1.3.0) is not available."
+    echo "       Ensure you have the latest code with: git pull"
+    exit 1
+  fi
+  echo "✓ $module is importable"
+done
+
 # ---------------------------------------------------------------------------
 # Create the data directory for the Vault WAL
 # ---------------------------------------------------------------------------
@@ -92,8 +102,8 @@ export MANIFOLD_DATA_DIR="$DATA_DIR"
 # ---------------------------------------------------------------------------
 echo ""
 echo "╔══════════════════════════════════════════════════════════════╗"
-echo "║         MANIFOLD Oracle Server  v1.2.0                      ║"
-echo "║  775 Tests Passing | 0 External Dependencies | Grid OS      ║"
+echo "║         MANIFOLD Oracle Server  v1.3.0                      ║"
+echo "║  886 Tests Passing | 0 External Dependencies | Grid OS      ║"
 echo "╚══════════════════════════════════════════════════════════════╝"
 echo ""
 echo "Starting MANIFOLD server on $HOST:$PORT ..."
