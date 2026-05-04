@@ -57,6 +57,7 @@ _TAG_TOKEN_BUCKET = "token_bucket"
 _TAG_SETTLEMENT = "settlement"
 _TAG_REPLAY = "replay"
 _TAG_DAG = "dag"
+_TAG_CRASHLOG = "crashlog"
 
 
 # ---------------------------------------------------------------------------
@@ -103,6 +104,7 @@ class ManifoldVault:
     settlements_log: str = "settlements.jsonl"
     replays_log: str = "replays.jsonl"
     dags_log: str = "dags.jsonl"
+    crashlogs_log: str = "crashlogs.jsonl"
 
     _lock: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False)
 
@@ -152,6 +154,10 @@ class ManifoldVault:
     @property
     def _dags_path(self) -> Path:
         return Path(self.data_dir) / self.dags_log
+
+    @property
+    def _crashlogs_path(self) -> Path:
+        return Path(self.data_dir) / self.crashlogs_log
 
     def _append_line(self, path: Path, record: dict[str, Any]) -> None:
         """Append a single JSON record to *path* (thread-safe)."""
@@ -446,6 +452,36 @@ class ManifoldVault:
         }
         self._append_line(self._dags_path, record)
 
+    def append_crashlog(
+        self,
+        component_name: str,
+        *,
+        timestamp: float,
+        consecutive_count: int,
+        stack_trace: str,
+    ) -> None:
+        """Append a crash/miss-heartbeat record to the crashlogs WAL (Phase 42).
+
+        Parameters
+        ----------
+        component_name:
+            The component that missed a heartbeat or crashed.
+        timestamp:
+            POSIX timestamp of the event.
+        consecutive_count:
+            Number of consecutive misses including this one.
+        stack_trace:
+            Stack trace from the exception (empty string if no exception).
+        """
+        record: dict[str, Any] = {
+            "_type": _TAG_CRASHLOG,
+            "component_name": component_name,
+            "timestamp": timestamp,
+            "consecutive_count": consecutive_count,
+            "stack_trace": stack_trace,
+        }
+        self._append_line(self._crashlogs_path, record)
+
     # ------------------------------------------------------------------
     # State recovery
     # ------------------------------------------------------------------
@@ -573,6 +609,10 @@ class ManifoldVault:
         """Return the number of DAG execution records in the WAL (Phase 38)."""
         return self._count_lines(self._dags_path)
 
+    def crashlogs_count(self) -> int:
+        """Return the number of crash-log records in the WAL (Phase 42)."""
+        return self._count_lines(self._crashlogs_path)
+
     def purge(self) -> None:
         """Delete all WAL files (irreversible).  Useful in tests."""
         with self._lock:
@@ -586,6 +626,7 @@ class ManifoldVault:
                 self._settlements_path,
                 self._replays_path,
                 self._dags_path,
+                self._crashlogs_path,
             ):
                 if path.exists():
                     path.unlink()

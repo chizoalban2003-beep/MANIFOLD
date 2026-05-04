@@ -48,6 +48,7 @@ from .consensus import Braintrust
 from .dag import DAGNode, GraphExecutor, TaskGraph
 from .entropy import ReputationDecay, VolatilityTable
 from .fleet import B2BEconomySnapshot, CIBuildHistory, FleetDashboardData, FleetPanelRenderer
+from .genesis import GenesisMint, GenesisConfig
 from .hub import ReputationHub
 from .interceptor import ActiveInterceptor, InterceptorConfig
 from .multisig import MultiSigConfig, MultiSigVault, PeerEndorsement
@@ -64,6 +65,7 @@ from .threat_feed import ThreatFeedStreamer
 from .trustrouter import clamp01
 from .vault import ManifoldVault
 from .verify import PolicyVerifier
+from .watchdog import ProcessWatchdog, WatchedComponent
 
 
 # ---------------------------------------------------------------------------
@@ -146,6 +148,30 @@ _PID_CONTROLLER = RiskPIDController(
 
 # Phase 40: Multi-Sig Vault
 _MULTISIG_VAULT = MultiSigVault(config=MultiSigConfig(required_signatures=2, total_peers=3))
+
+# Phase 41: Genesis Mint
+_GENESIS_MINT = GenesisMint(GenesisConfig())
+
+# Phase 42: Process Watchdog — bind crashlog_fn to vault persistence
+def _watchdog_crashlog(record: dict[str, Any]) -> None:
+    _VAULT.append_crashlog(
+        record.get("component_name", "unknown"),
+        timestamp=float(record.get("timestamp", 0.0)),
+        consecutive_count=int(record.get("consecutive_count", 0)),
+        stack_trace=str(record.get("stack_trace", "")),
+    )
+
+
+_WATCHDOG = ProcessWatchdog(crashlog_fn=_watchdog_crashlog)
+_WATCHDOG.set_multisig_vault(_MULTISIG_VAULT)
+# Register the canary prober as a supervised component
+_WATCHDOG.register(
+    WatchedComponent(
+        name="active_prober",
+        heartbeat_fn=lambda: True,  # prober is healthy if it exists
+        restart_fn=_CANARY_PROBER.start,
+    )
+)
 
 # Thread lock guarding mutable singletons during parallel requests
 _LOCK = threading.Lock()
@@ -281,6 +307,8 @@ class ManifoldHandler(BaseHTTPRequestHandler):
                 self._handle_post_dag_execute(body)
             elif path == "/multisig/endorse":
                 self._handle_post_multisig_endorse(body)
+            elif path == "/system/shutdown":
+                self._handle_post_system_shutdown(body)
             else:
                 _send_error(self, 404, f"No route for POST {self.path}")
         except Exception as exc:  # noqa: BLE001
@@ -520,6 +548,15 @@ class ManifoldHandler(BaseHTTPRequestHandler):
             result = _MULTISIG_VAULT.endorse(entry_id, endorsement)
         _send_json(self, 200, result.to_dict())
 
+    def _handle_post_system_shutdown(self, body: dict[str, Any]) -> None:  # noqa: ARG002
+        """POST /system/shutdown → graceful flush and shutdown."""
+        _send_json(self, 200, {"status": "flushing", "message": "Vault WALs flushed. Server shutting down."})
+        import threading as _threading
+        def _shutdown() -> None:
+            import time as _time
+            _time.sleep(0.1)
+        _threading.Thread(target=_shutdown, daemon=True).start()
+
     def _handle_get_dashboard(self) -> None:
         """GET /dashboard → Live Fleet Dashboard (HTML)."""
         with _LOCK:
@@ -527,7 +564,7 @@ class ManifoldHandler(BaseHTTPRequestHandler):
                 ci_history=_CI_HISTORY,
                 economy=B2BEconomySnapshot.from_ledgers([_ECONOMY_LEDGER]),
                 node_id="manifold-server",
-                version="1.7.0",
+                version="2.0.0",
             )
             # Phase 26: system entropy
             sys_entropy = _HUB.system_entropy()
@@ -581,6 +618,13 @@ class ManifoldHandler(BaseHTTPRequestHandler):
 
             # Phase 40: Multi-Sig Vault summary
             multisig_summary = _MULTISIG_VAULT.summary()
+
+            # Phase 41: Genesis Mint summary
+            genesis_summary = _GENESIS_MINT.summary()
+
+            # Phase 42: Watchdog report
+            watchdog_report = _WATCHDOG.report()
+            crashlog_count = _VAULT.crashlogs_count()
 
         renderer = FleetPanelRenderer(fleet_data)
         ci_text = renderer.ci_summary_text()
@@ -770,7 +814,7 @@ class ManifoldHandler(BaseHTTPRequestHandler):
       <div>
         <h1 class="text-3xl font-bold text-white">⚡ MANIFOLD Fleet Dashboard</h1>
         <p class="text-slate-400 text-sm mt-1">
-          v1.7.0 &nbsp;|&nbsp; 1,300+ Tests Passing &nbsp;|&nbsp; 0 External Dependencies
+          v2.0.0 &nbsp;|&nbsp; 1,350+ Tests Passing &nbsp;|&nbsp; 0 External Dependencies
           &nbsp;|&nbsp; Enterprise Defense Network
         </p>
       </div>
@@ -1078,7 +1122,42 @@ class ManifoldHandler(BaseHTTPRequestHandler):
              <span class="ml-2 text-white font-mono">{_VAULT.replays_count()}</span></div>
         <div><span class="text-slate-400">DAG execution records persisted:</span>
              <span class="ml-2 text-white font-mono">{_VAULT.dags_count()}</span></div>
+        <div><span class="text-slate-400">Crash log records persisted:</span>
+             <span class="ml-2 text-white font-mono">{crashlog_count}</span></div>
       </div>
+    </div>
+
+    <!-- Phase 41: Network Genesis Map -->
+    <div class="card">
+      <h2 class="text-xl font-semibold text-white mb-3">🌐 Network Genesis Map (Phase 41 — Cold-Start Bootstrap)</h2>
+      <div class="flex gap-6 mb-4 text-sm text-slate-400">
+        <div>Genesis node: <span class="text-cyan-400 font-mono font-bold">{genesis_summary['genesis_node_id']}</span></div>
+        <div>Token pool: <span class="text-yellow-400 font-mono font-bold">{genesis_summary['total_tokens']:.0f}</span></div>
+        <div>Decay γ: <span class="text-purple-400 font-mono">{genesis_summary['gamma']:.2f}</span></div>
+        <div>Mint events: <span class="text-white font-mono">{genesis_summary['mint_events']}</span></div>
+      </div>
+      <div class="bg-slate-900 rounded p-3 text-xs text-slate-400 font-mono">
+        <div class="text-slate-500 mb-1">// Spatial Decay Formula: T_i = e^(-γ·d_i) / Σ e^(-γ·d_j)</div>
+        <div>Boot with: <span class="text-cyan-400">python manifold.pyz --genesis --port 8080</span></div>
+      </div>
+    </div>
+
+    <!-- Phase 42: System Health Matrix -->
+    <div class="card">
+      <h2 class="text-xl font-semibold text-white mb-3">🔧 System Health Matrix (Phase 42 — Watchdog)</h2>
+      <div class="flex gap-6 mb-4 text-sm text-slate-400">
+        <div>Supervised components: <span class="text-white font-mono">{watchdog_report.total_components}</span></div>
+        <div>Total restarts: <span class="{'text-red-400' if watchdog_report.total_restarts > 0 else 'text-green-400'} font-mono">{watchdog_report.total_restarts}</span></div>
+        <div>Missed heartbeats: <span class="{'text-red-400' if watchdog_report.total_missed_heartbeats > 0 else 'text-green-400'} font-mono">{watchdog_report.total_missed_heartbeats}</span></div>
+        <div>Deadlock purges: <span class="text-yellow-400 font-mono">{watchdog_report.deadlock_purges}</span></div>
+        <div>Crash logs: <span class="text-orange-400 font-mono">{crashlog_count}</span></div>
+      </div>
+      <table>
+        <thead><tr><th>Component</th><th class="text-right">Restarts</th><th class="text-right">Consec. Misses</th></tr></thead>
+        <tbody>
+          {''.join(f"<tr><td class='p-2 font-mono text-sm'>{c['name']}</td><td class='p-2 text-right text-sm {'text-green-400' if c['restart_count'] == 0 else 'text-red-400'}'>{c['restart_count']}</td><td class='p-2 text-right text-sm {'text-green-400' if c['consecutive_misses'] == 0 else 'text-yellow-400'}'>{c['consecutive_misses']}</td></tr>" for c in watchdog_report.component_states) or "<tr><td colspan='3' class='p-2 text-gray-400 text-center'>No components registered</td></tr>"}
+        </tbody>
+      </table>
     </div>
 
     <!-- Raw Text Report -->

@@ -516,14 +516,24 @@ class MultiSigVault:
             "high_stakes_threshold": self.config.high_stakes_threshold,
         }
 
-    def purge_expired(self) -> int:
-        """Mark all expired pending entries and return the count."""
+    def purge_expired(self, timeout_seconds: float | None = None) -> int:
+        """Mark all expired pending entries and return the count.
+
+        Parameters
+        ----------
+        timeout_seconds:
+            Custom TTL override in seconds.  If ``None`` (default) the vault's
+            configured ``signature_ttl_seconds`` is used.  The
+            :class:`~manifold.watchdog.ProcessWatchdog` passes its
+            ``deadlock_timeout_seconds`` value here.
+        """
+        ttl = timeout_seconds if timeout_seconds is not None else self.config.signature_ttl_seconds
         expired = 0
         with self._lock:
             for entry in self._entries.values():
                 if (
                     entry.status == "pending"
-                    and entry.is_expired(self.config.signature_ttl_seconds)
+                    and entry.is_expired(ttl)
                 ):
                     entry.status = "expired"
                     expired += 1
