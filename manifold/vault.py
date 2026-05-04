@@ -52,6 +52,8 @@ _TAG_GOSSIP = "gossip"
 _TAG_ECONOMY = "economy"
 _TAG_VOLATILITY = "volatility"
 _TAG_PROBATIONARY = "probationary"
+_TAG_PROVENANCE = "provenance"
+_TAG_TOKEN_BUCKET = "token_bucket"
 
 
 # ---------------------------------------------------------------------------
@@ -93,6 +95,8 @@ class ManifoldVault:
     economy_log: str = "economy.jsonl"
     volatility_log: str = "volatility.jsonl"
     probationary_log: str = "probationary.jsonl"
+    provenance_log: str = "provenance.jsonl"
+    token_bucket_log: str = "token_buckets.jsonl"
 
     _lock: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False)
 
@@ -122,6 +126,14 @@ class ManifoldVault:
     @property
     def _probationary_path(self) -> Path:
         return Path(self.data_dir) / self.probationary_log
+
+    @property
+    def _provenance_path(self) -> Path:
+        return Path(self.data_dir) / self.provenance_log
+
+    @property
+    def _token_bucket_path(self) -> Path:
+        return Path(self.data_dir) / self.token_bucket_log
 
     def _append_line(self, path: Path, record: dict[str, Any]) -> None:
         """Append a single JSON record to *path* (thread-safe)."""
@@ -217,6 +229,82 @@ class ManifoldVault:
             "graduated": graduated,
         }
         self._append_line(self._probationary_path, record)
+
+    def append_provenance(
+        self,
+        task_id: str,
+        final_decision: str,
+        *,
+        timestamp: float,
+        grid_state_summary: dict[str, Any] | None = None,
+        braintrust_votes: list[dict[str, Any]] | None = None,
+        policy_hash: str = "",
+        receipt_hash: str = "",
+        previous_hash: str = "",
+    ) -> None:
+        """Append a :class:`~manifold.provenance.DecisionReceipt` to the provenance WAL (Phase 29).
+
+        Parameters
+        ----------
+        task_id:
+            Unique decision identifier.
+        final_decision:
+            The action that was taken.
+        timestamp:
+            POSIX timestamp of the decision.
+        grid_state_summary:
+            Lightweight brain-decision summary dict.
+        braintrust_votes:
+            List of per-genome vote dicts (or empty).
+        policy_hash:
+            SHA-256 hex digest of the active policy.
+        receipt_hash:
+            SHA-256 hex digest of the full receipt.
+        previous_hash:
+            Hash of the preceding receipt in the Merkle chain.
+        """
+        record: dict[str, Any] = {
+            "_type": _TAG_PROVENANCE,
+            "task_id": task_id,
+            "final_decision": final_decision,
+            "timestamp": timestamp,
+            "grid_state_summary": grid_state_summary or {},
+            "braintrust_votes": braintrust_votes or [],
+            "policy_hash": policy_hash,
+            "receipt_hash": receipt_hash,
+            "previous_hash": previous_hash,
+        }
+        self._append_line(self._provenance_path, record)
+
+    def append_token_bucket(
+        self,
+        entity_id: str,
+        *,
+        tokens: float,
+        capacity: float,
+        probationary: bool = False,
+    ) -> None:
+        """Persist a token bucket state snapshot to the WAL (Phase 30).
+
+        Parameters
+        ----------
+        entity_id:
+            The tool or org identifier.
+        tokens:
+            Current token level.
+        capacity:
+            Maximum bucket capacity.
+        probationary:
+            Whether this entity is in probationary status.
+        """
+        record: dict[str, Any] = {
+            "_type": _TAG_TOKEN_BUCKET,
+            "entity_id": entity_id,
+            "tokens": tokens,
+            "capacity": capacity,
+            "probationary": probationary,
+        }
+        self._append_line(self._token_bucket_path, record)
 
     # ------------------------------------------------------------------
     # State recovery
@@ -325,6 +413,14 @@ class ManifoldVault:
         """Return the number of probationary records in the WAL (Phase 28)."""
         return self._count_lines(self._probationary_path)
 
+    def provenance_count(self) -> int:
+        """Return the number of provenance records in the WAL (Phase 29)."""
+        return self._count_lines(self._provenance_path)
+
+    def token_bucket_count(self) -> int:
+        """Return the number of token-bucket state records in the WAL (Phase 30)."""
+        return self._count_lines(self._token_bucket_path)
+
     def purge(self) -> None:
         """Delete all WAL files (irreversible).  Useful in tests."""
         with self._lock:
@@ -333,6 +429,8 @@ class ManifoldVault:
                 self._economy_path,
                 self._volatility_path,
                 self._probationary_path,
+                self._provenance_path,
+                self._token_bucket_path,
             ):
                 if path.exists():
                     path.unlink()

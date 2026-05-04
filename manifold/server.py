@@ -49,6 +49,9 @@ from .fleet import B2BEconomySnapshot, CIBuildHistory, FleetDashboardData, Fleet
 from .hub import ReputationHub
 from .interceptor import ActiveInterceptor, InterceptorConfig
 from .policy import ManifoldPolicy
+from .probe import ActiveProber
+from .provenance import ProvenanceLedger
+from .quota import QuotaManager
 from .recruiter import SovereignRecruiter
 from .trustrouter import clamp01
 from .vault import ManifoldVault
@@ -94,6 +97,15 @@ _DECAY = ReputationDecay(volatility=VolatilityTable.default())
 
 # Phase 27: Braintrust Consensus panel
 _BRAINTRUST = Braintrust(config=_INTERCEPTOR_CONFIG)
+
+# Phase 29: Decision Provenance ledger
+_PROVENANCE_LEDGER = ProvenanceLedger()
+
+# Phase 30: Trust-Based Rate Limiting
+_QUOTA_MANAGER = QuotaManager(hub=_HUB)
+
+# Phase 31: Active Canary Prober
+_CANARY_PROBER = ActiveProber(hub=_HUB, decay=_DECAY, brain=_BRAIN)
 
 # Thread lock guarding mutable singletons during parallel requests
 _LOCK = threading.Lock()
@@ -181,6 +193,12 @@ class ManifoldHandler(BaseHTTPRequestHandler):
             m = re.fullmatch(r"/reputation/(.+)", path)
             if m:
                 self._handle_get_reputation(m.group(1))
+                return
+
+            # GET /provenance/<task_id>
+            m2 = re.fullmatch(r"/provenance/(.+)", path)
+            if m2:
+                self._handle_get_provenance(m2.group(1))
                 return
 
             _send_error(self, 404, f"No route for GET {self.path}")
@@ -324,6 +342,15 @@ class ManifoldHandler(BaseHTTPRequestHandler):
             org_policy = OrgPolicy.from_manifold_policy(_POLICY, "manifold-server")
         _send_json(self, 200, org_policy.to_dict())
 
+    def _handle_get_provenance(self, task_id: str) -> None:
+        """GET /provenance/<task_id> → cryptographic DecisionReceipt."""
+        with _LOCK:
+            receipt = _PROVENANCE_LEDGER.get(task_id)
+        if receipt is None:
+            _send_error(self, 404, f"No provenance receipt found for task_id={task_id!r}")
+            return
+        _send_json(self, 200, receipt.to_dict())
+
     def _handle_get_dashboard(self) -> None:
         """GET /dashboard → Live Fleet Dashboard (HTML)."""
         with _LOCK:
@@ -331,7 +358,7 @@ class ManifoldHandler(BaseHTTPRequestHandler):
                 ci_history=_CI_HISTORY,
                 economy=B2BEconomySnapshot.from_ledgers([_ECONOMY_LEDGER]),
                 node_id="manifold-server",
-                version="1.3.0",
+                version="1.4.0",
             )
             # Phase 26: system entropy
             sys_entropy = _HUB.system_entropy()
@@ -346,6 +373,15 @@ class ManifoldHandler(BaseHTTPRequestHandler):
                 complexity=0.3,
             )
             bt_result = _BRAINTRUST.evaluate(probe_task)
+
+            # Phase 29: provenance ledger stats
+            provenance_count = _PROVENANCE_LEDGER.receipt_count()
+
+            # Phase 30: quota summary
+            quota_summary = _QUOTA_MANAGER.quota_summary()
+
+            # Phase 31: canary summary
+            canary_summary = _CANARY_PROBER.canary_summary()
 
         renderer = FleetPanelRenderer(fleet_data)
         ci_text = renderer.ci_summary_text()
@@ -415,6 +451,37 @@ class ManifoldHandler(BaseHTTPRequestHandler):
         bt_approved_icon = "✅ APPROVED" if bt_result.approved else "🚫 VETOED"
         bt_approved_color = "text-green-400" if bt_result.approved else "text-red-400"
 
+        # Phase 29: provenance summary row
+        provenance_html = (
+            f"<span class='font-bold text-purple-400'>{provenance_count}</span>"
+            " decisions recorded in Merkle chain"
+        )
+
+        # Phase 30: rate-limit quota bar chart (top 6 entities)
+        quota_rows = ""
+        for entity_id, info in list(quota_summary.items())[:6]:
+            tokens = info["tokens"]
+            cap = info["capacity"]
+            bar_w = int((tokens / cap) * 100) if cap > 0 else 0
+            color = "bg-green-400" if bar_w > 50 else ("bg-yellow-400" if bar_w > 20 else "bg-red-400")
+            quota_rows += (
+                f"<tr><td class='p-2 font-mono text-sm'>{entity_id}</td>"
+                f"<td class='p-2'><div class='{color} h-4 rounded' style='width:{bar_w}%'></div></td>"
+                f"<td class='p-2 text-right text-sm'>{tokens:.2f}/{cap:.0f}</td></tr>\n"
+            )
+        if not quota_rows:
+            quota_rows = "<tr><td colspan='3' class='p-2 text-gray-400 text-center'>No quota buckets active</td></tr>"
+
+        # Phase 31: canary status panel
+        canary_total = canary_summary["total_probes"]
+        canary_suspects = canary_summary["adversarial_suspects"]
+        canary_running = canary_summary["is_running"]
+        canary_pass_rate = canary_summary["pass_rate"]
+        canary_pulse_class = "canary-pulse-active" if canary_running else "canary-pulse-idle"
+        canary_status_text = "ACTIVE" if canary_running else "IDLE"
+        canary_pass_pct = int(canary_pass_rate * 100)
+        canary_color = "text-green-400" if canary_suspects == 0 else "text-red-400"
+
         html = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -434,6 +501,9 @@ class ManifoldHandler(BaseHTTPRequestHandler):
     pre {{ white-space:pre-wrap; font-size:0.8rem; color:#94a3b8; background:#0f172a;
            padding:1rem; border-radius:0.5rem; }}
     .sparkline-bar {{ height:8px; border-radius:4px; display:inline-block; }}
+    @keyframes canary-pulse {{ 0%,100%{{opacity:1}} 50%{{opacity:0.3}} }}
+    .canary-pulse-active {{ animation: canary-pulse 2s ease-in-out infinite; color:#4ade80; }}
+    .canary-pulse-idle {{ color:#94a3b8; }}
   </style>
 </head>
 <body class="p-6">
@@ -444,8 +514,8 @@ class ManifoldHandler(BaseHTTPRequestHandler):
       <div>
         <h1 class="text-3xl font-bold text-white">⚡ MANIFOLD Fleet Dashboard</h1>
         <p class="text-slate-400 text-sm mt-1">
-          v1.3.0 &nbsp;|&nbsp; 800+ Tests Passing &nbsp;|&nbsp; 0 External Dependencies
-          &nbsp;|&nbsp; Sovereign Executive OS
+          v1.4.0 &nbsp;|&nbsp; 950+ Tests Passing &nbsp;|&nbsp; 0 External Dependencies
+          &nbsp;|&nbsp; Enterprise Defense Network
         </p>
       </div>
       <span class="text-slate-500 text-xs">{now_utc}</span>
@@ -517,6 +587,46 @@ class ManifoldHandler(BaseHTTPRequestHandler):
       </table>
     </div>
 
+    <!-- Phase 29: Decision Provenance -->
+    <div class="card">
+      <h2 class="text-xl font-semibold text-white mb-3">🔐 Decision Provenance (Phase 29)</h2>
+      <p class="text-slate-400 text-sm mb-3">Merkle-chained cryptographic audit trail of all decisions.</p>
+      <div class="text-slate-300 text-sm">{provenance_html}</div>
+      <div class="mt-2 text-slate-500 text-xs">Query: <code>GET /provenance/&lt;task_id&gt;</code></div>
+    </div>
+
+    <!-- Phase 30: Rate Limit Quotas -->
+    <div class="card">
+      <h2 class="text-xl font-semibold text-white mb-3">🚦 Rate Limit Quotas (Phase 30)</h2>
+      <p class="text-slate-400 text-sm mb-3">Live token-bucket levels per tool/org (green = healthy, red = throttled).</p>
+      <table>
+        <thead><tr>
+          <th>Entity</th><th>Quota (tokens remaining)</th><th class="text-right">Tokens/Cap</th>
+        </tr></thead>
+        <tbody>
+          {quota_rows}
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Phase 31: Canary Status -->
+    <div class="card">
+      <h2 class="text-xl font-semibold text-white mb-3">🐦 Canary Prober (Phase 31)</h2>
+      <div class="flex items-center gap-6 mb-4">
+        <div>
+          <span class="{canary_pulse_class} font-bold text-lg">● {canary_status_text}</span>
+        </div>
+        <div class="text-sm text-slate-400">
+          Probes: <span class="text-white font-mono">{canary_total}</span>
+          &nbsp;|&nbsp; Suspects: <span class="{canary_color} font-mono">{canary_suspects}</span>
+          &nbsp;|&nbsp; Pass rate: <span class="text-white font-mono">{canary_pass_pct}%</span>
+        </div>
+      </div>
+      <div class="h-3 rounded bg-slate-700">
+        <div class="h-3 rounded bg-green-400" style="width:{canary_pass_pct}%"></div>
+      </div>
+    </div>
+
     <!-- CI Risk Trends -->
     <div class="card">
       <h2 class="text-xl font-semibold text-white mb-4">🔬 CI/CD Risk Trends</h2>
@@ -563,6 +673,10 @@ class ManifoldHandler(BaseHTTPRequestHandler):
              <span class="ml-2 text-white font-mono">{_VAULT.volatility_count()}</span></div>
         <div><span class="text-slate-400">Probationary records persisted:</span>
              <span class="ml-2 text-white font-mono">{_VAULT.probationary_count()}</span></div>
+        <div><span class="text-slate-400">Provenance receipts persisted:</span>
+             <span class="ml-2 text-white font-mono">{_VAULT.provenance_count()}</span></div>
+        <div><span class="text-slate-400">Token-bucket snapshots persisted:</span>
+             <span class="ml-2 text-white font-mono">{_VAULT.token_bucket_count()}</span></div>
       </div>
     </div>
 
