@@ -1,11 +1,15 @@
 # Project MANIFOLD
 
+> **v1.2.0 | 757 Tests Passing | 0 External Dependencies | Universal Grid OS**
+>
 > **The Trust Operating System for AI agents.**
 > MANIFOLD prices risk before the agent acts — detecting adversarial tools, escalating
 > high-stakes decisions to humans, and writing calibrated penalty legislation from observed outcomes.
 
-[![Tests](https://img.shields.io/badge/tests-400%2F400-brightgreen)]()
+[![CI](https://github.com/chizoalban2003-beep/MANIFOLD/actions/workflows/manifold-ci.yml/badge.svg)](https://github.com/chizoalban2003-beep/MANIFOLD/actions/workflows/manifold-ci.yml)
+[![Tests](https://img.shields.io/badge/tests-757%2F757-brightgreen)]()
 [![Python](https://img.shields.io/badge/python-3.12%2B-blue)]()
+[![Zero deps](https://img.shields.io/badge/external%20deps-0-success)]()
 [![License](https://img.shields.io/badge/license-MIT-lightgrey)]()
 
 ---
