@@ -263,7 +263,27 @@ def test_load_state_skips_unknown_type_tag(tmp_vault: ManifoldVault) -> None:
     assert result.skipped == 1
 
 
-def test_load_state_invalid_signal_defaults_to_healthy(tmp_vault: ManifoldVault) -> None:
+def test_load_state_valid_signals_preserved(tmp_vault: ManifoldVault) -> None:
+    """Valid 'failing' and 'degraded' signals must be preserved (not coerced)."""
+    with tmp_vault._gossip_path.open("w") as fh:
+        fh.write(
+            '{"_type": "gossip", "tool_name": "slow-tool", "signal": "degraded", '
+            '"confidence": 0.7, "org_id": "org", "weight": 1.0}\n'
+        )
+        fh.write(
+            '{"_type": "gossip", "tool_name": "broken-tool", "signal": "failing", '
+            '"confidence": 0.9, "org_id": "org", "weight": 5.0}\n'
+        )
+    hub = ReputationHub()
+    result = tmp_vault.load_state(hub=hub)
+    assert result.gossip_loaded == 2
+    assert result.skipped == 0
+    # After 5-weight failing packets the reliability should drop below a healthy baseline
+    assert hub.live_reliability("broken-tool") is not None
+    assert hub.live_reliability("broken-tool") < 1.0
+
+
+
     with tmp_vault._gossip_path.open("w") as fh:
         fh.write(
             '{"_type": "gossip", "tool_name": "tool-x", "signal": "INVALID_SIGNAL", '
