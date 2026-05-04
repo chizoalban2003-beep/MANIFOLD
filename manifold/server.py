@@ -50,14 +50,17 @@ from .fleet import B2BEconomySnapshot, CIBuildHistory, FleetDashboardData, Fleet
 from .hub import ReputationHub
 from .interceptor import ActiveInterceptor, InterceptorConfig
 from .policy import ManifoldPolicy
+from .privacy import PrivacyGuard
 from .probe import ActiveProber
 from .provenance import ProvenanceLedger
 from .quota import QuotaManager
 from .recruiter import SovereignRecruiter
+from .replay import StateRehydrator
 from .swarm import SwarmRouter
 from .threat_feed import ThreatFeedStreamer
 from .trustrouter import clamp01
 from .vault import ManifoldVault
+from .verify import PolicyVerifier
 
 
 # ---------------------------------------------------------------------------
@@ -118,6 +121,15 @@ _SWARM_ROUTER = SwarmRouter()
 
 # Phase 34: Threat Intelligence Feed Streamer
 _THREAT_STREAMER = ThreatFeedStreamer()
+
+# Phase 35: Privacy Guard
+_PRIVACY_GUARD = PrivacyGuard(k=5, epsilon=1.0)
+
+# Phase 36: State Rehydrator
+_REHYDRATOR = StateRehydrator(ledger=_PROVENANCE_LEDGER, brain=_BRAIN)
+
+# Phase 37: Policy Verifier
+_POLICY_VERIFIER = PolicyVerifier(friction_threshold=0.6)
 
 # Thread lock guarding mutable singletons during parallel requests
 _LOCK = threading.Lock()
@@ -218,6 +230,12 @@ class ManifoldHandler(BaseHTTPRequestHandler):
                 self._handle_get_feed()
                 return
 
+            # GET /replay/<task_id>  (Phase 36 time-travel replay)
+            m3 = re.fullmatch(r"/replay/(.+)", path)
+            if m3:
+                self._handle_get_replay(m3.group(1))
+                return
+
             _send_error(self, 404, f"No route for GET {self.path}")
         except Exception as exc:  # noqa: BLE001
             _send_error(self, 500, str(exc))
@@ -241,6 +259,8 @@ class ManifoldHandler(BaseHTTPRequestHandler):
                 self._handle_post_b2b_handshake(body)
             elif path == "/recruit":
                 self._handle_post_recruit(body)
+            elif path == "/verify_policy":
+                self._handle_post_verify_policy(body)
             else:
                 _send_error(self, 404, f"No route for POST {self.path}")
         except Exception as exc:  # noqa: BLE001
@@ -394,6 +414,38 @@ class ManifoldHandler(BaseHTTPRequestHandler):
         except (BrokenPipeError, ConnectionResetError):
             pass
 
+    def _handle_get_replay(self, task_id: str) -> None:
+        """GET /replay/<task_id> → Phase 36 time-travel replay."""
+        with _LOCK:
+            report = _REHYDRATOR.replay(task_id)
+            if report.found:
+                _VAULT.append_replay(
+                    task_id=task_id,
+                    timestamp=report.replay_timestamp,
+                    historical_action=report.historical_action,
+                    current_action=report.current_action,
+                    action_changed=report.action_changed,
+                )
+        if not report.found:
+            _send_error(self, 404, f"No provenance receipt found for task_id={task_id!r}")
+            return
+        _send_json(self, 200, report.to_dict())
+
+    def _handle_post_verify_policy(self, body: dict[str, Any]) -> None:
+        """POST /verify_policy → Phase 37 policy conflict analysis."""
+        policy_a_data = body.get("policy_a")
+        policy_b_data = body.get("policy_b")
+        if not isinstance(policy_a_data, dict) or not isinstance(policy_b_data, dict):
+            _send_error(
+                self, 400, "Body must contain 'policy_a' and 'policy_b' as objects."
+            )
+            return
+        org_a = OrgPolicy.from_dict(policy_a_data)
+        org_b = OrgPolicy.from_dict(policy_b_data)
+        with _LOCK:
+            result = _POLICY_VERIFIER.verify(org_a, org_b)
+        _send_json(self, 200, result.to_dict())
+
     def _handle_get_dashboard(self) -> None:
         """GET /dashboard → Live Fleet Dashboard (HTML)."""
         with _LOCK:
@@ -435,6 +487,16 @@ class ManifoldHandler(BaseHTTPRequestHandler):
             # Phase 34: threat feed summary
             threat_summary = _THREAT_STREAMER.summary()
             threat_events = _THREAT_STREAMER.recent_events(n=6)
+
+            # Phase 35: privacy guard summary
+            privacy_summary = _PRIVACY_GUARD.summary()
+
+            # Phase 36: replay audit count
+            replay_count = _VAULT.replays_count()
+
+            # Phase 37: policy verifier — demo self-check
+            self_policy = OrgPolicy.from_manifold_policy(_POLICY, "manifold-server")
+            verify_result = _POLICY_VERIFIER.verify(self_policy, self_policy)
 
         renderer = FleetPanelRenderer(fleet_data)
         ci_text = renderer.ci_summary_text()
@@ -613,6 +675,7 @@ class ManifoldHandler(BaseHTTPRequestHandler):
                         font-size:0.75rem; max-height:200px; overflow-y:auto; }}
     @keyframes blink {{ 0%,100%{{opacity:1}} 49%{{opacity:1}} 50%{{opacity:0}} }}
     .blink {{ animation: blink 1s step-start infinite; color:#4ade80; }}
+    .privacy-shield {{ font-size:2.5rem; }}
   </style>
 </head>
 <body class="p-6">
@@ -623,7 +686,7 @@ class ManifoldHandler(BaseHTTPRequestHandler):
       <div>
         <h1 class="text-3xl font-bold text-white">⚡ MANIFOLD Fleet Dashboard</h1>
         <p class="text-slate-400 text-sm mt-1">
-          v1.5.0 &nbsp;|&nbsp; 1,000+ Tests Passing &nbsp;|&nbsp; 0 External Dependencies
+          v1.6.0 &nbsp;|&nbsp; 1,200+ Tests Passing &nbsp;|&nbsp; 0 External Dependencies
           &nbsp;|&nbsp; Enterprise Defense Network
         </p>
       </div>
@@ -787,6 +850,51 @@ class ManifoldHandler(BaseHTTPRequestHandler):
       </div>
     </div>
 
+    <!-- Phase 35: Privacy Shield -->
+    <div class="card">
+      <h2 class="text-xl font-semibold text-white mb-3">🔒 Privacy Shield (Phase 35 — Differential Privacy)</h2>
+      <div class="flex items-center gap-6 mb-4">
+        <div class="privacy-shield">🛡️</div>
+        <div>
+          <div class="text-slate-400 text-sm">k-Anonymity threshold: <span class="text-white font-mono font-bold">{privacy_summary['k']}</span></div>
+          <div class="text-slate-400 text-sm mt-1">Privacy budget (ε): <span class="text-{'green' if privacy_summary['epsilon'] <= 1.0 else 'yellow'}-400 font-mono font-bold">{privacy_summary['epsilon']:.4f}</span></div>
+          <div class="text-slate-400 text-sm mt-1">Laplace scale (Δf/ε): <span class="text-purple-400 font-mono">{privacy_summary['laplace_scale']:.4f}</span></div>
+        </div>
+        <div class="flex-1">
+          <div class="text-slate-500 text-xs mb-1">Privacy strength (lower ε = stronger)</div>
+          <div class="h-3 rounded bg-slate-700">
+            <div class="h-3 rounded bg-purple-400" style="width:{min(100, int((1.0/max(0.01,privacy_summary['epsilon']))*50))}%"></div>
+          </div>
+        </div>
+      </div>
+      <div class="text-slate-500 text-xs">Gossip &amp; Threat feeds anonymised before federation. API: <code>POST /verify_policy</code></div>
+    </div>
+
+    <!-- Phase 36: Time-Travel Scrubber -->
+    <div class="card">
+      <h2 class="text-xl font-semibold text-white mb-3">⏪ Time-Travel Scrubber (Phase 36 — Decision Replay)</h2>
+      <div class="flex items-center gap-6 mb-4 text-sm">
+        <div class="text-slate-400">Replay audits logged: <span class="text-cyan-400 font-mono font-bold">{replay_count}</span></div>
+        <div class="text-slate-400">Provenance receipts available: <span class="text-purple-400 font-mono font-bold">{provenance_count}</span></div>
+      </div>
+      <div class="bg-slate-900 rounded p-3 text-xs text-slate-400 font-mono">
+        <div class="mb-1 text-slate-500">// Time-Travel API</div>
+        <div>GET /replay/<span class="text-cyan-400">&lt;task_id&gt;</span>  → ReplayReport (historical vs current decision)</div>
+        <div class="mt-1 text-slate-500">// Enter a Task ID to replay a past decision and compare with current behaviour</div>
+      </div>
+    </div>
+
+    <!-- Phase 37: Policy Verifier -->
+    <div class="card">
+      <h2 class="text-xl font-semibold text-white mb-3">⚖️ Policy Verifier (Phase 37 — Formal Conflict Detection)</h2>
+      <div class="flex gap-6 mb-4 text-sm text-slate-400">
+        <div>Server self-check friction: <span class="text-{'green' if verify_result.friction_score < 0.3 else 'yellow'}-400 font-mono font-bold">{verify_result.friction_score:.4f}</span></div>
+        <div>Deadlocks: <span class="text-{'red' if verify_result.deadlock_count > 0 else 'green'}-400 font-mono">{verify_result.deadlock_count}</span></div>
+        <div>Compatible: <span class="text-{'green' if verify_result.compatible else 'red'}-400 font-mono">{'YES' if verify_result.compatible else 'NO'}</span></div>
+      </div>
+      <div class="text-slate-500 text-xs">Pre-flight check before B2B handshakes. API: <code>POST /verify_policy</code> with <code>policy_a</code> + <code>policy_b</code></div>
+    </div>
+
     <!-- CI Risk Trends -->
     <div class="card">
       <h2 class="text-xl font-semibold text-white mb-4">🔬 CI/CD Risk Trends</h2>
@@ -839,6 +947,8 @@ class ManifoldHandler(BaseHTTPRequestHandler):
              <span class="ml-2 text-white font-mono">{_VAULT.token_bucket_count()}</span></div>
         <div><span class="text-slate-400">Settlement records persisted:</span>
              <span class="ml-2 text-white font-mono">{_VAULT.settlements_count()}</span></div>
+        <div><span class="text-slate-400">Replay audit records persisted:</span>
+             <span class="ml-2 text-white font-mono">{_VAULT.replays_count()}</span></div>
       </div>
     </div>
 

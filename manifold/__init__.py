@@ -208,6 +208,9 @@ from .polyglot import (
     spec_to_json,
     spec_to_yaml,
 )
+from .privacy import PrivacyConfig, PrivacyGuard
+from .replay import ReplayReport, StateRehydrator, VirtualExecution
+from .verify import PolicyConflict, PolicyVerifier, VerificationResult
 
 __all__ = [
     "ActiveInterceptor",
@@ -377,4 +380,15 @@ __all__ = [
     "generate_openapi_spec",
     "spec_to_json",
     "spec_to_yaml",
+    # Phase 35 — Privacy Guard
+    "PrivacyConfig",
+    "PrivacyGuard",
+    # Phase 36 — Time-Travel Replay
+    "ReplayReport",
+    "StateRehydrator",
+    "VirtualExecution",
+    # Phase 37 — Formal Policy Verification
+    "PolicyConflict",
+    "PolicyVerifier",
+    "VerificationResult",
 ]

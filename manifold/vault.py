@@ -55,6 +55,7 @@ _TAG_PROBATIONARY = "probationary"
 _TAG_PROVENANCE = "provenance"
 _TAG_TOKEN_BUCKET = "token_bucket"
 _TAG_SETTLEMENT = "settlement"
+_TAG_REPLAY = "replay"
 
 
 # ---------------------------------------------------------------------------
@@ -99,6 +100,7 @@ class ManifoldVault:
     provenance_log: str = "provenance.jsonl"
     token_bucket_log: str = "token_buckets.jsonl"
     settlements_log: str = "settlements.jsonl"
+    replays_log: str = "replays.jsonl"
 
     _lock: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False)
 
@@ -140,6 +142,10 @@ class ManifoldVault:
     @property
     def _settlements_path(self) -> Path:
         return Path(self.data_dir) / self.settlements_log
+
+    @property
+    def _replays_path(self) -> Path:
+        return Path(self.data_dir) / self.replays_log
 
     def _append_line(self, path: Path, record: dict[str, Any]) -> None:
         """Append a single JSON record to *path* (thread-safe)."""
@@ -354,6 +360,44 @@ class ManifoldVault:
         }
         self._append_line(self._settlements_path, record)
 
+    def append_replay(
+        self,
+        task_id: str,
+        *,
+        timestamp: float,
+        historical_action: str,
+        current_action: str,
+        action_changed: bool,
+        friction_score: float = 0.0,
+    ) -> None:
+        """Append a replay audit request to the replays WAL (Phase 36).
+
+        Parameters
+        ----------
+        task_id:
+            The task identifier that was replayed.
+        timestamp:
+            POSIX timestamp when the replay was performed.
+        historical_action:
+            The original decision action.
+        current_action:
+            The re-run decision action.
+        action_changed:
+            Whether the action differed between historical and current.
+        friction_score:
+            Optional friction score from a policy verification run.
+        """
+        record: dict[str, Any] = {
+            "_type": _TAG_REPLAY,
+            "task_id": task_id,
+            "timestamp": timestamp,
+            "historical_action": historical_action,
+            "current_action": current_action,
+            "action_changed": action_changed,
+            "friction_score": friction_score,
+        }
+        self._append_line(self._replays_path, record)
+
     # ------------------------------------------------------------------
     # State recovery
     # ------------------------------------------------------------------
@@ -473,6 +517,10 @@ class ManifoldVault:
         """Return the number of settlement records in the WAL (Phase 32)."""
         return self._count_lines(self._settlements_path)
 
+    def replays_count(self) -> int:
+        """Return the number of replay audit records in the WAL (Phase 36)."""
+        return self._count_lines(self._replays_path)
+
     def purge(self) -> None:
         """Delete all WAL files (irreversible).  Useful in tests."""
         with self._lock:
@@ -484,6 +532,7 @@ class ManifoldVault:
                 self._provenance_path,
                 self._token_bucket_path,
                 self._settlements_path,
+                self._replays_path,
             ):
                 if path.exists():
                     path.unlink()
