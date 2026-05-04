@@ -32,6 +32,7 @@ manifold/transfer.py
 manifold/trustaudit.py
 manifold/trustbench.py
 manifold/trustrouter.py
+manifold/vault.py
 manifold_ai.egg-info/PKG-INFO
 manifold_ai.egg-info/SOURCES.txt
 manifold_ai.egg-info/dependency_links.txt
@@ -71,3 +72,4 @@ tests/test_transfer.py
 tests/test_trustaudit.py
 tests/test_trustbench.py
 tests/test_trustrouter.py
+tests/test_vault.py
