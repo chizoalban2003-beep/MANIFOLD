@@ -45,10 +45,13 @@ from .brain import BrainConfig, BrainTask, ManifoldBrain
 from .clearing import ClearingEngine
 from .connector import ConnectorRegistry
 from .consensus import Braintrust
+from .dag import DAGNode, GraphExecutor, TaskGraph
 from .entropy import ReputationDecay, VolatilityTable
 from .fleet import B2BEconomySnapshot, CIBuildHistory, FleetDashboardData, FleetPanelRenderer
 from .hub import ReputationHub
 from .interceptor import ActiveInterceptor, InterceptorConfig
+from .multisig import MultiSigConfig, MultiSigVault, PeerEndorsement
+from .pid import PIDConfig, RiskPIDController
 from .policy import ManifoldPolicy
 from .privacy import PrivacyGuard
 from .probe import ActiveProber
@@ -130,6 +133,19 @@ _REHYDRATOR = StateRehydrator(ledger=_PROVENANCE_LEDGER, brain=_BRAIN)
 
 # Phase 37: Policy Verifier
 _POLICY_VERIFIER = PolicyVerifier(friction_threshold=0.6)
+
+# Phase 38: Graph Executor (DAG orchestration)
+_GRAPH_EXECUTOR = GraphExecutor(interceptor=None, swarm_router=_SWARM_ROUTER)
+
+# Phase 39: PID Risk Controller
+_PID_CONTROLLER = RiskPIDController(
+    config=PIDConfig(kp=1.0, ki=0.1, kd=0.05, setpoint=0.3),
+    interceptor_config=_INTERCEPTOR_CONFIG,
+    entropy_source=_HUB.system_entropy,
+)
+
+# Phase 40: Multi-Sig Vault
+_MULTISIG_VAULT = MultiSigVault(config=MultiSigConfig(required_signatures=2, total_peers=3))
 
 # Thread lock guarding mutable singletons during parallel requests
 _LOCK = threading.Lock()
@@ -261,6 +277,10 @@ class ManifoldHandler(BaseHTTPRequestHandler):
                 self._handle_post_recruit(body)
             elif path == "/verify_policy":
                 self._handle_post_verify_policy(body)
+            elif path == "/dag/execute":
+                self._handle_post_dag_execute(body)
+            elif path == "/multisig/endorse":
+                self._handle_post_multisig_endorse(body)
             else:
                 _send_error(self, 404, f"No route for POST {self.path}")
         except Exception as exc:  # noqa: BLE001
@@ -446,6 +466,60 @@ class ManifoldHandler(BaseHTTPRequestHandler):
             result = _POLICY_VERIFIER.verify(org_a, org_b)
         _send_json(self, 200, result.to_dict())
 
+    def _handle_post_dag_execute(self, body: dict[str, Any]) -> None:
+        """POST /dag/execute → Phase 38 DAG graph execution."""
+        graph_id = str(body.get("graph_id", "api-graph"))
+        nodes_data = body.get("nodes")
+        if not isinstance(nodes_data, list):
+            _send_error(self, 400, "Body must contain 'nodes' as a list.")
+            return
+        graph = TaskGraph(graph_id=graph_id)
+        try:
+            for nd in nodes_data:
+                task = _task_from_dict(nd.get("task", {}))
+                node = DAGNode(
+                    node_id=str(nd.get("node_id", "")),
+                    task=task,
+                    depends_on=[str(d) for d in nd.get("depends_on", [])],
+                )
+                graph.add_node(node)
+        except (KeyError, ValueError) as exc:
+            _send_error(self, 400, f"Invalid graph definition: {exc}")
+            return
+        with _LOCK:
+            report = _GRAPH_EXECUTOR.execute(graph)
+            _VAULT.append_dag(
+                graph_id=report.graph_id,
+                timestamp=__import__("time").time(),
+                total_nodes=report.total_nodes,
+                succeeded=report.succeeded,
+                failed=report.failed,
+                skipped=report.skipped,
+                all_succeeded=report.all_succeeded,
+            )
+        _send_json(self, 200, report.to_dict())
+
+    def _handle_post_multisig_endorse(self, body: dict[str, Any]) -> None:
+        """POST /multisig/endorse → Phase 40 peer endorsement."""
+        entry_id = str(body.get("entry_id", ""))
+        if not entry_id:
+            _send_error(self, 400, "Body must contain 'entry_id'.")
+            return
+        try:
+            endorsement = PeerEndorsement(
+                peer_org_id=str(body.get("peer_org_id", "")),
+                task_hash=str(body.get("task_hash", "")),
+                signature=str(body.get("signature", "")),
+                key_id=str(body.get("key_id", "")),
+                timestamp=float(body.get("timestamp", __import__("time").time())),
+            )
+        except (KeyError, ValueError) as exc:
+            _send_error(self, 400, f"Invalid endorsement payload: {exc}")
+            return
+        with _LOCK:
+            result = _MULTISIG_VAULT.endorse(entry_id, endorsement)
+        _send_json(self, 200, result.to_dict())
+
     def _handle_get_dashboard(self) -> None:
         """GET /dashboard → Live Fleet Dashboard (HTML)."""
         with _LOCK:
@@ -453,7 +527,7 @@ class ManifoldHandler(BaseHTTPRequestHandler):
                 ci_history=_CI_HISTORY,
                 economy=B2BEconomySnapshot.from_ledgers([_ECONOMY_LEDGER]),
                 node_id="manifold-server",
-                version="1.5.0",
+                version="1.7.0",
             )
             # Phase 26: system entropy
             sys_entropy = _HUB.system_entropy()
@@ -497,6 +571,16 @@ class ManifoldHandler(BaseHTTPRequestHandler):
             # Phase 37: policy verifier — demo self-check
             self_policy = OrgPolicy.from_manifold_policy(_POLICY, "manifold-server")
             verify_result = _POLICY_VERIFIER.verify(self_policy, self_policy)
+
+            # Phase 38: DAG execution count
+            dag_count = _VAULT.dags_count()
+
+            # Phase 39: PID controller — tick once and collect telemetry
+            pid_state = _PID_CONTROLLER.tick()
+            pid_summary = _PID_CONTROLLER.summary()
+
+            # Phase 40: Multi-Sig Vault summary
+            multisig_summary = _MULTISIG_VAULT.summary()
 
         renderer = FleetPanelRenderer(fleet_data)
         ci_text = renderer.ci_summary_text()
@@ -686,7 +770,7 @@ class ManifoldHandler(BaseHTTPRequestHandler):
       <div>
         <h1 class="text-3xl font-bold text-white">⚡ MANIFOLD Fleet Dashboard</h1>
         <p class="text-slate-400 text-sm mt-1">
-          v1.6.0 &nbsp;|&nbsp; 1,200+ Tests Passing &nbsp;|&nbsp; 0 External Dependencies
+          v1.7.0 &nbsp;|&nbsp; 1,300+ Tests Passing &nbsp;|&nbsp; 0 External Dependencies
           &nbsp;|&nbsp; Enterprise Defense Network
         </p>
       </div>
@@ -895,6 +979,49 @@ class ManifoldHandler(BaseHTTPRequestHandler):
       <div class="text-slate-500 text-xs">Pre-flight check before B2B handshakes. API: <code>POST /verify_policy</code> with <code>policy_a</code> + <code>policy_b</code></div>
     </div>
 
+    <!-- Phase 38: DAG Topo-Map -->
+    <div class="card">
+      <h2 class="text-xl font-semibold text-white mb-3">🗺️ DAG Topo-Map (Phase 38 — Workflow Orchestration)</h2>
+      <div class="flex gap-6 mb-4 text-sm text-slate-400">
+        <div>Graph executions logged: <span class="text-cyan-400 font-mono font-bold">{dag_count}</span></div>
+        <div class="text-slate-500 text-xs">Submit multi-step pipelines via <code>POST /dag/execute</code></div>
+      </div>
+      <div class="bg-slate-900 rounded p-3 text-xs text-slate-400 font-mono">
+        <div class="text-slate-500 mb-1">// DAG API — submit a task graph for topological execution</div>
+        <div>POST /dag/execute  {{"graph_id": "...", "nodes": [{{"node_id": "a", "task": {{...}}, "depends_on": []}}]}}</div>
+      </div>
+    </div>
+
+    <!-- Phase 39: PID Telemetry Chart -->
+    <div class="card">
+      <h2 class="text-xl font-semibold text-white mb-3">📈 PID Telemetry (Phase 39 — Autonomic Risk Regulation)</h2>
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4 text-sm">
+        <div><span class="text-slate-400">Setpoint (target entropy):</span><span class="ml-2 text-white font-mono">{pid_summary['setpoint']:.3f}</span></div>
+        <div><span class="text-slate-400">Last error e(t):</span><span class="ml-2 text-{'red' if pid_state.error < 0 else 'green'}-400 font-mono">{pid_state.error:.4f}</span></div>
+        <div><span class="text-slate-400">PID output u(t):</span><span class="ml-2 text-purple-400 font-mono font-bold">{pid_state.output:.4f}</span></div>
+        <div><span class="text-slate-400">Threshold (after):</span><span class="ml-2 text-yellow-400 font-mono font-bold">{pid_state.threshold_after:.4f}</span></div>
+      </div>
+      <div class="flex items-center gap-4 mb-2">
+        <span class="text-slate-500 text-xs">P={pid_summary['kp']} &nbsp; I={pid_summary['ki']} &nbsp; D={pid_summary['kd']} &nbsp; Ticks: {pid_summary['total_ticks']}</span>
+      </div>
+      <div class="h-3 rounded bg-slate-700">
+        <div class="h-3 rounded bg-purple-400" style="width:{int(pid_state.output * 100)}%"></div>
+      </div>
+      <div class="text-slate-500 text-xs mt-2">Dynamic threshold adapts to global model entropy. Anti-windup active.</div>
+    </div>
+
+    <!-- Phase 40: Multi-Sig Pending Queue -->
+    <div class="card">
+      <h2 class="text-xl font-semibold text-white mb-3">🔑 Multi-Sig Queue (Phase 40 — M-of-N Consensus)</h2>
+      <div class="flex gap-6 mb-4 text-sm text-slate-400">
+        <div>Total entries: <span class="text-white font-mono">{multisig_summary['total_entries']}</span></div>
+        <div>Pending: <span class="text-yellow-400 font-mono">{multisig_summary['by_status'].get('pending', 0)}</span></div>
+        <div>Approved: <span class="text-green-400 font-mono">{multisig_summary['by_status'].get('approved', 0)}</span></div>
+        <div>Required sigs: <span class="text-purple-400 font-mono">{multisig_summary['required_signatures']}-of-{multisig_summary['total_peers']}</span></div>
+      </div>
+      <div class="text-slate-500 text-xs">High-stakes tasks (stakes ≥ {multisig_summary['high_stakes_threshold']}) require {multisig_summary['required_signatures']}-of-{multisig_summary['total_peers']} peer endorsements. API: <code>POST /multisig/endorse</code></div>
+    </div>
+
     <!-- CI Risk Trends -->
     <div class="card">
       <h2 class="text-xl font-semibold text-white mb-4">🔬 CI/CD Risk Trends</h2>
@@ -949,6 +1076,8 @@ class ManifoldHandler(BaseHTTPRequestHandler):
              <span class="ml-2 text-white font-mono">{_VAULT.settlements_count()}</span></div>
         <div><span class="text-slate-400">Replay audit records persisted:</span>
              <span class="ml-2 text-white font-mono">{_VAULT.replays_count()}</span></div>
+        <div><span class="text-slate-400">DAG execution records persisted:</span>
+             <span class="ml-2 text-white font-mono">{_VAULT.dags_count()}</span></div>
       </div>
     </div>
 

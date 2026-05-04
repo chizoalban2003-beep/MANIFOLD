@@ -56,6 +56,7 @@ _TAG_PROVENANCE = "provenance"
 _TAG_TOKEN_BUCKET = "token_bucket"
 _TAG_SETTLEMENT = "settlement"
 _TAG_REPLAY = "replay"
+_TAG_DAG = "dag"
 
 
 # ---------------------------------------------------------------------------
@@ -101,6 +102,7 @@ class ManifoldVault:
     token_bucket_log: str = "token_buckets.jsonl"
     settlements_log: str = "settlements.jsonl"
     replays_log: str = "replays.jsonl"
+    dags_log: str = "dags.jsonl"
 
     _lock: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False)
 
@@ -146,6 +148,10 @@ class ManifoldVault:
     @property
     def _replays_path(self) -> Path:
         return Path(self.data_dir) / self.replays_log
+
+    @property
+    def _dags_path(self) -> Path:
+        return Path(self.data_dir) / self.dags_log
 
     def _append_line(self, path: Path, record: dict[str, Any]) -> None:
         """Append a single JSON record to *path* (thread-safe)."""
@@ -398,6 +404,48 @@ class ManifoldVault:
         }
         self._append_line(self._replays_path, record)
 
+    def append_dag(
+        self,
+        graph_id: str,
+        *,
+        timestamp: float,
+        total_nodes: int,
+        succeeded: int,
+        failed: int,
+        skipped: int,
+        all_succeeded: bool,
+    ) -> None:
+        """Append a DAG execution summary to the dags WAL (Phase 38).
+
+        Parameters
+        ----------
+        graph_id:
+            Identifier of the task graph that was executed.
+        timestamp:
+            POSIX timestamp when the execution completed.
+        total_nodes:
+            Total number of nodes in the graph.
+        succeeded:
+            Number of nodes that succeeded.
+        failed:
+            Number of nodes that failed.
+        skipped:
+            Number of nodes that were skipped.
+        all_succeeded:
+            Whether every node succeeded.
+        """
+        record: dict[str, Any] = {
+            "_type": _TAG_DAG,
+            "graph_id": graph_id,
+            "timestamp": timestamp,
+            "total_nodes": total_nodes,
+            "succeeded": succeeded,
+            "failed": failed,
+            "skipped": skipped,
+            "all_succeeded": all_succeeded,
+        }
+        self._append_line(self._dags_path, record)
+
     # ------------------------------------------------------------------
     # State recovery
     # ------------------------------------------------------------------
@@ -521,6 +569,10 @@ class ManifoldVault:
         """Return the number of replay audit records in the WAL (Phase 36)."""
         return self._count_lines(self._replays_path)
 
+    def dags_count(self) -> int:
+        """Return the number of DAG execution records in the WAL (Phase 38)."""
+        return self._count_lines(self._dags_path)
+
     def purge(self) -> None:
         """Delete all WAL files (irreversible).  Useful in tests."""
         with self._lock:
@@ -533,6 +585,7 @@ class ManifoldVault:
                 self._token_bucket_path,
                 self._settlements_path,
                 self._replays_path,
+                self._dags_path,
             ):
                 if path.exists():
                     path.unlink()
