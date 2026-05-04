@@ -2,6 +2,7 @@ README.md
 pyproject.toml
 manifold/__init__.py
 manifold/__main__.py
+manifold/_mathutils.py
 manifold/adapters.py
 manifold/adversarial.py
 manifold/autodiscovery.py
@@ -24,6 +25,7 @@ manifold/policy.py
 manifold/polyglot.py
 manifold/recruiter.py
 manifold/research.py
+manifold/server.py
 manifold/simulation.py
 manifold/social.py
 manifold/transfer.py
