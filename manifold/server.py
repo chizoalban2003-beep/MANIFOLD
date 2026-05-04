@@ -42,6 +42,7 @@ from typing import Any
 
 from .b2b import AgentEconomyLedger, B2BRouter, OrgPolicy
 from .brain import BrainConfig, BrainTask, ManifoldBrain
+from .clearing import ClearingEngine
 from .connector import ConnectorRegistry
 from .consensus import Braintrust
 from .entropy import ReputationDecay, VolatilityTable
@@ -53,6 +54,8 @@ from .probe import ActiveProber
 from .provenance import ProvenanceLedger
 from .quota import QuotaManager
 from .recruiter import SovereignRecruiter
+from .swarm import SwarmRouter
+from .threat_feed import ThreatFeedStreamer
 from .trustrouter import clamp01
 from .vault import ManifoldVault
 
@@ -106,6 +109,15 @@ _QUOTA_MANAGER = QuotaManager(hub=_HUB)
 
 # Phase 31: Active Canary Prober
 _CANARY_PROBER = ActiveProber(hub=_HUB, decay=_DECAY, brain=_BRAIN)
+
+# Phase 32: Trust Clearinghouse
+_CLEARING_ENGINE = ClearingEngine(ledger=_ECONOMY_LEDGER)
+
+# Phase 33: Swarm Router
+_SWARM_ROUTER = SwarmRouter()
+
+# Phase 34: Threat Intelligence Feed Streamer
+_THREAT_STREAMER = ThreatFeedStreamer()
 
 # Thread lock guarding mutable singletons during parallel requests
 _LOCK = threading.Lock()
@@ -199,6 +211,11 @@ class ManifoldHandler(BaseHTTPRequestHandler):
             m2 = re.fullmatch(r"/provenance/(.+)", path)
             if m2:
                 self._handle_get_provenance(m2.group(1))
+                return
+
+            # GET /feed  (SSE Threat Intelligence Feed)
+            if path == "/feed":
+                self._handle_get_feed()
                 return
 
             _send_error(self, 404, f"No route for GET {self.path}")
@@ -351,6 +368,32 @@ class ManifoldHandler(BaseHTTPRequestHandler):
             return
         _send_json(self, 200, receipt.to_dict())
 
+    def _handle_get_feed(self) -> None:
+        """GET /feed → SSE Threat Intelligence stream (snapshot mode)."""
+        with _LOCK:
+            events = _THREAT_STREAMER.recent_events(n=100)
+        # Build a chunked SSE response
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("Transfer-Encoding", "chunked")
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.end_headers()
+        try:
+            if not events:
+                # Send a comment keep-alive so the connection isn't idle
+                chunk = b": no events\n\n"
+                self.wfile.write(f"{len(chunk):X}\r\n".encode() + chunk + b"\r\n")
+            else:
+                for event in events:
+                    chunk = event.to_sse().encode("utf-8")
+                    self.wfile.write(f"{len(chunk):X}\r\n".encode() + chunk + b"\r\n")
+            # Terminal zero-length chunk
+            self.wfile.write(b"0\r\n\r\n")
+            self.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+
     def _handle_get_dashboard(self) -> None:
         """GET /dashboard → Live Fleet Dashboard (HTML)."""
         with _LOCK:
@@ -358,7 +401,7 @@ class ManifoldHandler(BaseHTTPRequestHandler):
                 ci_history=_CI_HISTORY,
                 economy=B2BEconomySnapshot.from_ledgers([_ECONOMY_LEDGER]),
                 node_id="manifold-server",
-                version="1.4.0",
+                version="1.5.0",
             )
             # Phase 26: system entropy
             sys_entropy = _HUB.system_entropy()
@@ -382,6 +425,16 @@ class ManifoldHandler(BaseHTTPRequestHandler):
 
             # Phase 31: canary summary
             canary_summary = _CANARY_PROBER.canary_summary()
+
+            # Phase 32: clearing engine summary
+            clearing_summary = _CLEARING_ENGINE.summary()
+
+            # Phase 33: swarm routing table
+            swarm_table = _SWARM_ROUTER.routing_table()
+
+            # Phase 34: threat feed summary
+            threat_summary = _THREAT_STREAMER.summary()
+            threat_events = _THREAT_STREAMER.recent_events(n=6)
 
         renderer = FleetPanelRenderer(fleet_data)
         ci_text = renderer.ci_summary_text()
@@ -482,6 +535,58 @@ class ManifoldHandler(BaseHTTPRequestHandler):
         canary_pass_pct = int(canary_pass_rate * 100)
         canary_color = "text-green-400" if canary_suspects == 0 else "text-red-400"
 
+        # Phase 32: clearinghouse balances table
+        clearing_rows = ""
+        for org, debt in list(clearing_summary["net_debts"].items())[:8]:
+            debt_val: float = debt  # type: ignore[assignment]
+            bal = clearing_summary["trust_balances"].get(org, 0.0)  # type: ignore[union-attr]
+            debt_color = "text-red-400" if debt_val > 0 else "text-green-400"
+            clearing_rows += (
+                f"<tr><td class='p-2 font-mono text-sm'>{org}</td>"
+                f"<td class='p-2 text-right {debt_color}'>{debt_val:.4f}</td>"
+                f"<td class='p-2 text-right text-sm text-yellow-400'>{bal:.2f}</td></tr>\n"
+            )
+        if not clearing_rows:
+            clearing_rows = "<tr><td colspan='3' class='p-2 text-gray-400 text-center'>No settlement activity recorded</td></tr>"
+        clearing_freezes: int = clearing_summary["total_freezes"]  # type: ignore[assignment]
+
+        # Phase 33: swarm delegation flow chart
+        swarm_rows = ""
+        for peer_info in swarm_table[:6]:
+            rv = peer_info["routing_value"]
+            rv_pct = int(max(0.0, min(1.0, (rv + 1.0) / 2.0)) * 100)
+            rv_color = "bg-green-400" if rv > 0.5 else ("bg-yellow-400" if rv > 0 else "bg-red-400")
+            swarm_rows += (
+                f"<tr><td class='p-2 font-mono text-sm'>{peer_info['org_id']}</td>"
+                f"<td class='p-2'><div class='{rv_color} h-4 rounded' style='width:{rv_pct}%'></div></td>"
+                f"<td class='p-2 text-right text-sm'>{rv:.4f}</td>"
+                f"<td class='p-2 text-right text-xs text-slate-400'>{peer_info['endpoint']}</td></tr>\n"
+            )
+        if not swarm_rows:
+            swarm_rows = "<tr><td colspan='4' class='p-2 text-gray-400 text-center'>No swarm peers registered</td></tr>"
+        swarm_peer_count = _SWARM_ROUTER.peer_count()
+
+        # Phase 34: threat feed terminal
+        threat_total = threat_summary["total_events"]
+        threat_critical = threat_summary["critical"]
+        threat_high = threat_summary["high"]
+        threat_terminal_lines = ""
+        for ev in threat_events:
+            sev_color = {
+                "critical": "text-red-400",
+                "high": "text-orange-400",
+                "medium": "text-yellow-400",
+                "low": "text-green-400",
+            }.get(ev.severity, "text-slate-400")
+            threat_terminal_lines += (
+                f"<div><span class='text-slate-500'>{ev.timestamp:.0f}</span> "
+                f"<span class='{sev_color}'>[{ev.severity.upper()}]</span> "
+                f"<span class='text-white'>{ev.event_type}</span> "
+                f"<span class='text-cyan-400'>{ev.tool_name}</span></div>\n"
+            )
+        if not threat_terminal_lines:
+            threat_terminal_lines = "<div class='text-slate-500'>No threat events recorded — system healthy.</div>"
+
         html = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -504,6 +609,10 @@ class ManifoldHandler(BaseHTTPRequestHandler):
     @keyframes canary-pulse {{ 0%,100%{{opacity:1}} 50%{{opacity:0.3}} }}
     .canary-pulse-active {{ animation: canary-pulse 2s ease-in-out infinite; color:#4ade80; }}
     .canary-pulse-idle {{ color:#94a3b8; }}
+    .threat-terminal {{ background:#000; border-radius:0.5rem; padding:1rem; font-family:monospace;
+                        font-size:0.75rem; max-height:200px; overflow-y:auto; }}
+    @keyframes blink {{ 0%,100%{{opacity:1}} 49%{{opacity:1}} 50%{{opacity:0}} }}
+    .blink {{ animation: blink 1s step-start infinite; color:#4ade80; }}
   </style>
 </head>
 <body class="p-6">
@@ -514,7 +623,7 @@ class ManifoldHandler(BaseHTTPRequestHandler):
       <div>
         <h1 class="text-3xl font-bold text-white">⚡ MANIFOLD Fleet Dashboard</h1>
         <p class="text-slate-400 text-sm mt-1">
-          v1.4.0 &nbsp;|&nbsp; 950+ Tests Passing &nbsp;|&nbsp; 0 External Dependencies
+          v1.5.0 &nbsp;|&nbsp; 1,000+ Tests Passing &nbsp;|&nbsp; 0 External Dependencies
           &nbsp;|&nbsp; Enterprise Defense Network
         </p>
       </div>
@@ -627,6 +736,57 @@ class ManifoldHandler(BaseHTTPRequestHandler):
       </div>
     </div>
 
+    <!-- Phase 32: Clearinghouse Balances -->
+    <div class="card">
+      <h2 class="text-xl font-semibold text-white mb-3">🏦 Clearinghouse Balances (Phase 32)</h2>
+      <div class="flex gap-6 mb-4 text-sm text-slate-400">
+        <div>Total settlements: <span class="text-white font-mono">{clearing_summary["total_settlements"]}</span></div>
+        <div>Bankruptcy freezes: <span class="{'text-red-400' if clearing_freezes > 0 else 'text-green-400'} font-mono">{clearing_freezes}</span></div>
+      </div>
+      <table>
+        <thead><tr>
+          <th>Organisation</th><th class="text-right">Net Debt</th><th class="text-right">Trust Tokens</th>
+        </tr></thead>
+        <tbody>
+          {clearing_rows}
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Phase 33: Swarm Delegation Flow -->
+    <div class="card">
+      <h2 class="text-xl font-semibold text-white mb-3">🕸️ Swarm Delegation (Phase 33)</h2>
+      <p class="text-slate-400 text-sm mb-3">
+        Registered peers: <span class="text-white font-mono">{swarm_peer_count}</span>
+        &nbsp;—&nbsp; Tasks overflow to the peer with highest routing value.
+      </p>
+      <table>
+        <thead><tr>
+          <th>Peer Org</th><th>Routing Value</th><th class="text-right">V<sub>swarm</sub></th><th class="text-right">Endpoint</th>
+        </tr></thead>
+        <tbody>
+          {swarm_rows}
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Phase 34: Live Threat Feed Terminal -->
+    <div class="card">
+      <h2 class="text-xl font-semibold text-white mb-3">
+        🛡️ Live Threat Feed (Phase 34) &nbsp;
+        <span class="blink text-xs">■ LIVE</span>
+      </h2>
+      <div class="flex gap-6 mb-3 text-sm text-slate-400">
+        <div>Total events: <span class="text-white font-mono">{threat_total}</span></div>
+        <div>Critical: <span class="text-red-400 font-mono">{threat_critical}</span></div>
+        <div>High: <span class="text-orange-400 font-mono">{threat_high}</span></div>
+        <div class="text-xs text-slate-500">Stream: <code>GET /feed</code></div>
+      </div>
+      <div class="threat-terminal">
+        {threat_terminal_lines}
+      </div>
+    </div>
+
     <!-- CI Risk Trends -->
     <div class="card">
       <h2 class="text-xl font-semibold text-white mb-4">🔬 CI/CD Risk Trends</h2>
@@ -677,6 +837,8 @@ class ManifoldHandler(BaseHTTPRequestHandler):
              <span class="ml-2 text-white font-mono">{_VAULT.provenance_count()}</span></div>
         <div><span class="text-slate-400">Token-bucket snapshots persisted:</span>
              <span class="ml-2 text-white font-mono">{_VAULT.token_bucket_count()}</span></div>
+        <div><span class="text-slate-400">Settlement records persisted:</span>
+             <span class="ml-2 text-white font-mono">{_VAULT.settlements_count()}</span></div>
       </div>
     </div>
 

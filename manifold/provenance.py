@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import threading
 import time
 from dataclasses import dataclass, field
 from typing import Any
@@ -128,6 +129,9 @@ class ProvenanceLedger:
     _index: dict[str, DecisionReceipt] = field(
         default_factory=dict, init=False, repr=False
     )
+    _lock: threading.Lock = field(
+        default_factory=threading.Lock, init=False, repr=False
+    )
 
     # ------------------------------------------------------------------
     # Public write API
@@ -167,18 +171,19 @@ class ProvenanceLedger:
             The newly created and appended receipt.
         """
         ts: float = clock() if callable(clock) else time.time()
-        receipt = DecisionReceipt(
-            timestamp=ts,
-            task_id=task_id,
-            grid_state_summary=dict(grid_state_summary or {}),
-            braintrust_votes=tuple(braintrust_votes),
-            policy_hash=policy_hash,
-            final_decision=final_decision,
-            previous_hash=self._head_hash(),
-        )
-        self._receipts.append(receipt)
-        # Last write wins for duplicate task_ids (re-evaluations)
-        self._index[task_id] = receipt
+        with self._lock:
+            receipt = DecisionReceipt(
+                timestamp=ts,
+                task_id=task_id,
+                grid_state_summary=dict(grid_state_summary or {}),
+                braintrust_votes=tuple(braintrust_votes),
+                policy_hash=policy_hash,
+                final_decision=final_decision,
+                previous_hash=self._head_hash(),
+            )
+            self._receipts.append(receipt)
+            # Last write wins for duplicate task_ids (re-evaluations)
+            self._index[task_id] = receipt
         return receipt
 
     # ------------------------------------------------------------------
@@ -187,19 +192,23 @@ class ProvenanceLedger:
 
     def get(self, task_id: str) -> DecisionReceipt | None:
         """Return the :class:`DecisionReceipt` for *task_id*, or ``None``."""
-        return self._index.get(task_id)
+        with self._lock:
+            return self._index.get(task_id)
 
     def all_receipts(self) -> list[DecisionReceipt]:
         """Return all receipts in chain order (oldest first)."""
-        return list(self._receipts)
+        with self._lock:
+            return list(self._receipts)
 
     def receipt_count(self) -> int:
         """Return the number of receipts in the ledger."""
-        return len(self._receipts)
+        with self._lock:
+            return len(self._receipts)
 
     def head_hash(self) -> str:
         """Return the hash of the most recent receipt (or the genesis hash)."""
-        return self._head_hash()
+        with self._lock:
+            return self._head_hash()
 
     # ------------------------------------------------------------------
     # Chain verification
@@ -215,8 +224,10 @@ class ProvenanceLedger:
             its predecessor (or the genesis hash for the first receipt), and
             each stored hash is consistent with the receipt's content.
         """
+        with self._lock:
+            receipts = list(self._receipts)
         prev = _GENESIS_HASH
-        for receipt in self._receipts:
+        for receipt in receipts:
             if receipt.previous_hash != prev:
                 return False
             prev = receipt.receipt_hash

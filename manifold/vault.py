@@ -54,6 +54,7 @@ _TAG_VOLATILITY = "volatility"
 _TAG_PROBATIONARY = "probationary"
 _TAG_PROVENANCE = "provenance"
 _TAG_TOKEN_BUCKET = "token_bucket"
+_TAG_SETTLEMENT = "settlement"
 
 
 # ---------------------------------------------------------------------------
@@ -97,6 +98,7 @@ class ManifoldVault:
     probationary_log: str = "probationary.jsonl"
     provenance_log: str = "provenance.jsonl"
     token_bucket_log: str = "token_buckets.jsonl"
+    settlements_log: str = "settlements.jsonl"
 
     _lock: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False)
 
@@ -134,6 +136,10 @@ class ManifoldVault:
     @property
     def _token_bucket_path(self) -> Path:
         return Path(self.data_dir) / self.token_bucket_log
+
+    @property
+    def _settlements_path(self) -> Path:
+        return Path(self.data_dir) / self.settlements_log
 
     def _append_line(self, path: Path, record: dict[str, Any]) -> None:
         """Append a single JSON record to *path* (thread-safe)."""
@@ -306,6 +312,48 @@ class ManifoldVault:
         }
         self._append_line(self._token_bucket_path, record)
 
+    def append_settlement(
+        self,
+        from_org: str,
+        to_org: str,
+        *,
+        timestamp: float,
+        gross_forward: float,
+        gross_reverse: float,
+        net_amount: float,
+        settled: bool,
+    ) -> None:
+        """Append a :class:`~manifold.clearing.SettlementEvent` to the settlements WAL (Phase 32).
+
+        Parameters
+        ----------
+        from_org:
+            Debtor organisation ID.
+        to_org:
+            Creditor organisation ID.
+        timestamp:
+            POSIX timestamp of the settlement.
+        gross_forward:
+            Sum of from_org → to_org call costs.
+        gross_reverse:
+            Sum of to_org → from_org call costs.
+        net_amount:
+            Net amount after bilateral netting.
+        settled:
+            Whether the net amount was within the bankruptcy threshold.
+        """
+        record: dict[str, Any] = {
+            "_type": _TAG_SETTLEMENT,
+            "from_org": from_org,
+            "to_org": to_org,
+            "timestamp": timestamp,
+            "gross_forward": gross_forward,
+            "gross_reverse": gross_reverse,
+            "net_amount": net_amount,
+            "settled": settled,
+        }
+        self._append_line(self._settlements_path, record)
+
     # ------------------------------------------------------------------
     # State recovery
     # ------------------------------------------------------------------
@@ -421,6 +469,10 @@ class ManifoldVault:
         """Return the number of token-bucket state records in the WAL (Phase 30)."""
         return self._count_lines(self._token_bucket_path)
 
+    def settlements_count(self) -> int:
+        """Return the number of settlement records in the WAL (Phase 32)."""
+        return self._count_lines(self._settlements_path)
+
     def purge(self) -> None:
         """Delete all WAL files (irreversible).  Useful in tests."""
         with self._lock:
@@ -431,6 +483,7 @@ class ManifoldVault:
                 self._probationary_path,
                 self._provenance_path,
                 self._token_bucket_path,
+                self._settlements_path,
             ):
                 if path.exists():
                     path.unlink()
