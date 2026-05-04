@@ -1,13 +1,14 @@
 # Project MANIFOLD
 
-> **v1.2.0 | 757 Tests Passing | 0 External Dependencies | Universal Grid OS**
+> **v1.2.0 | 775 Tests Passing | Phase 25 Complete | Live Dashboard at /dashboard | 0 External Dependencies | Universal Grid OS**
 >
 > **The Trust Operating System for AI agents.**
 > MANIFOLD prices risk before the agent acts — detecting adversarial tools, escalating
 > high-stakes decisions to humans, and writing calibrated penalty legislation from observed outcomes.
 
 [![CI](https://github.com/chizoalban2003-beep/MANIFOLD/actions/workflows/manifold-ci.yml/badge.svg)](https://github.com/chizoalban2003-beep/MANIFOLD/actions/workflows/manifold-ci.yml)
-[![Tests](https://img.shields.io/badge/tests-757%2F757-brightgreen)]()
+[![Tests](https://img.shields.io/badge/tests-775%2F775-brightgreen)]()
+[![Dashboard](https://img.shields.io/badge/dashboard-live%20%2Fdashboard-purple)]()
 [![Python](https://img.shields.io/badge/python-3.12%2B-blue)]()
 [![Zero deps](https://img.shields.io/badge/external%20deps-0-success)]()
 [![License](https://img.shields.io/badge/license-MIT-lightgrey)]()
@@ -577,6 +578,11 @@ python3 -m manifold --mode path --generations 60 --population 36 --grid-size 11
 ### Dashboard
 
 ```bash
+# Phase 25: Live HTTP fleet dashboard (zero external dependencies)
+python -m manifold.server --port 8080
+# then open http://localhost:8080/dashboard
+
+# Phase 7: Streamlit local dashboard
 streamlit run app.py
 ```
 
@@ -617,22 +623,58 @@ penalties dwarf checking costs.
 deploy_shadow.py        Trust Audit V2 CLI — feeds real or synthetic logs through all 12 phases
 app.py                  Streamlit dashboard (Shadow Mode + all earlier engines)
 pyproject.toml          Package config — install with: pip install -e ".[ui]"
+scripts/
+  deploy_oracle.sh      POSIX deploy script: Python 3.12 check, PYTHONPATH, starts server.py
 manifold/
   __main__.py           CLI entry point
   cli.py                CLI modes for social and path engines
   brain.py              Phase 1-3: ManifoldBrain, HierarchicalBrain, BrainTask
   encoder.py            Phase 4-5: PromptEncoder, DualPathEncoder, SemanticBridge
   transfer.py           Phase 6: ReputationRegistry, WarmStartConfig
+  server.py             Phase 7+25: Zero-dep HTTP daemon; GET /dashboard (live fleet UI)
   connector.py          Phase 8: ToolConnector, ConnectorRegistry, ShadowModeWrapper
   hitl.py               Phase 9: HITLGate, TeacherSpike, HITLConfig
   federation.py         Phase 10: FederatedGossipBridge, GlobalReputationLedger
   adversarial.py        Phase 11: AdversarialPricingDetector, NashEquilibriumGate
   autodiscovery.py      Phase 12: AutoRuleDiscovery, PenaltyOptimizer, PolicySynthesizer
+  interceptor.py        Phase 13: ActiveInterceptor, @shield
+  hub.py                Phase 15: CommunityBaseline, ReputationHub
+  recruiter.py          Phase 17: SovereignRecruiter, MarketplaceListing
+  policy.py             Phase 18: ManifoldPolicy, PolicyDomain, DOMAIN_TEMPLATES
+  gitops.py             Phase 19: ManifoldCICheck, CIRiskReport, generate_github_action
+  b2b.py                Phase 20: B2BRouter, AgentEconomyLedger, EconomyEntry
+  crypto.py             Phase 21: PolicySigningKey, OrgPolicySigner, GossipSigner
+  fleet.py              Phase 22: CIBuildHistory, B2BEconomySnapshot, FleetPanelRenderer
+  polyglot.py           Phase 23: ManifoldOpenAPISpec, spec_to_json, spec_to_yaml
+  vault.py              Phase 24: ManifoldVault — thread-safe WAL + state recovery
   gridmapper.py         Reusable problem-to-grid optimizer
   simulation.py         Path/teacher MANIFOLD engine
   social.py             31x31 social-intelligence engine
-tests/                  400 tests covering all 12 phases
+tests/                  775 tests covering all 25 phases
 ```
+
+### Live HTTP Oracle Server (Phase 25)
+
+```bash
+# Start the server (requires Python 3.12+)
+./scripts/deploy_oracle.sh --port 8080
+
+# Or directly:
+python -m manifold.server --port 8080
+```
+
+Endpoints:
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/dashboard` | Live fleet dashboard (HTML, Tailwind CSS, no JS libs) |
+| `GET` | `/policy` | Active `ManifoldPolicy` as JSON |
+| `GET` | `/reputation/<id>` | Agent reliability score from `ReputationHub` |
+| `POST` | `/shield` | Run a `BrainTask` through the `@shield` interceptor |
+| `POST` | `/b2b/handshake` | B2B policy handshake via `B2BRouter` |
+| `POST` | `/recruit` | Sovereign Recruiter — discover and register tools |
+
+The server replays the Phase 24 **Write-Ahead Log** on startup to restore gossip and economy state across restarts.
 
 ## Why the name still fits
 
