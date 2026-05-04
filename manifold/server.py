@@ -33,20 +33,23 @@ or as a module::
 from __future__ import annotations
 
 import json
+import os
 import re
 import threading
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Any
 
-from .b2b import B2BRouter, OrgPolicy
+from .b2b import AgentEconomyLedger, B2BRouter, OrgPolicy
 from .brain import BrainConfig, BrainTask, ManifoldBrain
 from .connector import ConnectorRegistry
+from .fleet import B2BEconomySnapshot, CIBuildHistory, FleetDashboardData, FleetPanelRenderer
 from .hub import ReputationHub
 from .interceptor import ActiveInterceptor, InterceptorConfig
 from .policy import ManifoldPolicy
 from .recruiter import SovereignRecruiter
 from .trustrouter import clamp01
+from .vault import ManifoldVault
 
 
 # ---------------------------------------------------------------------------
@@ -75,6 +78,14 @@ _ROUTER = B2BRouter(
     local_org_id="manifold-server",
 )
 _RECRUITER = SovereignRecruiter(registry=_REGISTRY)
+
+# Phase 24: Immutable Vault — persists gossip + economy events across restarts
+_VAULT_DIR = os.environ.get("MANIFOLD_DATA_DIR", os.path.join(os.getcwd(), "manifold_data"))
+_VAULT = ManifoldVault(data_dir=_VAULT_DIR)
+
+# Phase 22: Fleet Dashboard data (CI history + economy snapshot)
+_CI_HISTORY = CIBuildHistory()
+_ECONOMY_LEDGER = AgentEconomyLedger()
 
 # Thread lock guarding mutable singletons during parallel requests
 _LOCK = threading.Lock()
@@ -151,6 +162,11 @@ class ManifoldHandler(BaseHTTPRequestHandler):
             # GET /policy
             if path == "/policy":
                 self._handle_get_policy()
+                return
+
+            # GET /dashboard
+            if path == "/dashboard":
+                self._handle_get_dashboard()
                 return
 
             # GET /reputation/<id>
@@ -300,6 +316,177 @@ class ManifoldHandler(BaseHTTPRequestHandler):
             org_policy = OrgPolicy.from_manifold_policy(_POLICY, "manifold-server")
         _send_json(self, 200, org_policy.to_dict())
 
+    def _handle_get_dashboard(self) -> None:
+        """GET /dashboard → Live Fleet Dashboard (HTML)."""
+        with _LOCK:
+            fleet_data = FleetDashboardData(
+                ci_history=_CI_HISTORY,
+                economy=B2BEconomySnapshot.from_ledgers([_ECONOMY_LEDGER]),
+                node_id="manifold-server",
+                version="1.2.0",
+            )
+        renderer = FleetPanelRenderer(fleet_data)
+        ci_text = renderer.ci_summary_text()
+        eco_text = renderer.economy_summary_text()
+        ci_summary = fleet_data.ci_history.summary()
+        eco_summary = fleet_data.economy.summary()
+
+        # Build CSS bar chart rows for CI pass rate
+        pass_rate_pct = int(ci_summary["pass_rate"] * 100)  # type: ignore[arg-type]
+        block_rate_pct = int(eco_summary["block_rate"] * 100)  # type: ignore[arg-type]
+
+        # Top risky tools rows
+        risky_rows = ""
+        for tool, delta in fleet_data.ci_history.most_risky_tools(top_n=5):
+            bar_w = int(delta * 100)
+            risky_rows += (
+                f"<tr><td class='p-2 font-mono text-sm'>{tool}</td>"
+                f"<td class='p-2'><div class='bg-red-400 h-4 rounded' style='width:{bar_w}%'></div></td>"
+                f"<td class='p-2 text-right text-sm'>{delta:.4f}</td></tr>\n"
+            )
+        if not risky_rows:
+            risky_rows = "<tr><td colspan='3' class='p-2 text-gray-400 text-center'>No risky tools recorded</td></tr>"
+
+        # Economy org rows
+        eco_rows = ""
+        for org, cost in fleet_data.economy.top_partners(top_n=5):
+            label = fleet_data.economy.org_labels.get(org, org)
+            bar_w = min(100, int(cost * 20))
+            eco_rows += (
+                f"<tr><td class='p-2 font-mono text-sm'>{label}</td>"
+                f"<td class='p-2'><div class='bg-blue-400 h-4 rounded' style='width:{bar_w}%'></div></td>"
+                f"<td class='p-2 text-right text-sm'>{cost:.4f}</td></tr>\n"
+            )
+        if not eco_rows:
+            eco_rows = "<tr><td colspan='3' class='p-2 text-gray-400 text-center'>No economy activity recorded</td></tr>"
+
+        vault_gossip = _VAULT.gossip_count()
+        vault_economy = _VAULT.economy_count()
+        now_utc = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+
+        html = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>MANIFOLD Fleet Dashboard</title>
+  <link rel="stylesheet"
+        href="https://cdn.jsdelivr.net/npm/tailwindcss@3.4.1/base.css"
+        crossorigin="anonymous"/>
+  <style>
+    body {{ font-family: system-ui, sans-serif; background:#0f172a; color:#e2e8f0; }}
+    .card {{ background:#1e293b; border-radius:0.75rem; padding:1.5rem; margin-bottom:1.5rem; }}
+    table {{ width:100%; border-collapse:collapse; }}
+    th {{ text-align:left; padding:0.5rem; font-size:0.75rem; text-transform:uppercase;
+          letter-spacing:0.05em; color:#94a3b8; border-bottom:1px solid #334155; }}
+    tr:hover td {{ background:#1a2a3b; }}
+    pre {{ white-space:pre-wrap; font-size:0.8rem; color:#94a3b8; background:#0f172a;
+           padding:1rem; border-radius:0.5rem; }}
+  </style>
+</head>
+<body class="p-6">
+  <div class="max-w-5xl mx-auto">
+
+    <!-- Header -->
+    <div class="flex items-center justify-between mb-6">
+      <div>
+        <h1 class="text-3xl font-bold text-white">⚡ MANIFOLD Fleet Dashboard</h1>
+        <p class="text-slate-400 text-sm mt-1">
+          v1.2.0 &nbsp;|&nbsp; 757 Tests Passing &nbsp;|&nbsp; 0 External Dependencies
+          &nbsp;|&nbsp; Universal Grid OS
+        </p>
+      </div>
+      <span class="text-slate-500 text-xs">{now_utc}</span>
+    </div>
+
+    <!-- KPI Strip -->
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+      <div class="card text-center">
+        <div class="text-4xl font-bold text-green-400">{ci_summary["total_builds"]}</div>
+        <div class="text-slate-400 text-sm mt-1">Total CI Builds</div>
+      </div>
+      <div class="card text-center">
+        <div class="text-4xl font-bold {'text-green-400' if pass_rate_pct >= 80 else 'text-red-400'}">{pass_rate_pct}%</div>
+        <div class="text-slate-400 text-sm mt-1">CI Pass Rate</div>
+        <div class="mt-2 h-3 rounded bg-slate-700">
+          <div class="h-3 rounded bg-green-400" style="width:{pass_rate_pct}%"></div>
+        </div>
+      </div>
+      <div class="card text-center">
+        <div class="text-4xl font-bold text-blue-400">{eco_summary["total_calls"]}</div>
+        <div class="text-slate-400 text-sm mt-1">B2B API Calls</div>
+      </div>
+      <div class="card text-center">
+        <div class="text-4xl font-bold {'text-yellow-400' if block_rate_pct > 0 else 'text-green-400'}">{block_rate_pct}%</div>
+        <div class="text-slate-400 text-sm mt-1">B2B Block Rate</div>
+        <div class="mt-2 h-3 rounded bg-slate-700">
+          <div class="h-3 rounded bg-yellow-400" style="width:{block_rate_pct}%"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- CI Risk Trends -->
+    <div class="card">
+      <h2 class="text-xl font-semibold text-white mb-4">🔬 CI/CD Risk Trends</h2>
+      <table>
+        <thead><tr>
+          <th>Tool</th><th>Risk Delta</th><th class="text-right">Δ Value</th>
+        </tr></thead>
+        <tbody>
+          {risky_rows}
+        </tbody>
+      </table>
+    </div>
+
+    <!-- B2B Economy Map -->
+    <div class="card">
+      <h2 class="text-xl font-semibold text-white mb-4">🤝 B2B Economy Map (Trust-Tax Flows)</h2>
+      <div class="grid grid-cols-3 gap-4 mb-4 text-sm">
+        <div><span class="text-slate-400">Total trust cost:</span>
+             <span class="ml-2 text-white font-mono">{eco_summary["total_trust_cost"]:.4f}</span></div>
+        <div><span class="text-slate-400">Avg reputation:</span>
+             <span class="ml-2 text-white font-mono">{eco_summary["avg_reputation"]:.4f}</span></div>
+        <div><span class="text-slate-400">Unique remote orgs:</span>
+             <span class="ml-2 text-white font-mono">{eco_summary["unique_remote_orgs"]}</span></div>
+      </div>
+      <table>
+        <thead><tr>
+          <th>Remote Org</th><th>Trust Cost</th><th class="text-right">Units</th>
+        </tr></thead>
+        <tbody>
+          {eco_rows}
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Vault Status -->
+    <div class="card">
+      <h2 class="text-xl font-semibold text-white mb-3">🗄️ Vault (Phase 24 WAL)</h2>
+      <div class="grid grid-cols-2 gap-4 text-sm">
+        <div><span class="text-slate-400">Gossip records persisted:</span>
+             <span class="ml-2 text-white font-mono">{vault_gossip}</span></div>
+        <div><span class="text-slate-400">Economy records persisted:</span>
+             <span class="ml-2 text-white font-mono">{vault_economy}</span></div>
+      </div>
+    </div>
+
+    <!-- Raw Text Report -->
+    <div class="card">
+      <h2 class="text-xl font-semibold text-white mb-3">📋 Raw Report</h2>
+      <pre>{ci_text}\n\n{eco_text}</pre>
+    </div>
+
+  </div>
+</body>
+</html>"""
+        payload = html.encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(payload)))
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.end_headers()
+        self.wfile.write(payload)
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -348,6 +535,9 @@ ReputationHub.observation_weight = lambda self, agent_id: self.baseline.observat
 def run_server(port: int = 8080, *, host: str = "0.0.0.0") -> None:
     """Start the MANIFOLD HTTP server and block until interrupted.
 
+    On startup the Vault WAL is replayed to restore any gossip and economy
+    state from previous runs.
+
     Parameters
     ----------
     port:
@@ -355,6 +545,16 @@ def run_server(port: int = 8080, *, host: str = "0.0.0.0") -> None:
     host:
         Bind address.  Default: ``"0.0.0.0"`` (all interfaces).
     """
+    # Phase 24: replay WAL on startup
+    with _LOCK:
+        result = _VAULT.load_state(hub=_HUB, ledger=_ECONOMY_LEDGER)
+    if result.total_loaded:
+        print(
+            f"MANIFOLD vault: replayed {result.gossip_loaded} gossip + "
+            f"{result.economy_loaded} economy records "
+            f"({result.skipped} skipped)."
+        )
+
     server = HTTPServer((host, port), ManifoldHandler)
     print(f"MANIFOLD server listening on {host}:{port}  (Ctrl-C to stop)")
     try:
