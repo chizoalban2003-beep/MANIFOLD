@@ -105,6 +105,7 @@ class ManifoldVault:
     replays_log: str = "replays.jsonl"
     dags_log: str = "dags.jsonl"
     crashlogs_log: str = "crashlogs.jsonl"
+    sandbox_violations_log: str = "sandbox_violations.jsonl"
 
     _lock: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False)
 
@@ -158,6 +159,10 @@ class ManifoldVault:
     @property
     def _crashlogs_path(self) -> Path:
         return Path(self.data_dir) / self.crashlogs_log
+
+    @property
+    def _sandbox_violations_path(self) -> Path:
+        return Path(self.data_dir) / self.sandbox_violations_log
 
     def _append_line(self, path: Path, record: dict[str, Any]) -> None:
         """Append a single JSON record to *path* (thread-safe)."""
@@ -482,6 +487,36 @@ class ManifoldVault:
         }
         self._append_line(self._crashlogs_path, record)
 
+    def append_sandbox_violation(
+        self,
+        source_hash: str,
+        *,
+        timestamp: float,
+        violations: list[dict[str, object]],
+        agent_id: str = "",
+    ) -> None:
+        """Append a sandbox AST-validation failure to the sandbox WAL (Phase 44).
+
+        Parameters
+        ----------
+        source_hash:
+            A short hash or identifier for the rejected source code.
+        timestamp:
+            POSIX timestamp of the violation.
+        violations:
+            List of :meth:`~manifold.sandbox.SandboxViolation.to_dict` dicts.
+        agent_id:
+            Optional identifier of the agent that submitted the code.
+        """
+        record: dict[str, Any] = {
+            "_type": "sandbox_violation",
+            "source_hash": source_hash,
+            "timestamp": timestamp,
+            "violations": violations,
+            "agent_id": agent_id,
+        }
+        self._append_line(self._sandbox_violations_path, record)
+
     # ------------------------------------------------------------------
     # State recovery
     # ------------------------------------------------------------------
@@ -613,6 +648,10 @@ class ManifoldVault:
         """Return the number of crash-log records in the WAL (Phase 42)."""
         return self._count_lines(self._crashlogs_path)
 
+    def sandbox_violations_count(self) -> int:
+        """Return the number of sandbox violation records in the WAL (Phase 44)."""
+        return self._count_lines(self._sandbox_violations_path)
+
     def purge(self) -> None:
         """Delete all WAL files (irreversible).  Useful in tests."""
         with self._lock:
@@ -627,6 +666,7 @@ class ManifoldVault:
                 self._replays_path,
                 self._dags_path,
                 self._crashlogs_path,
+                self._sandbox_violations_path,
             ):
                 if path.exists():
                     path.unlink()

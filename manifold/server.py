@@ -60,6 +60,8 @@ from .provenance import ProvenanceLedger
 from .quota import QuotaManager
 from .recruiter import SovereignRecruiter
 from .replay import StateRehydrator
+from .sandbox import ASTValidator, BudgetedExecutor, SandboxTimeoutError
+from .sharding import ShardRouter
 from .swarm import SwarmRouter
 from .threat_feed import ThreatFeedStreamer
 from .trustrouter import clamp01
@@ -173,6 +175,13 @@ _WATCHDOG.register(
     )
 )
 
+# Phase 44: AST Execution Sandbox
+_SANDBOX_VALIDATOR = ASTValidator()
+_SANDBOX_EXECUTOR = BudgetedExecutor(max_instructions=10_000, validator=_SANDBOX_VALIDATOR)
+
+# Phase 45: DHT Shard Router
+_SHARD_ROUTER = ShardRouter(local_id="manifold-server")
+
 # Thread lock guarding mutable singletons during parallel requests
 _LOCK = threading.Lock()
 
@@ -278,6 +287,11 @@ class ManifoldHandler(BaseHTTPRequestHandler):
                 self._handle_get_replay(m3.group(1))
                 return
 
+            # GET /admin/metrics  (Phase 46 admin IPC)
+            if path == "/admin/metrics":
+                self._handle_get_admin_metrics()
+                return
+
             _send_error(self, 404, f"No route for GET {self.path}")
         except Exception as exc:  # noqa: BLE001
             _send_error(self, 500, str(exc))
@@ -309,6 +323,8 @@ class ManifoldHandler(BaseHTTPRequestHandler):
                 self._handle_post_multisig_endorse(body)
             elif path == "/system/shutdown":
                 self._handle_post_system_shutdown(body)
+            elif path == "/sandbox/execute":
+                self._handle_post_sandbox_execute(body)
             else:
                 _send_error(self, 404, f"No route for POST {self.path}")
         except Exception as exc:  # noqa: BLE001
@@ -556,6 +572,92 @@ class ManifoldHandler(BaseHTTPRequestHandler):
             import time as _time
             _time.sleep(0.1)
         _threading.Thread(target=_shutdown, daemon=True).start()
+
+    def _handle_post_sandbox_execute(self, body: dict[str, Any]) -> None:
+        """POST /sandbox/execute → Phase 44 AST-sandboxed code execution."""
+        import hashlib as _hashlib
+        import time as _time
+
+        source = str(body.get("source", ""))
+        agent_id = str(body.get("agent_id", ""))
+        if not source:
+            _send_error(self, 400, "Body must contain 'source'.")
+            return
+
+        # Static validation first
+        violations = _SANDBOX_VALIDATOR.validate(source)
+        if violations:
+            source_hash = _hashlib.md5(source.encode(), usedforsecurity=False).hexdigest()[:8]  # noqa: S324
+            with _LOCK:
+                _VAULT.append_sandbox_violation(
+                    source_hash,
+                    timestamp=_time.time(),
+                    violations=[v.to_dict() for v in violations],
+                    agent_id=agent_id,
+                )
+            _send_json(
+                self,
+                422,
+                {
+                    "success": False,
+                    "violations": [v.to_dict() for v in violations],
+                    "instructions_used": 0,
+                    "error": "ASTValidator rejected source",
+                },
+            )
+            return
+
+        try:
+            result = _SANDBOX_EXECUTOR.execute(source)
+        except SandboxTimeoutError as exc:
+            _send_json(
+                self,
+                429,
+                {
+                    "success": False,
+                    "violations": [],
+                    "instructions_used": exc.instructions_used,
+                    "error": str(exc),
+                },
+            )
+            return
+
+        _send_json(self, 200, result.to_dict())
+
+    def _handle_get_admin_metrics(self) -> None:
+        """GET /admin/metrics → Phase 46 admin metrics snapshot (loopback IPC)."""
+        with _LOCK:
+            wr = _WATCHDOG.report()
+            pid_state = _PID_CONTROLLER.tick()
+            ledger_entries = [
+                {
+                    "local_org_id": e.local_org_id,
+                    "remote_org_id": e.remote_org_id,
+                    "allowed": e.allowed,
+                    "net_trust_cost": e.net_trust_cost,
+                }
+                for e in _ECONOMY_LEDGER.entries[-10:]
+            ]
+            swarm_peers = _SWARM_ROUTER.routing_table()
+            dht_peers = _SHARD_ROUTER.routing_table()
+            genesis_summary = _GENESIS_MINT.summary()
+            dag_count = _VAULT.dags_count()
+            sandbox_violations = _VAULT.sandbox_violations_count()
+
+        _send_json(
+            self,
+            200,
+            {
+                "pid_threshold": pid_state.threshold_after,
+                "dag_count": dag_count,
+                "sandbox_violations": sandbox_violations,
+                "ledger_entries": ledger_entries,
+                "swarm_peers": swarm_peers,
+                "dht_peers": dht_peers,
+                "watchdog": wr.to_dict(),
+                "genesis": genesis_summary,
+            },
+        )
 
     def _handle_get_dashboard(self) -> None:
         """GET /dashboard → Live Fleet Dashboard (HTML)."""
@@ -1124,6 +1226,8 @@ class ManifoldHandler(BaseHTTPRequestHandler):
              <span class="ml-2 text-white font-mono">{_VAULT.dags_count()}</span></div>
         <div><span class="text-slate-400">Crash log records persisted:</span>
              <span class="ml-2 text-white font-mono">{crashlog_count}</span></div>
+        <div><span class="text-slate-400">Sandbox violations logged:</span>
+             <span class="ml-2 text-white font-mono">{_VAULT.sandbox_violations_count()}</span></div>
       </div>
     </div>
 
