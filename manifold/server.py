@@ -66,6 +66,14 @@ from .swarm import SwarmRouter
 from .threat_feed import ThreatFeedStreamer
 from .trustrouter import clamp01
 from .vault import ManifoldVault
+from .vectorfs import VectorIndex
+from .meta import ABTestingEngine, PromptGenome
+from .ipc import (
+    EventBus,
+    TOPIC_SANDBOX_VIOLATION,
+    TOPIC_SANDBOX_TIMEOUT,
+    TOPIC_VECTOR_ENTRY_ADDED,
+)
 from .verify import PolicyVerifier
 from .watchdog import ProcessWatchdog, WatchedComponent
 
@@ -181,6 +189,16 @@ _SANDBOX_EXECUTOR = BudgetedExecutor(max_instructions=10_000, validator=_SANDBOX
 
 # Phase 45: DHT Shard Router
 _SHARD_ROUTER = ShardRouter(local_id="manifold-server")
+
+# Phase 47: Native Vector Index
+_VECTOR_INDEX = VectorIndex(n_planes=8, seed=0)
+
+# Phase 48: Meta-Prompt A/B Testing Engine
+_META_CHAMPION = PromptGenome(prompt_id="default-v1", template="You are a helpful, safe, and trustworthy AI agent.")
+_META_ENGINE = ABTestingEngine(champion=_META_CHAMPION, min_trials=100, promotion_threshold=0.05, seed=0)
+
+# Phase 49: IPC Event Bus
+_EVENT_BUS = EventBus()
 
 # Thread lock guarding mutable singletons during parallel requests
 _LOCK = threading.Lock()
@@ -325,6 +343,12 @@ class ManifoldHandler(BaseHTTPRequestHandler):
                 self._handle_post_system_shutdown(body)
             elif path == "/sandbox/execute":
                 self._handle_post_sandbox_execute(body)
+            elif path == "/vector/add":
+                self._handle_post_vector_add(body)
+            elif path == "/vector/search":
+                self._handle_post_vector_search(body)
+            elif path == "/meta/outcome":
+                self._handle_post_meta_outcome(body)
             else:
                 _send_error(self, 404, f"No route for POST {self.path}")
         except Exception as exc:  # noqa: BLE001
@@ -595,6 +619,10 @@ class ManifoldHandler(BaseHTTPRequestHandler):
                     violations=[v.to_dict() for v in violations],
                     agent_id=agent_id,
                 )
+            _EVENT_BUS.publish(
+                TOPIC_SANDBOX_VIOLATION,
+                {"source_hash": source_hash, "agent_id": agent_id, "violation_count": len(violations)},
+            )
             _send_json(
                 self,
                 422,
@@ -610,6 +638,10 @@ class ManifoldHandler(BaseHTTPRequestHandler):
         try:
             result = _SANDBOX_EXECUTOR.execute(source)
         except SandboxTimeoutError as exc:
+            _EVENT_BUS.publish(
+                TOPIC_SANDBOX_TIMEOUT,
+                {"agent_id": agent_id, "instructions_used": exc.instructions_used},
+            )
             _send_json(
                 self,
                 429,
@@ -623,6 +655,79 @@ class ManifoldHandler(BaseHTTPRequestHandler):
             return
 
         _send_json(self, 200, result.to_dict())
+
+    def _handle_post_vector_add(self, body: dict[str, Any]) -> None:
+        """POST /vector/add → Phase 47 VectorIndex.add."""
+        import time as _time
+
+        vector_id = str(body.get("vector_id", ""))
+        vector = body.get("vector")
+        metadata = body.get("metadata") or {}
+        if not vector_id:
+            _send_error(self, 400, "Body must contain 'vector_id'.")
+            return
+        if not isinstance(vector, list) or not vector:
+            _send_error(self, 400, "Body must contain a non-empty 'vector' list.")
+            return
+        try:
+            float_vector = [float(v) for v in vector]
+        except (TypeError, ValueError) as exc:
+            _send_error(self, 400, f"Invalid vector values: {exc}")
+            return
+
+        with _LOCK:
+            _VECTOR_INDEX.add(vector_id, float_vector, metadata=metadata)
+            _VAULT.append_vector_blob(
+                vector_id,
+                vector=float_vector,
+                metadata=metadata,
+                timestamp=_time.time(),
+            )
+        _EVENT_BUS.publish(TOPIC_VECTOR_ENTRY_ADDED, {"vector_id": vector_id})
+        _send_json(self, 200, {"vector_id": vector_id, "dim": len(float_vector)})
+
+    def _handle_post_vector_search(self, body: dict[str, Any]) -> None:
+        """POST /vector/search → Phase 47 VectorIndex.search."""
+        vector = body.get("vector")
+        k = int(body.get("k", 5))
+        if not isinstance(vector, list) or not vector:
+            _send_error(self, 400, "Body must contain a non-empty 'vector' list.")
+            return
+        try:
+            float_vector = [float(v) for v in vector]
+        except (TypeError, ValueError) as exc:
+            _send_error(self, 400, f"Invalid vector values: {exc}")
+            return
+
+        with _LOCK:
+            results = _VECTOR_INDEX.search(float_vector, k=max(1, k))
+        _send_json(self, 200, {"results": [r.to_dict() for r in results]})
+
+    def _handle_post_meta_outcome(self, body: dict[str, Any]) -> None:
+        """POST /meta/outcome → Phase 48 ABTestingEngine.record_outcome."""
+        from .ipc import TOPIC_META_CHAMPION_PROMOTED
+
+        prompt_id = str(body.get("prompt_id", ""))
+        success = bool(body.get("success", False))
+        grid_delta = body.get("grid_delta")
+
+        with _LOCK:
+            engine = _META_ENGINE
+            genome = (
+                engine.champion
+                if prompt_id == engine.champion.prompt_id
+                else (engine.challenger if engine.challenger and engine.challenger.prompt_id == prompt_id else engine.champion)
+            )
+            promoted = engine.record_outcome(
+                genome,
+                success=success,
+                grid_delta=[float(x) for x in grid_delta] if grid_delta else None,
+            )
+            summary = engine.summary()
+
+        if promoted:
+            _EVENT_BUS.publish(TOPIC_META_CHAMPION_PROMOTED, {"new_champion": engine.champion.prompt_id})
+        _send_json(self, 200, summary)
 
     def _handle_get_admin_metrics(self) -> None:
         """GET /admin/metrics → Phase 46 admin metrics snapshot (loopback IPC)."""
@@ -643,6 +748,9 @@ class ManifoldHandler(BaseHTTPRequestHandler):
             genesis_summary = _GENESIS_MINT.summary()
             dag_count = _VAULT.dags_count()
             sandbox_violations = _VAULT.sandbox_violations_count()
+            vector_count = len(_VECTOR_INDEX)
+            vector_buckets = _VECTOR_INDEX.lsh_bucket_count()
+            meta_summary = _META_ENGINE.summary()
 
         _send_json(
             self,
@@ -656,6 +764,9 @@ class ManifoldHandler(BaseHTTPRequestHandler):
                 "dht_peers": dht_peers,
                 "watchdog": wr.to_dict(),
                 "genesis": genesis_summary,
+                "vector_count": vector_count,
+                "vector_buckets": vector_buckets,
+                "meta": meta_summary,
             },
         )
 
@@ -728,6 +839,15 @@ class ManifoldHandler(BaseHTTPRequestHandler):
             watchdog_report = _WATCHDOG.report()
             crashlog_count = _VAULT.crashlogs_count()
 
+            # Phase 47: VectorIndex semantic memory stats
+            vector_count = len(_VECTOR_INDEX)
+            vector_buckets = _VECTOR_INDEX.lsh_bucket_count()
+            vector_bucket_summary = _VECTOR_INDEX.bucket_summary()
+            vector_blobs_count = _VAULT.vector_blobs_count()
+
+            # Phase 48: Meta-prompt A/B testing summary
+            meta_summary = _META_ENGINE.summary()
+
         renderer = FleetPanelRenderer(fleet_data)
         ci_text = renderer.ci_summary_text()
         eco_text = renderer.economy_summary_text()
@@ -766,6 +886,34 @@ class ManifoldHandler(BaseHTTPRequestHandler):
         vault_gossip = _VAULT.gossip_count()
         vault_economy = _VAULT.economy_count()
         now_utc = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+
+        # Phase 47: build LSH bucket table rows
+        vector_bucket_rows = ""
+        for bk, bv in list(vector_bucket_summary.items())[:10]:
+            bar_w = min(100, bv * 20)
+            vector_bucket_rows += (
+                f"<tr><td class='p-2 font-mono text-xs text-cyan-300'>{bk}</td>"
+                f"<td class='p-2 text-right text-sm'>{bv}</td>"
+                f"<td class='p-2'><div class='bg-purple-500 h-3 rounded' style='width:{bar_w}%'></div></td></tr>\n"
+            )
+        if not vector_bucket_rows:
+            vector_bucket_rows = "<tr><td colspan='3' class='p-2 text-gray-400 text-center'>No vectors indexed — use POST /vector/add</td></tr>"
+
+        # Phase 48: build meta challenger row
+        champ_d = meta_summary["champion"]
+        champ_bar = int(champ_d["success_rate"] * 100)
+        chall_d = meta_summary["challenger"]
+        if chall_d:
+            chall_bar = int(chall_d["success_rate"] * 100)
+            challenger_row = (
+                f"<tr><td class='p-2 text-blue-400 font-bold'>Challenger</td>"
+                f"<td class='p-2 font-mono text-sm text-cyan-300'>{chall_d['prompt_id']}</td>"
+                f"<td class='p-2 text-right text-sm'>{chall_d['trial_count']}</td>"
+                f"<td class='p-2 text-right text-sm text-blue-400'>{chall_d['success_rate']:.4f}</td>"
+                f"<td class='p-2'><div class='bg-blue-500 h-4 rounded' style='width:{chall_bar}%'></div></td></tr>"
+            )
+        else:
+            challenger_row = "<tr><td colspan='5' class='p-2 text-gray-400 text-center'>Challenger not yet created — select a genome to start A/B testing</td></tr>"
 
         # Phase 26: entropy sparkline — CSS bar per tracked tool (max 8)
         entropy_rows = ""
@@ -1228,6 +1376,8 @@ class ManifoldHandler(BaseHTTPRequestHandler):
              <span class="ml-2 text-white font-mono">{crashlog_count}</span></div>
         <div><span class="text-slate-400">Sandbox violations logged:</span>
              <span class="ml-2 text-white font-mono">{_VAULT.sandbox_violations_count()}</span></div>
+        <div><span class="text-slate-400">Vector blobs persisted:</span>
+             <span class="ml-2 text-white font-mono">{vector_blobs_count}</span></div>
       </div>
     </div>
 
@@ -1251,17 +1401,62 @@ class ManifoldHandler(BaseHTTPRequestHandler):
       <h2 class="text-xl font-semibold text-white mb-3">🔧 System Health Matrix (Phase 42 — Watchdog)</h2>
       <div class="flex gap-6 mb-4 text-sm text-slate-400">
         <div>Supervised components: <span class="text-white font-mono">{watchdog_report.total_components}</span></div>
-        <div>Total restarts: <span class="{'text-red-400' if watchdog_report.total_restarts > 0 else 'text-green-400'} font-mono">{watchdog_report.total_restarts}</span></div>
-        <div>Missed heartbeats: <span class="{'text-red-400' if watchdog_report.total_missed_heartbeats > 0 else 'text-green-400'} font-mono">{watchdog_report.total_missed_heartbeats}</span></div>
+        <div>Total restarts: <span class="text-red-400 font-mono">{watchdog_report.total_restarts}</span></div>
+        <div>Missed heartbeats: <span class="text-red-400 font-mono">{watchdog_report.total_missed_heartbeats}</span></div>
         <div>Deadlock purges: <span class="text-yellow-400 font-mono">{watchdog_report.deadlock_purges}</span></div>
         <div>Crash logs: <span class="text-orange-400 font-mono">{crashlog_count}</span></div>
       </div>
       <table>
         <thead><tr><th>Component</th><th class="text-right">Restarts</th><th class="text-right">Consec. Misses</th></tr></thead>
         <tbody>
-          {''.join(f"<tr><td class='p-2 font-mono text-sm'>{c['name']}</td><td class='p-2 text-right text-sm {'text-green-400' if c['restart_count'] == 0 else 'text-red-400'}'>{c['restart_count']}</td><td class='p-2 text-right text-sm {'text-green-400' if c['consecutive_misses'] == 0 else 'text-yellow-400'}'>{c['consecutive_misses']}</td></tr>" for c in watchdog_report.component_states) or "<tr><td colspan='3' class='p-2 text-gray-400 text-center'>No components registered</td></tr>"}
+          {''.join(f"<tr><td class='p-2 font-mono text-sm'>{c['name']}</td><td class='p-2 text-right text-sm'>{c['restart_count']}</td><td class='p-2 text-right text-sm'>{c['consecutive_misses']}</td></tr>" for c in watchdog_report.component_states) or "<tr><td colspan='3' class='p-2 text-gray-400 text-center'>No components registered</td></tr>"}
         </tbody>
       </table>
+    </div>
+
+    <!-- Phase 47: Semantic Memory Browser -->
+    <div class="card">
+      <h2 class="text-xl font-semibold text-white mb-3">🧬 Semantic Memory Browser (Phase 47 — VectorFS)</h2>
+      <div class="flex gap-6 mb-4 text-sm text-slate-400">
+        <div>Vectors stored: <span class="text-cyan-400 font-mono font-bold">{vector_count}</span></div>
+        <div>Active LSH buckets: <span class="text-purple-400 font-mono font-bold">{vector_buckets}</span></div>
+        <div>WAL records: <span class="text-white font-mono">{vector_blobs_count}</span></div>
+      </div>
+      <table>
+        <thead><tr>
+          <th>LSH Bucket Key</th><th class="text-right">Vectors</th><th>Distribution</th>
+        </tr></thead>
+        <tbody>
+          {vector_bucket_rows}
+        </tbody>
+      </table>
+      <div class="text-slate-500 text-xs mt-2">Cosine similarity search · Random-projection LSH · POST /vector/add · POST /vector/search</div>
+    </div>
+
+    <!-- Phase 48: Meta-Evolution Chart -->
+    <div class="card">
+      <h2 class="text-xl font-semibold text-white mb-3">🧪 Meta-Evolution Chart (Phase 48 — Prompt A/B Testing)</h2>
+      <div class="flex gap-6 mb-4 text-sm text-slate-400">
+        <div>Promotions: <span class="text-yellow-400 font-mono font-bold">{meta_summary['promotions']}</span></div>
+        <div>Min trials: <span class="text-white font-mono">{meta_summary['min_trials']}</span></div>
+        <div>Threshold: <span class="text-white font-mono">+{meta_summary['promotion_threshold']*100:.1f}%</span></div>
+      </div>
+      <table>
+        <thead><tr>
+          <th>Role</th><th>Prompt ID</th><th class="text-right">Trials</th><th class="text-right">Success Rate</th><th>Performance Bar</th>
+        </tr></thead>
+        <tbody>
+          <tr>
+            <td class='p-2 text-yellow-400 font-bold'>Champion</td>
+            <td class='p-2 font-mono text-sm text-cyan-300'>{champ_d['prompt_id']}</td>
+            <td class='p-2 text-right text-sm'>{champ_d['trial_count']}</td>
+            <td class='p-2 text-right text-sm text-green-400'>{champ_d['success_rate']:.4f}</td>
+            <td class='p-2'><div class='bg-green-500 h-4 rounded' style='width:{champ_bar}%'></div></td>
+          </tr>
+          {challenger_row}
+        </tbody>
+      </table>
+      <div class="text-slate-500 text-xs mt-2">Grid axes: [cost, risk, neutrality, asset] · POST /meta/outcome to record outcomes</div>
     </div>
 
     <!-- Raw Text Report -->

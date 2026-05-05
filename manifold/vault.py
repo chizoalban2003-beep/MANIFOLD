@@ -58,6 +58,7 @@ _TAG_SETTLEMENT = "settlement"
 _TAG_REPLAY = "replay"
 _TAG_DAG = "dag"
 _TAG_CRASHLOG = "crashlog"
+_TAG_VECTOR_BLOB = "vector_blob"
 
 
 # ---------------------------------------------------------------------------
@@ -106,6 +107,7 @@ class ManifoldVault:
     dags_log: str = "dags.jsonl"
     crashlogs_log: str = "crashlogs.jsonl"
     sandbox_violations_log: str = "sandbox_violations.jsonl"
+    vector_blobs_log: str = "vector_blobs.jsonl"
 
     _lock: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False)
 
@@ -163,6 +165,10 @@ class ManifoldVault:
     @property
     def _sandbox_violations_path(self) -> Path:
         return Path(self.data_dir) / self.sandbox_violations_log
+
+    @property
+    def _vector_blobs_path(self) -> Path:
+        return Path(self.data_dir) / self.vector_blobs_log
 
     def _append_line(self, path: Path, record: dict[str, Any]) -> None:
         """Append a single JSON record to *path* (thread-safe)."""
@@ -517,6 +523,36 @@ class ManifoldVault:
         }
         self._append_line(self._sandbox_violations_path, record)
 
+    def append_vector_blob(
+        self,
+        vector_id: str,
+        *,
+        vector: list[float],
+        metadata: dict[str, Any] | None = None,
+        timestamp: float,
+    ) -> None:
+        """Append a vector entry to the vector-blobs WAL (Phase 47).
+
+        Parameters
+        ----------
+        vector_id:
+            Unique identifier for the vector entry.
+        vector:
+            The embedding values to persist.
+        metadata:
+            Optional metadata attached to the entry.
+        timestamp:
+            POSIX timestamp when the entry was added.
+        """
+        record: dict[str, Any] = {
+            "_type": _TAG_VECTOR_BLOB,
+            "vector_id": vector_id,
+            "vector": vector,
+            "metadata": metadata or {},
+            "timestamp": timestamp,
+        }
+        self._append_line(self._vector_blobs_path, record)
+
     # ------------------------------------------------------------------
     # State recovery
     # ------------------------------------------------------------------
@@ -652,6 +688,10 @@ class ManifoldVault:
         """Return the number of sandbox violation records in the WAL (Phase 44)."""
         return self._count_lines(self._sandbox_violations_path)
 
+    def vector_blobs_count(self) -> int:
+        """Return the number of vector-blob records in the WAL (Phase 47)."""
+        return self._count_lines(self._vector_blobs_path)
+
     def purge(self) -> None:
         """Delete all WAL files (irreversible).  Useful in tests."""
         with self._lock:
@@ -667,6 +707,7 @@ class ManifoldVault:
                 self._dags_path,
                 self._crashlogs_path,
                 self._sandbox_violations_path,
+                self._vector_blobs_path,
             ):
                 if path.exists():
                     path.unlink()
