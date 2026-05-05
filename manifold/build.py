@@ -1,11 +1,14 @@
-"""Phase 52: Manifold Compiler & Release Bundler — Production Build System.
+"""Phase 52 / v4.0.0: Manifold Compiler & Release Bundler — Production Build System.
 
 Automates the complete release pipeline:
 
 1. Run the full ``pytest`` test suite.
 2. Execute the :class:`~manifold.doctor.RepositoryLinter`.
-3. Compile a ``manifold.pyz`` single-file executable (via :mod:`zipapp`).
-4. Generate a ``release.manifest.json`` with SHA-256 checksums and an
+3. **Stress-test** — unleash the :class:`~manifold.chaos.ChaosMonkey` for a
+   configurable duration (default 60 s) and fail the build if the OS does
+   not self-recover from every injected fault.
+4. Compile a ``manifold.pyz`` single-file executable (via :mod:`zipapp`).
+5. Generate a ``release.manifest.json`` with SHA-256 checksums and an
    HMAC-SHA256 signature of the binary (Ed25519-style, pure stdlib).
 
 Only proceeds to the next step when all checks pass.
@@ -73,6 +76,8 @@ class ReleaseConfig:
     signing_key: str = ""
     run_tests: bool = True
     run_lint: bool = True
+    run_stress_test: bool = True
+    stress_test_duration_seconds: float = 60.0
     test_timeout_seconds: float = 600.0
 
     def resolved_output_dir(self) -> Path:
@@ -90,6 +95,8 @@ class ReleaseConfig:
             "signing_key": "<redacted>" if self.signing_key else "<ephemeral>",
             "run_tests": self.run_tests,
             "run_lint": self.run_lint,
+            "run_stress_test": self.run_stress_test,
+            "stress_test_duration_seconds": self.stress_test_duration_seconds,
             "test_timeout_seconds": self.test_timeout_seconds,
         }
 
@@ -232,10 +239,11 @@ class ReleaseBuilder:
         """Run the full release pipeline.
 
         Steps (in order):
-        1. ``tests``   — ``pytest tests/ -q`` (if *run_tests*).
-        2. ``lint``    — :class:`~manifold.doctor.RepositoryLinter` (if *run_lint*).
-        3. ``compile`` — :mod:`zipapp` bundle.
-        4. ``sign``    — SHA-256 + HMAC-SHA256 signature.
+        1. ``tests``       — ``pytest tests/ -q`` (if *run_tests*).
+        2. ``lint``        — :class:`~manifold.doctor.RepositoryLinter` (if *run_lint*).
+        3. ``stress_test`` — :class:`~manifold.chaos.ChaosMonkey` (if *run_stress_test*).
+        4. ``compile``     — :mod:`zipapp` bundle.
+        5. ``sign``        — SHA-256 + HMAC-SHA256 signature.
 
         The pipeline halts at the first failing step.
 
@@ -268,14 +276,21 @@ class ReleaseBuilder:
             if not step.passed:
                 return self._make_manifest(version, steps, output_dir)
 
-        # Step 3: Compile
+        # Step 3: Stress test (ChaosMonkey)
+        if self.config.run_stress_test:
+            step = self._run_stress_test()
+            steps.append(step)
+            if not step.passed:
+                return self._make_manifest(version, steps, output_dir)
+
+        # Step 4: Compile
         pyz_path = output_dir / self.config.pyz_name
         step = self._compile(pyz_path)
         steps.append(step)
         if not step.passed:
             return self._make_manifest(version, steps, output_dir)
 
-        # Step 4: Sign
+        # Step 5: Sign
         sign_step = self._sign(pyz_path)
         steps.append(sign_step)
 
@@ -340,6 +355,47 @@ class ReleaseBuilder:
 
         return ReleaseStepResult(
             step_name="lint",
+            passed=passed,
+            duration_seconds=time.monotonic() - t,
+            output=output,
+        )
+
+    def _run_stress_test(self) -> ReleaseStepResult:
+        """Unleash the ChaosMonkey for ``stress_test_duration_seconds``.
+
+        The build fails if the OS does not self-recover from every injected
+        fault (i.e. the :attr:`~manifold.chaos.ResilienceScore.hardening_index`
+        falls below 50).
+        """
+        from .chaos import ChaosConfig, ChaosMonkey
+
+        t = time.monotonic()
+        duration = self.config.stress_test_duration_seconds
+        try:
+            config = ChaosConfig(
+                min_interval_seconds=max(0.5, duration / 20),
+                max_interval_seconds=max(1.0, duration / 10),
+                seed=42,
+            )
+            monkey = ChaosMonkey(config=config)
+            monkey.start(duration_seconds=duration)
+            score = monkey.score()
+            hardening_index = score.hardening_index
+            passed = hardening_index >= 50.0
+            output = (
+                f"ChaosMonkey stress test complete: "
+                f"{score.total_faults_injected} faults injected, "
+                f"{score.total_repaired} repaired, "
+                f"hardening_index={hardening_index:.1f}/100"
+            )
+            if not passed:
+                output += " — FAILED (minimum required: 50.0)"
+        except Exception as exc:  # noqa: BLE001
+            passed = False
+            output = f"Stress test error: {exc}"
+
+        return ReleaseStepResult(
+            step_name="stress_test",
             passed=passed,
             duration_seconds=time.monotonic() - t,
             output=output,
