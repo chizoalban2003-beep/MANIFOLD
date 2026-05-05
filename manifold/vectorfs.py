@@ -444,6 +444,16 @@ class VectorIndex:
     # Serialisation helpers
     # ------------------------------------------------------------------
 
+    def entries(self) -> list[VectorEntry]:
+        """Return all stored :class:`VectorEntry` objects.
+
+        Returns
+        -------
+        list[VectorEntry]
+            All entries in insertion order.
+        """
+        return list(self._entries.values())
+
     def to_dicts(self) -> list[dict[str, Any]]:
         """Serialise all entries for vault (WAL) persistence.
 

@@ -76,6 +76,9 @@ from .ipc import (
 )
 from .verify import PolicyVerifier
 from .watchdog import ProcessWatchdog, WatchedComponent
+from .gc import ManifoldGC
+from .doctor import ManifoldDoctor
+from .autodoc import APIExplorer, DocExtractor, MANIFOLD_ENDPOINTS
 
 
 # ---------------------------------------------------------------------------
@@ -200,6 +203,15 @@ _META_ENGINE = ABTestingEngine(champion=_META_CHAMPION, min_trials=100, promotio
 # Phase 49: IPC Event Bus
 _EVENT_BUS = EventBus()
 
+# Phase 50: Garbage Collector
+_GC = ManifoldGC(data_dir=_VAULT_DIR, keep_last_n=10_000, ttl_seconds=0.0)
+
+# Phase 51: System Doctor
+_DOCTOR = ManifoldDoctor(
+    manifold_dir=__file__ and __import__("pathlib").Path(__file__).parent or __import__("pathlib").Path("manifold"),
+    data_dir=__import__("pathlib").Path(_VAULT_DIR),
+)
+
 # Thread lock guarding mutable singletons during parallel requests
 _LOCK = threading.Lock()
 
@@ -308,6 +320,21 @@ class ManifoldHandler(BaseHTTPRequestHandler):
             # GET /admin/metrics  (Phase 46 admin IPC)
             if path == "/admin/metrics":
                 self._handle_get_admin_metrics()
+                return
+
+            # GET /docs  (Phase 55 self-documenting API explorer)
+            if path == "/docs":
+                self._handle_get_docs()
+                return
+
+            # GET /gc/run  (Phase 50 garbage collector)
+            if path == "/gc/run":
+                self._handle_get_gc_run()
+                return
+
+            # GET /doctor/report  (Phase 51 system doctor)
+            if path == "/doctor/report":
+                self._handle_get_doctor_report()
                 return
 
             _send_error(self, 404, f"No route for GET {self.path}")

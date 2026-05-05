@@ -29,6 +29,10 @@ Commands
     Show the A/B testing engine Champion vs Challenger performance.
 ``events [n]``
     Drain and display up to *n* (default 20) recent events from the bus.
+``gc [run]``
+    Show last GC report or trigger a garbage collection cycle.
+``doctor``
+    Run real-time state integrity checks (lint + WAL repair).
 
 Key classes
 -----------
@@ -94,6 +98,8 @@ class AdminMetrics:
     vector_count: int = 0
     vector_buckets: int = 0
     meta_summary: dict[str, Any] = field(default_factory=dict)
+    gc_report: dict[str, Any] = field(default_factory=dict)
+    doctor_report: dict[str, Any] = field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------
@@ -145,6 +151,8 @@ class ManifoldCLI(cmd.Cmd):
         metrics_fn: Callable[[], AdminMetrics] | None = None,
         veto_fn: Callable[[str], None] | None = None,
         event_bus: "EventBus | None" = None,
+        gc_fn: Callable[[], dict[str, Any]] | None = None,
+        doctor_fn: Callable[[], dict[str, Any]] | None = None,
         **kwargs: Any,
     ) -> None:
         super().__init__(**kwargs)
@@ -155,6 +163,12 @@ class ManifoldCLI(cmd.Cmd):
             veto_fn if veto_fn is not None else lambda _tool: None
         )
         self._event_bus: "EventBus | None" = event_bus
+        self._gc_fn: Callable[[], dict[str, Any]] = (
+            gc_fn if gc_fn is not None else lambda: {}
+        )
+        self._doctor_fn: Callable[[], dict[str, Any]] = (
+            doctor_fn if doctor_fn is not None else lambda: {}
+        )
         self._command_count: int = 0
 
     # ------------------------------------------------------------------
@@ -373,6 +387,70 @@ class ManifoldCLI(cmd.Cmd):
         for topic, payload in collected:
             self.stdout.write(f"  {topic:<35} {payload}\n")
         self.stdout.write("\n")
+
+    def do_gc(self, arg: str) -> None:
+        """gc [run] — Run garbage collection or show last GC report.
+
+        Subcommands
+        -----------
+        ``gc run``
+            Trigger an immediate GC cycle (log compaction + state pruning).
+        ``gc``
+            Show the summary from the last completed GC cycle.
+        """
+        self._command_count += 1
+        subcmd = arg.strip().lower()
+        if subcmd == "run":
+            self.stdout.write("  ⏳ Running garbage collection…\n")
+            try:
+                result = self._gc_fn()
+                if result:
+                    self.stdout.write(
+                        f"\n  ✅ GC complete\n"
+                        f"  Files compacted  : {result.get('files_compacted', '?')}\n"
+                        f"  Bytes saved      : {result.get('total_bytes_saved', 0):,}\n"
+                        f"  Vectors pruned   : {result.get('vectors_pruned', 0)}\n"
+                        f"  Duration         : {result.get('duration_seconds', 0):.3f}s\n\n"
+                    )
+                else:
+                    self.stdout.write("  (GC returned no data)\n")
+            except Exception as exc:  # noqa: BLE001
+                self.stdout.write(f"  ⚠  GC error: {exc}\n")
+        else:
+            m = self._metrics_fn()
+            gc_r = m.gc_report
+            if not gc_r:
+                self.stdout.write("  (no GC report available — run 'gc run' first)\n")
+                return
+            self.stdout.write(
+                f"\n  Last GC run      : {time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime(gc_r.get('timestamp', 0)))}\n"
+                f"  Files compacted  : {gc_r.get('files_compacted', '?')}\n"
+                f"  Bytes saved      : {gc_r.get('total_bytes_saved', 0):,}\n"
+                f"  Vectors pruned   : {gc_r.get('vectors_pruned', 0)}\n"
+                f"  Duration         : {gc_r.get('duration_seconds', 0):.3f}s\n\n"
+            )
+
+    def do_doctor(self, _arg: str) -> None:
+        """doctor — Run real-time state integrity checks and show the report."""
+        self._command_count += 1
+        self.stdout.write("  ⏳ Running system diagnostics…\n")
+        try:
+            result = self._doctor_fn()
+            if result:
+                healthy = result.get("healthy", False)
+                icon = "✅" if healthy else "⚠ "
+                self.stdout.write(
+                    f"\n  {icon} System: {'HEALTHY' if healthy else 'ISSUES FOUND'}\n"
+                    f"  Modules checked    : {result.get('lint_report', {}).get('modules_checked', '?')}\n"
+                    f"  Lint issues        : {len(result.get('lint_report', {}).get('issues', []))}\n"
+                    f"  WAL files scanned  : {len(result.get('repair_results', []))}\n"
+                    f"  Lines quarantined  : {result.get('total_quarantined', 0)}\n"
+                    f"  Duration           : {result.get('duration_seconds', 0):.3f}s\n\n"
+                )
+            else:
+                self.stdout.write("  (Doctor returned no data)\n")
+        except Exception as exc:  # noqa: BLE001
+            self.stdout.write(f"  ⚠  Doctor error: {exc}\n")
 
     def do_exit(self, _arg: str) -> bool:
         """exit — Quit the shell."""
