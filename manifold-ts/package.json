@@ -1,0 +1,49 @@
+{
+  "name": "@manifold/client",
+  "version": "1.2.0",
+  "description": "TypeScript client for the MANIFOLD Trust API — the Trust Operating System for AI agents.",
+  "main": "dist/index.js",
+  "module": "dist/index.esm.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.esm.js",
+      "require": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist",
+    "src"
+  ],
+  "scripts": {
+    "build": "tsc --project tsconfig.json",
+    "test": "node --test src/__tests__/*.test.ts",
+    "lint": "tsc --noEmit"
+  },
+  "keywords": [
+    "ai",
+    "agents",
+    "trust",
+    "governance",
+    "policy",
+    "reputation",
+    "openai",
+    "llm",
+    "risk",
+    "manifold"
+  ],
+  "author": "MANIFOLD Contributors",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/chizoalban2003-beep/MANIFOLD"
+  },
+  "homepage": "https://github.com/chizoalban2003-beep/MANIFOLD#readme",
+  "engines": {
+    "node": ">=18"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.0"
+  }
+}

@@ -37,6 +37,295 @@ Position = tuple[int, int]
 MovePattern = Literal["static", "random_walk", "cycle"]
 
 
+# ---------------------------------------------------------------------------
+# GridState — ready-to-optimize grid produced by DynamicTranslator
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class GridState:
+    """A fully configured :class:`GridWorld` ready for physics-engine processing.
+
+    Produced by :meth:`DynamicTranslator.map_problem`.  Carry the configured
+    world alongside the metadata used to produce it so callers can inspect the
+    mapping and reproduce it deterministically.
+
+    Attributes
+    ----------
+    world:
+        The ``GridWorld`` with cells, targets, and rules already populated.
+    description:
+        The original problem description string.
+    domain:
+        Inferred or supplied domain label (e.g. ``"finance"``).
+    parameters:
+        The normalised parameter dict used to build the grid cells.
+    cell_profile:
+        A summary ``[cost, risk, neutrality, asset]`` tuple representing the
+        *centre cell* of the grid — useful for quick inspection.
+    """
+
+    world: "GridWorld"
+    description: str
+    domain: str
+    parameters: dict[str, object]
+    cell_profile: tuple[float, float, float, float]
+
+
+# ---------------------------------------------------------------------------
+# DynamicTranslator — maps arbitrary problems into the 4-vector grid
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class DynamicTranslator:
+    """Translate any arbitrary problem into a MANIFOLD 31×31 grid environment.
+
+    :class:`DynamicTranslator` is the "Universal Grid Translator" described in
+    the MANIFOLD architecture.  It converts a free-text *description* plus a
+    *parameters* dict into a fully populated :class:`GridWorld` that the
+    physics engine (:class:`AgentPopulation`) can immediately optimise.
+
+    The mapping is **deterministic**: the same ``(description, parameters)``
+    pair always produces the same grid.  Determinism is guaranteed by deriving
+    the random seed from the description string rather than from wall-clock
+    time.
+
+    Parameters
+    ----------
+    grid_size:
+        Side length of the square grid.  Default: ``31``.
+    n_targets:
+        Number of dynamic targets (profit nodes) to inject.  Default: ``3``.
+    infer_domain:
+        When ``True`` (default), the translator examines *description* for
+        known domain keywords and uses them to adjust the risk/asset profile
+        if the ``"domain"`` key is absent from *parameters*.
+
+    Example
+    -------
+    ::
+
+        translator = DynamicTranslator()
+        state = translator.map_problem(
+            description="API rate limit management",
+            parameters={"cost": 0.25, "uncertainty": 0.6, "stakes": 0.5},
+        )
+        result = AgentPopulation().optimize(state.world)
+    """
+
+    grid_size: int = 31
+    n_targets: int = 3
+    infer_domain: bool = True
+
+    # ------------------------------------------------------------------
+    # Domain-archetype profiles: (cost_bias, risk_bias, asset_bias)
+    # ------------------------------------------------------------------
+
+    _DOMAIN_PROFILES: dict[str, tuple[float, float, float]] = field(
+        default_factory=lambda: {
+            "finance":    (0.20, 0.35, 0.80),
+            "legal":      (0.18, 0.30, 0.75),
+            "medical":    (0.15, 0.40, 0.85),
+            "research":   (0.12, 0.20, 0.65),
+            "creative":   (0.08, 0.10, 0.60),
+            "support":    (0.10, 0.15, 0.70),
+            "security":   (0.25, 0.50, 0.80),
+            "logistics":  (0.20, 0.25, 0.70),
+            "compute":    (0.30, 0.20, 0.65),
+            "general":    (0.15, 0.20, 0.65),
+        },
+        init=False,
+        repr=False,
+    )
+
+    # Keywords used to infer domain from the description string
+    _DOMAIN_KEYWORDS: dict[str, list[str]] = field(
+        default_factory=lambda: {
+            "finance":   ["financ", "payment", "invoice", "bank", "trade", "ledger", "accounting"],
+            "legal":     ["legal", "contract", "compliance", "regulation", "law", "clause"],
+            "medical":   ["medical", "clinical", "patient", "diagnosis", "health", "drug"],
+            "research":  ["research", "experiment", "hypothesis", "analysis", "science", "study"],
+            "creative":  ["creative", "design", "art", "content", "story", "marketing"],
+            "support":   ["support", "ticket", "triage", "customer", "helpdesk", "crm"],
+            "security":  ["security", "threat", "intrusion", "attack", "vulnerab", "audit"],
+            "logistics": ["logistics", "delivery", "route", "fleet", "shipping", "supply"],
+            "compute":   ["compute", "api", "rate limit", "throughput", "latency", "server"],
+        },
+        init=False,
+        repr=False,
+    )
+
+    def map_problem(
+        self,
+        description: str,
+        parameters: dict[str, object],
+    ) -> GridState:
+        """Map an arbitrary problem description and parameters into a grid state.
+
+        The mapping is fully deterministic: calling this method twice with
+        identical arguments always returns an equivalent :class:`GridState`.
+
+        Parameters
+        ----------
+        description:
+            Free-text description of the problem domain (e.g.
+            ``"API rate limit management"``).
+        parameters:
+            A flat dict of named problem dimensions.  Recognised keys:
+
+            * ``"cost"`` — base cell cost [0, 1].  Default: 0.15.
+            * ``"risk"`` — base cell risk [0, 1].  Default: 0.20.
+            * ``"uncertainty"`` — elevates both risk and neutrality [0, 1].
+            * ``"stakes"`` — scales asset value [0, 1].
+            * ``"complexity"`` — increases cost and lowers neutrality [0, 1].
+            * ``"asset"`` — direct asset override [0, 1].
+            * ``"domain"`` — explicit domain label (skips keyword inference).
+            * ``"n_targets"`` — override for :attr:`n_targets`.
+            * ``"moves"`` — target move pattern: ``"static"``, ``"random_walk"``,
+              or ``"cycle"``.  Default: ``"static"``.
+
+        Returns
+        -------
+        GridState
+            A fully configured world ready for :class:`AgentPopulation`.
+        """
+        # ------------------------------------------------------------------
+        # 1. Derive a deterministic seed from the description
+        # ------------------------------------------------------------------
+        seed = self._description_seed(description)
+        rng = random.Random(seed)
+
+        # ------------------------------------------------------------------
+        # 2. Normalise parameters
+        # ------------------------------------------------------------------
+        p = self._normalise(parameters)
+
+        # ------------------------------------------------------------------
+        # 3. Infer / look up domain archetype
+        # ------------------------------------------------------------------
+        domain = str(p.get("domain", ""))
+        if not domain and self.infer_domain:
+            domain = self._infer_domain(description)
+        if not domain:
+            domain = "general"
+        cost_bias, risk_bias, asset_bias = self._DOMAIN_PROFILES.get(
+            domain, self._DOMAIN_PROFILES["general"]
+        )
+
+        # ------------------------------------------------------------------
+        # 4. Build per-cell coefficients
+        # ------------------------------------------------------------------
+        base_cost = float(p.get("cost", cost_bias))
+        base_risk = float(p.get("risk", risk_bias))
+        base_asset = float(p.get("asset", asset_bias))
+        uncertainty = float(p.get("uncertainty", 0.30))
+        stakes = float(p.get("stakes", 0.50))
+        complexity = float(p.get("complexity", 0.40))
+
+        # Effective risk is elevated by uncertainty
+        eff_risk = _clamp(base_risk + 0.25 * uncertainty)
+        # Effective cost is elevated by complexity
+        eff_cost = _clamp(base_cost + 0.15 * complexity)
+        # Neutrality decreases with complexity and stakes
+        eff_neutrality = _clamp(0.90 - 0.35 * complexity - 0.20 * stakes)
+        # Asset scales with stakes and the domain asset bias
+        eff_asset = _clamp(base_asset * (0.60 + 0.80 * stakes))
+
+        # ------------------------------------------------------------------
+        # 5. Populate GridWorld
+        # ------------------------------------------------------------------
+        n_targets = int(p.get("n_targets", self.n_targets))
+        moves = str(p.get("moves", "static"))
+
+        world = GridWorld(size=self.grid_size, seed=seed)
+        center = self.grid_size // 2
+        for row in range(self.grid_size):
+            for col in range(self.grid_size):
+                dist = (abs(row - center) + abs(col - center)) / max(1, self.grid_size)
+                cell_cost = _clamp(eff_cost + 0.08 * dist + rng.uniform(-0.03, 0.03))
+                cell_risk = _clamp(eff_risk + 0.10 * dist + rng.uniform(-0.04, 0.04))
+                cell_neutrality = _clamp(eff_neutrality - 0.05 * dist)
+                cell_asset = _clamp(eff_asset * max(0.1, 1.0 - dist * 1.5))
+                world.set_cell(row, col, cell_cost, cell_risk, cell_neutrality, cell_asset)
+
+        # Targets distributed across the grid deterministically
+        for i in range(n_targets):
+            target_row = rng.randint(2, self.grid_size - 3)
+            target_col = rng.randint(2, self.grid_size - 3)
+            target_asset = _clamp(eff_asset * (1.5 + 0.5 * i))
+            world.add_dynamic_targets(
+                [
+                    {
+                        "id": f"target_{i}",
+                        "pos": (target_row, target_col),
+                        "asset": target_asset,
+                        "moves": moves,
+                    }
+                ]
+            )
+
+        # Rules derived from the risk / stakes profile
+        world.add_rule("miss_goal", _clamp(1.0 + stakes * 5.0), "miss_target")
+        world.add_rule("deception_penalty", _clamp(1.0 + eff_risk * 3.0), "deception_detected")
+        if eff_risk > 0.35:
+            world.add_rule("trusted_lie_penalty", _clamp(1.0 + eff_risk * 4.0), "trusted_lie")
+
+        # Centre-cell profile for inspection
+        cx_cell = world.cells[center][center]
+        cell_profile = (cx_cell.cost, cx_cell.risk, cx_cell.neutrality, cx_cell.asset)
+
+        return GridState(
+            world=world,
+            description=description,
+            domain=domain,
+            parameters=dict(p),
+            cell_profile=cell_profile,
+        )
+
+    # ------------------------------------------------------------------
+    # Private helpers
+    # ------------------------------------------------------------------
+
+    def _description_seed(self, description: str) -> int:
+        """Derive a deterministic integer seed from the description string."""
+        h = 5381
+        for ch in description.lower():
+            h = ((h << 5) + h) ^ ord(ch)
+        return abs(h) % (2 ** 31)
+
+    def _infer_domain(self, description: str) -> str:
+        """Return the best-matching domain keyword from *description*, or ''."""
+        desc_lower = description.lower()
+        for domain, keywords in self._DOMAIN_KEYWORDS.items():
+            if any(kw in desc_lower for kw in keywords):
+                return domain
+        return ""
+
+    @staticmethod
+    def _normalise(parameters: dict[str, object]) -> dict[str, object]:
+        """Return a copy of *parameters* with float values clamped to [0, 1]."""
+        float_keys = {
+            "cost", "risk", "asset", "uncertainty",
+            "stakes", "complexity",
+        }
+        result: dict[str, object] = {}
+        for key, val in parameters.items():
+            if key in float_keys:
+                try:
+                    result[key] = _clamp(float(val))  # type: ignore[arg-type]
+                except (TypeError, ValueError):
+                    result[key] = val
+            else:
+                result[key] = val
+        return result
+
+
+def _clamp(value: float, low: float = 0.0, high: float = 1.0) -> float:
+    """Return *value* clamped to [*low*, *high*]."""
+    return max(low, min(high, value))
+
+
 @dataclass
 class DynamicTarget:
     """A goal or profit node that can move or change value over time."""

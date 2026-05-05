@@ -34,6 +34,22 @@ from manifold.social import (
     config_for_preset,
     run_social_experiment,
 )
+from manifold.adversarial import AdversarialPricingDetector
+from manifold.autodiscovery import PenaltyOptimizer, PolicySynthesizer
+from manifold import (
+    ActiveInterceptor,
+    AutoRuleDiscovery,
+    ConnectorRegistry,
+    FederatedGossipBridge,
+    GlobalReputationLedger,
+    HITLConfig,
+    HITLGate,
+    InterceptorConfig,
+    OrgReputationSnapshot,
+    ShadowModeWrapper,
+    ToolConnector,
+    ToolProfile,
+)
 
 
 st.set_page_config(
@@ -169,6 +185,7 @@ with st.sidebar:
             "GridMapper OS",
             "Social intelligence",
             "Path / teacher",
+            "Shadow Mode",
         ],
         horizontal=True,
     )
@@ -562,7 +579,7 @@ elif mode == "Social intelligence":
 
     with st.expander("Raw social generation data"):
         st.dataframe(history, use_container_width=True)
-else:
+elif mode == "Path / teacher":
     with st.sidebar:
         grid_size = st.select_slider("Grid size", options=[11, 21, 31], value=11)
         teacher_mode = st.selectbox(
@@ -611,3 +628,315 @@ else:
 
     with st.expander("Raw path generation data"):
         st.dataframe(history, use_container_width=True)
+
+elif mode == "Shadow Mode":
+    import random as _random
+
+    st.subheader("Shadow Mode — Phases 8-14 Live Dashboard")
+    st.caption(
+        "Runs MANIFOLD in parallel with a naive ReAct agent over a synthetic customer-support stream. "
+        "No production traffic is touched. All results are computed in shadow (observation-only) mode."
+    )
+
+    with st.sidebar:
+        n_tasks = st.slider("Stream size (tasks)", 50, 500, 120, step=10)
+        sm_seed = st.number_input("Shadow seed", value=2500, step=1)
+        failure_start = st.slider("Honey-pot failure after N calls", 5, 50, 15, step=1)
+        veto_threshold = st.slider("Interceptor veto threshold", 0.20, 0.80, 0.40, step=0.05)
+
+    @st.cache_data(show_spinner="Running MANIFOLD shadow simulation...")
+    def _run_shadow(n: int, seed: int, fs: int, veto_thresh: float) -> dict:
+        rng = _random.Random(seed)
+        tool_names = ["support_kb", "crm_lookup", "billing_api", "ticket_system", "email_sender"]
+        _PROMPTS_LOCAL = [
+            "My invoice is wrong — I was charged twice.",
+            "I cannot log into my account after the reset.",
+            "The product arrived damaged.",
+            "Can you explain the difference between the plans?",
+            "I want to cancel my subscription.",
+            "The app crashes when I open settings.",
+            "Where is my refund?",
+            "I need to change the delivery address.",
+            "My promo code is not applying.",
+            "I need a copy of my last 12 invoices.",
+        ]
+        _DOMAINS_LOCAL = ["billing", "technical", "returns", "general", "escalation"]
+        _NAIVE_ACTIONS_LOCAL = ["auto_resolve", "route_to_faq", "send_template_email", "escalate", "ignore"]
+
+        # Phase 10 — federated cold start
+        ledger = GlobalReputationLedger(min_orgs_required=2)
+        for org_id in ["org_alpha", "org_beta", "org_gamma"]:
+            rates = {t: (rng.uniform(0.6, 0.95), rng.randint(20, 100)) for t in tool_names}
+            snap = OrgReputationSnapshot(org_id=org_id, rates=rates)
+            ledger.ingest_snapshot(snap)
+
+        # Phase 8 — registry + shadow wrapper
+        registry = ConnectorRegistry()
+        call_counts: dict[str, list[int]] = {t: [0] for t in tool_names}
+
+        def _make_fn(name: str, limit: int | None) -> object:
+            cc = call_counts[name]
+            def fn(q: str) -> dict:
+                cc[0] += 1
+                if limit is not None and cc[0] > limit:
+                    raise ConnectionError(f"{name} unavailable")
+                return {"ok": q[:10]}
+            return fn
+
+        for t in tool_names:
+            lim = fs if t == "billing_api" else None
+            reliability = ledger.global_rate(t) or 0.80
+            profile = ToolProfile(t, cost=0.1, latency=0.1, reliability=reliability, risk=0.1, asset=0.7)
+            registry.register(ToolConnector(name=t, fn=_make_fn(t, lim), profile=profile))
+
+        brain_cfg = BrainConfig(generations=20, population_size=40, grid_size=5, seed=seed)
+        brain = ManifoldBrain(brain_cfg, registry.tool_profiles())
+        wrapper = ShadowModeWrapper(brain=brain)
+
+        # Phase 9 — HITL gate
+        hitl_gate = HITLGate(config=HITLConfig(risk_stakes_threshold=0.55))
+
+        # Phase 11 — adversarial detector
+        adv_detector = AdversarialPricingDetector(warm_up_size=max(5, fs // 2), post_window_size=30, drop_threshold=0.35)
+
+        # Phase 12 — auto discovery
+        discovery = AutoRuleDiscovery(
+            optimizer=PenaltyOptimizer(min_observations=5),
+            synthesizer=PolicySynthesizer(min_occurrences=3),
+        )
+
+        # Phase 13 — active interceptor
+        interceptor = ActiveInterceptor(
+            registry=registry,
+            brain=brain,
+            config=InterceptorConfig(
+                risk_veto_threshold=veto_thresh,
+                redirect_strategy="hitl",
+            ),
+        )
+
+        # tracking
+        hitl_count = 0
+        tool_failures = 0
+        high_risk_manifold = 0
+        high_risk_naive = 0
+        first_failure_idx: int | None = None
+        inoculation_speed = -1
+        billing_inoculated = False
+        ledger_rates: dict[str, list[float]] = {t: [] for t in tool_names}
+        # Trust ROI tracking
+        gross_exposure = 0.0
+        regret_avoided = 0.0
+
+        for i in range(n):
+            domain = rng.choice(_DOMAINS_LOCAL)
+            prompt = rng.choice(_PROMPTS_LOCAL)
+            stakes = rng.uniform(0.4, 0.95) if domain == "escalation" else rng.uniform(0.1, 0.65)
+            task = BrainTask(
+                prompt=f"[#{i}] {prompt}", domain=domain,
+                uncertainty=rng.uniform(0.1, 0.8), complexity=rng.uniform(0.2, 0.7),
+                stakes=stakes, source_confidence=rng.uniform(0.4, 0.9),
+                tool_relevance=rng.uniform(0.5, 1.0), time_pressure=rng.uniform(0.1, 0.6),
+                safety_sensitivity=0.7 if domain == "escalation" else rng.uniform(0.0, 0.4),
+                collaboration_value=rng.uniform(0.1, 0.5), user_patience=rng.uniform(0.3, 0.9),
+            )
+            naive_action = rng.choice(_NAIVE_ACTIONS_LOCAL) if stakes <= 0.75 or rng.random() < 0.45 else "escalate"
+            vr = wrapper.observe(task, actual_action=naive_action)
+
+            if hitl_gate.should_escalate(task, vr.manifold_decision):
+                hitl_count += 1
+            if task.stakes > 0.75:
+                if vr.manifold_action == "escalate":
+                    high_risk_manifold += 1
+                if naive_action == "escalate":
+                    high_risk_naive += 1
+
+            tool_name = rng.choice(tool_names)
+            connector = registry.get(tool_name)
+            result = connector.call(task.prompt[:40])
+            outcome = result.to_brain_outcome()
+            adv_detector.record(tool_name, result.success)
+
+            if not result.success:
+                tool_failures += 1
+                if tool_name == "billing_api" and first_failure_idx is None:
+                    first_failure_idx = i
+                if first_failure_idx is not None and not billing_inoculated:
+                    if i - first_failure_idx >= 3:
+                        inoculation_speed = i - first_failure_idx
+                        billing_inoculated = True
+                discovery.observe_rule_event(tool_name, "tool_failure", outcome, penalty=1.0)
+
+            # Phase 13: interceptor pre-flight (non-blocking, log only)
+            try:
+                ir = interceptor.intercept(task, tool_name)
+                profile = registry.get(tool_name)
+                risk_exposure = task.stakes * (profile.refreshed_profile().risk if profile else 0.1)
+                gross_exposure += risk_exposure
+                if not ir.permitted:
+                    regret_avoided += risk_exposure
+            except KeyError:
+                pass
+
+            for t in tool_names:
+                c = registry.get(t)
+                ledger_rates[t].append(c.observed_reliability())
+
+        shadow_rpt = wrapper.shadow_report()
+        interceptor_summary = interceptor.summary()
+        return {
+            "shadow": shadow_rpt,
+            "hitl": hitl_count,
+            "tool_failures": tool_failures,
+            "high_risk_manifold": high_risk_manifold,
+            "high_risk_naive": high_risk_naive,
+            "inoculation_speed": inoculation_speed,
+            "first_failure_idx": first_failure_idx,
+            "adversarial_suspects": adv_detector.suspects(),
+            "penalty_proposals": [
+                {
+                    "rule_name": p.rule_name, "trigger": p.trigger,
+                    "current": p.current_penalty, "proposed": p.proposed_penalty,
+                    "delta": p.delta, "confidence": p.confidence, "rationale": p.rationale,
+                }
+                for p in discovery.suggest_penalty_updates()
+            ],
+            "ledger_rates": {t: v[-1] if v else 1.0 for t, v in ledger_rates.items()},
+            "ledger_series": ledger_rates,
+            "status": discovery.status(),
+            "interceptor": interceptor_summary,
+            "gross_exposure": round(gross_exposure, 4),
+            "regret_avoided": round(regret_avoided, 4),
+        }
+
+    data = _run_shadow(n_tasks, int(sm_seed), failure_start, veto_threshold)
+    shadow = data["shadow"]
+
+    # ── Top-level metrics ──────────────────────────────────────────────
+    st.subheader("Observation summary")
+    m0, m1, m2, m3, m4 = st.columns(5)
+    m0.metric("Tasks observed", shadow["total_observations"])
+    m1.metric("MANIFOLD disagreements", shadow["total_disagreements"])
+    m2.metric("Disagreement rate", f"{shadow['disagreement_rate']:.1%}")
+    m3.metric("HITL triggers (Ph 9)", data["hitl"])
+    m4.metric("Tool failures (Ph 8)", data["tool_failures"])
+
+    # ── ROI signals ───────────────────────────────────────────────────
+    st.subheader("ROI signals — virtual regret saved")
+    r0, r1, r2, r3 = st.columns(4)
+    r0.metric("High-risk escalations (MANIFOLD)", data["high_risk_manifold"])
+    r1.metric("High-risk escalations (naive agent)", data["high_risk_naive"])
+    saved = max(0, data["high_risk_manifold"] - data["high_risk_naive"])
+    r2.metric("Virtual regret saved", saved, delta=f"+{saved}" if saved > 0 else None)
+    inoculation = (
+        f"{data['inoculation_speed']} tasks"
+        if data["inoculation_speed"] >= 0
+        else "n/a"
+    )
+    r3.metric("Gossip inoculation speed (Ph 10)", inoculation)
+
+    # ── Phase 10: Global Reputation Ledger ────────────────────────────
+    st.subheader("Phase 10 — Global Reputation Ledger")
+    st.caption("Final observed reliability per tool (blended from federated gossip).")
+    ledger_df = pd.DataFrame(
+        [{"tool": t, "observed_reliability": round(v, 3)} for t, v in data["ledger_rates"].items()]
+    ).sort_values("observed_reliability")
+    st.bar_chart(ledger_df.set_index("tool")["observed_reliability"])
+
+    # ── Phase 11: Adversarial suspects ───────────────────────────────
+    st.subheader("Phase 11 — Adversarial Pricing Detector")
+    suspects = data["adversarial_suspects"]
+    if suspects:
+        for s in suspects:
+            st.error(
+                f"⚠️ **HONEY-POT DETECTED**: `{s['tool_name']}`  |  "
+                f"warm-up={s['warm_up_rate']:.0%}  post={s['post_rate']:.0%}  "
+                f"drop={s['drop']:.0%}"
+            )
+    else:
+        st.success("✓ No adversarial honey-pot tools detected")
+
+    # ── Phase 12: Penalty proposals ──────────────────────────────────
+    st.subheader("Phase 12 — AutoRuleDiscovery: Penalty Proposals")
+    proposals = data["penalty_proposals"]
+    if proposals:
+        for p in proposals:
+            direction = "↑" if p["delta"] > 0 else "↓"
+            st.info(
+                f"{direction} **{p['rule_name']}** / `{p['trigger']}` | "
+                f"current={p['current']:.3f} → proposed={p['proposed']:.3f}  "
+                f"(Δ={p['delta']:+.3f}, conf={p['confidence']:.0%})  \n"
+                f"_{p['rationale']}_"
+            )
+    else:
+        status = data["status"]
+        st.caption(
+            f"No proposals yet — triggers observed: {status['known_triggers']}  |  "
+            f"min_observations threshold: {status.get('min_observations', 5)}"
+        )
+
+    # ── Phase 13: Active Interceptor ─────────────────────────────────
+    st.subheader("Phase 13 — Active Interceptor")
+    ic = data.get("interceptor", {})
+    if ic:
+        i0, i1, i2, i3, i4 = st.columns(5)
+        i0.metric("Calls evaluated", ic.get("total_calls", 0))
+        i1.metric("Permitted", ic.get("permitted", 0))
+        i2.metric("Vetoed", ic.get("vetoed", 0))
+        i3.metric("Veto rate", f"{ic.get('veto_rate', 0):.1%}")
+        i4.metric("Redirected to HITL", ic.get("redirected_to_hitl", 0))
+        st.caption(f"Avg risk score: {ic.get('avg_risk_score', 0):.3f}  |  Veto threshold: {veto_threshold:.2f}")
+    else:
+        st.caption("(interceptor not active)")
+
+    # ── Phase 16: Trust ROI Economic Impact View ──────────────────────
+    st.subheader("Phase 16 — Trust ROI: Economic Impact View")
+    st.caption(
+        "The metrics below quantify the **financial value** MANIFOLD provides. "
+        "Gross Exposure = total potential damage if tools ran unmonitored. "
+        "Regret Avoided = savings from vetoed high-risk calls."
+    )
+    gross = data.get("gross_exposure", 0.0)
+    avoided = data.get("regret_avoided", 0.0)
+    veto_rate = ic.get("veto_rate", 0.0) if ic else 0.0
+    hitl_rate = data["hitl"] / max(1, shadow["total_observations"])
+    gossip_speed = data["inoculation_speed"]
+
+    e0, e1, e2, e3, e4 = st.columns(5)
+    e0.metric(
+        "Gross Exposure",
+        f"{gross:.3f}",
+        help="Σ(Risk × Stakes) — total potential damage if unmonitored.",
+    )
+    e1.metric(
+        "Regret Avoided",
+        f"{avoided:.3f}",
+        delta=f"+{avoided:.3f}" if avoided > 0 else None,
+        help="Exposure saved by veto — the 'Value Shield' metric.",
+    )
+    shield_pct = avoided / gross if gross > 0 else 0.0
+    e2.metric(
+        "Shield Efficiency",
+        f"{shield_pct:.1%}",
+        help="Regret Avoided / Gross Exposure — how much exposure MANIFOLD eliminated.",
+    )
+    e3.metric(
+        "Gossip Lead-Time",
+        f"{gossip_speed} tasks" if gossip_speed >= 0 else "n/a",
+        help="Tasks between first tool failure and global inoculation.",
+    )
+    e4.metric(
+        "Human Efficiency",
+        f"{hitl_rate:.1%}",
+        help="Fraction of tasks that needed HITL — lower is better post-automation.",
+    )
+
+    # ── Top disagreements ─────────────────────────────────────────────
+    st.subheader("Top MANIFOLD ↔ Naive disagreement pairs")
+    top = shadow["top_disagreement_actions"]
+    if top:
+        disc_df = pd.DataFrame(top, columns=["Naive action", "MANIFOLD action"])
+        st.dataframe(disc_df, use_container_width=True)
+    else:
+        st.caption("All actions agreed.")
+

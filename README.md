@@ -1,6 +1,182 @@
 # Project MANIFOLD
 
-**Multi-Agent Non-stationary Framework for Ontogenetic Learning and Dynamic valuation**
+> **v1.2.0 | 775 Tests Passing | Phase 25 Complete | Live Dashboard at /dashboard | 0 External Dependencies | Universal Grid OS**
+>
+> **The Trust Operating System for AI agents.**
+> MANIFOLD prices risk before the agent acts — detecting adversarial tools, escalating
+> high-stakes decisions to humans, and writing calibrated penalty legislation from observed outcomes.
+
+[![CI](https://github.com/chizoalban2003-beep/MANIFOLD/actions/workflows/manifold-ci.yml/badge.svg)](https://github.com/chizoalban2003-beep/MANIFOLD/actions/workflows/manifold-ci.yml)
+[![Tests](https://img.shields.io/badge/tests-775%2F775-brightgreen)]()
+[![Dashboard](https://img.shields.io/badge/dashboard-live%20%2Fdashboard-purple)]()
+[![Python](https://img.shields.io/badge/python-3.12%2B-blue)]()
+[![Zero deps](https://img.shields.io/badge/external%20deps-0-success)]()
+[![License](https://img.shields.io/badge/license-MIT-lightgrey)]()
+
+---
+
+## ⚡ 5-Minute Quickstart
+
+```bash
+git clone https://github.com/chizoalban2003-beep/MANIFOLD.git
+cd MANIFOLD
+pip install -e .                     # core engine (no Streamlit)
+pip install -e ".[ui]"               # + dashboard
+
+# Run a shadow audit on your support logs
+python deploy_shadow.py --input your_support_logs.csv --json > report.json
+
+# Or use the synthetic demo (no data needed)
+python deploy_shadow.py --tasks 200
+
+# Launch the dashboard
+streamlit run app.py
+```
+
+### What you get
+
+MANIFOLD runs **silently alongside your existing agent** (shadow mode) and produces a JSON report:
+
+```json
+{
+  "total_tasks": 200,
+  "virtual_regret_saved": 9,
+  "hitl_escalations": 12,
+  "tool_failures_detected": 15,
+  "gossip_inoculation_speed": 4,
+  "adversarial_suspects": [
+    {"tool_name": "billing_api", "warm_up_rate": 0.75, "post_rate": 0.0, "drop": 0.75}
+  ],
+  "penalty_proposals": [...]
+}
+```
+
+Three numbers close the enterprise sale:
+
+| Metric | Meaning |
+|--------|---------|
+| `virtual_regret_saved` | High-risk tasks MANIFOLD would have escalated that the naive agent auto-resolved |
+| `gossip_inoculation_speed` | Tasks until all agents routed around the failing tool after its first failure |
+| `hitl_escalations` | Decisions where risk × stakes exceeded threshold and demanded human review |
+
+---
+
+## Shadow Mode Deployment Guide
+
+### Problem
+
+LangChain / ReAct agents hallucinate, over-use tools, and waste money.
+There is no observability layer that prices risk *before* an agent acts.
+
+### Solution
+
+MANIFOLD is the **executive prefrontal cortex** around your agents.
+It does not replace the LLM — it decides *when* the LLM should act, verify, escalate, or refuse.
+
+### Step 1 — Wrap your existing tools
+
+```python
+from manifold import ConnectorRegistry, ToolConnector, ToolProfile
+
+registry = ConnectorRegistry()
+registry.register(ToolConnector(
+    name="zendesk_api",
+    fn=your_zendesk_client.call,          # your existing callable
+    profile=ToolProfile(
+        name="zendesk_api",
+        cost=0.05, latency=0.2,
+        reliability=0.92, risk=0.08, asset=0.75,
+    ),
+))
+```
+
+### Step 2 — Wrap your brain in ShadowModeWrapper
+
+```python
+from manifold import ManifoldBrain, BrainConfig, ShadowModeWrapper
+
+brain = ManifoldBrain(BrainConfig(), tools=registry.tool_profiles())
+wrapper = ShadowModeWrapper(brain=brain)   # active=False: observe only
+```
+
+### Step 3 — Feed your task stream
+
+```python
+from manifold import BrainTask
+
+for ticket in zendesk_export:
+    task = BrainTask(
+        prompt=ticket["body"],
+        domain=ticket["category"],
+        stakes=ticket["priority_score"],   # 0.0-1.0
+        uncertainty=ticket["confidence"],
+        complexity=ticket["complexity"],
+        # ... other fields default to safe mid-range values
+    )
+    virtual_regret = wrapper.observe(task, actual_action=ticket["agent_action"])
+```
+
+### Step 4 — Read the report
+
+```python
+report = wrapper.shadow_report()
+print(f"Disagreement rate:     {report['disagreement_rate']:.1%}")
+print(f"Top disagreements:     {report['top_disagreement_actions'][:3]}")
+```
+
+### Step 5 — Activate when ready
+
+```python
+wrapper.activate()   # now MANIFOLD's decisions override the naive agent
+```
+
+---
+
+### Feeding real logs via CLI
+
+```bash
+# Zendesk / Intercom CSV export
+python deploy_shadow.py --input tickets_export.csv --json > audit_report.json
+
+# LangSmith / OpenAI trace JSON
+python deploy_shadow.py --input langsmith_runs.json --json > audit_report.json
+```
+
+**CSV format** (only `prompt` column is required):
+
+```csv
+prompt,domain,stakes,uncertainty,complexity,naive_action
+"Invoice charged twice","billing",0.85,0.6,0.4,auto_resolve
+"Cannot login","technical",0.5,0.7,0.3,send_template_email
+```
+
+**JSON format** (LangSmith traces, OpenAI logs — nested fields auto-detected):
+
+```json
+[
+  {"input": "Invoice charged twice", "metadata": {"domain": "billing"}, "output": "auto_resolve"},
+  {"input": "Cannot login", "run_type": "technical", "outputs": {"text": "template_email"}}
+]
+```
+
+---
+
+### Interpreting the JSON report
+
+```bash
+cat audit_report.json | python -c "
+import json, sys
+r = json.load(sys.stdin)
+print(f'Virtual regret saved:  {r[\"virtual_regret_saved\"]} tasks')
+print(f'HITL triggers:         {r[\"hitl_escalations\"]} decisions')
+print(f'Gossip inoculation:    {r[\"gossip_inoculation_speed\"]} rounds')
+if r['adversarial_suspects']:
+    for s in r['adversarial_suspects']:
+        print(f'HONEY-POT: {s[\"tool_name\"]}  drop={s[\"drop\"]:.0%}')
+"
+```
+
+---
 
 MANIFOLD should keep its name. The project has grown from a fixed 3x3
 Tic-Tac-Toe geometry into a manifold of problem spaces: any domain can be
@@ -402,6 +578,11 @@ python3 -m manifold --mode path --generations 60 --population 36 --grid-size 11
 ### Dashboard
 
 ```bash
+# Phase 25: Live HTTP fleet dashboard (zero external dependencies)
+python -m manifold.server --port 8080
+# then open http://localhost:8080/dashboard
+
+# Phase 7: Streamlit local dashboard
 streamlit run app.py
 ```
 
@@ -439,18 +620,61 @@ penalties dwarf checking costs.
 ## Repository layout
 
 ```text
-app.py                  Streamlit dashboard
+deploy_shadow.py        Trust Audit V2 CLI — feeds real or synthetic logs through all 12 phases
+app.py                  Streamlit dashboard (Shadow Mode + all earlier engines)
+pyproject.toml          Package config — install with: pip install -e ".[ui]"
+scripts/
+  deploy_oracle.sh      POSIX deploy script: Python 3.12 check, PYTHONPATH, starts server.py
 manifold/
   __main__.py           CLI entry point
   cli.py                CLI modes for social and path engines
+  brain.py              Phase 1-3: ManifoldBrain, HierarchicalBrain, BrainTask
+  encoder.py            Phase 4-5: PromptEncoder, DualPathEncoder, SemanticBridge
+  transfer.py           Phase 6: ReputationRegistry, WarmStartConfig
+  server.py             Phase 7+25: Zero-dep HTTP daemon; GET /dashboard (live fleet UI)
+  connector.py          Phase 8: ToolConnector, ConnectorRegistry, ShadowModeWrapper
+  hitl.py               Phase 9: HITLGate, TeacherSpike, HITLConfig
+  federation.py         Phase 10: FederatedGossipBridge, GlobalReputationLedger
+  adversarial.py        Phase 11: AdversarialPricingDetector, NashEquilibriumGate
+  autodiscovery.py      Phase 12: AutoRuleDiscovery, PenaltyOptimizer, PolicySynthesizer
+  interceptor.py        Phase 13: ActiveInterceptor, @shield
+  hub.py                Phase 15: CommunityBaseline, ReputationHub
+  recruiter.py          Phase 17: SovereignRecruiter, MarketplaceListing
+  policy.py             Phase 18: ManifoldPolicy, PolicyDomain, DOMAIN_TEMPLATES
+  gitops.py             Phase 19: ManifoldCICheck, CIRiskReport, generate_github_action
+  b2b.py                Phase 20: B2BRouter, AgentEconomyLedger, EconomyEntry
+  crypto.py             Phase 21: PolicySigningKey, OrgPolicySigner, GossipSigner
+  fleet.py              Phase 22: CIBuildHistory, B2BEconomySnapshot, FleetPanelRenderer
+  polyglot.py           Phase 23: ManifoldOpenAPISpec, spec_to_json, spec_to_yaml
+  vault.py              Phase 24: ManifoldVault — thread-safe WAL + state recovery
   gridmapper.py         Reusable problem-to-grid optimizer
   simulation.py         Path/teacher MANIFOLD engine
   social.py             31x31 social-intelligence engine
-tests/
-  test_gridmapper.py    GridMapper OS regression tests
-  test_simulation.py    Path/teacher regression tests
-  test_social.py        Social-evolution regression tests
+tests/                  775 tests covering all 25 phases
 ```
+
+### Live HTTP Oracle Server (Phase 25)
+
+```bash
+# Start the server (requires Python 3.12+)
+./scripts/deploy_oracle.sh --port 8080
+
+# Or directly:
+python -m manifold.server --port 8080
+```
+
+Endpoints:
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/dashboard` | Live fleet dashboard (HTML, Tailwind CSS, no JS libs) |
+| `GET` | `/policy` | Active `ManifoldPolicy` as JSON |
+| `GET` | `/reputation/<id>` | Agent reliability score from `ReputationHub` |
+| `POST` | `/shield` | Run a `BrainTask` through the `@shield` interceptor |
+| `POST` | `/b2b/handshake` | B2B policy handshake via `B2BRouter` |
+| `POST` | `/recruit` | Sovereign Recruiter — discover and register tools |
+
+The server replays the Phase 24 **Write-Ahead Log** on startup to restore gossip and economy state across restarts.
 
 ## Why the name still fits
 
