@@ -646,4 +646,4 @@ class APIExplorer:
     </details>
   </div>""")
 
-        return f"<h2>📚 Code Reference</h2>\n" + "\n".join(mod_cards)
+        return "<h2>📚 Code Reference</h2>\n" + "\n".join(mod_cards)

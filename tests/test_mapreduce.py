@@ -10,7 +10,6 @@ from manifold.mapreduce import (
     Chunk,
     ChunkDistributor,
     ChunkResult,
-    JobResult,
     JobState,
     JobTracker,
     MapReduceJob,

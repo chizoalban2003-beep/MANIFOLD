@@ -211,6 +211,27 @@ from .polyglot import (
 from .privacy import PrivacyConfig, PrivacyGuard
 from .replay import ReplayReport, StateRehydrator, VirtualExecution
 from .verify import PolicyConflict, PolicyVerifier, VerificationResult
+from .mapreduce import (
+    Chunk,
+    ChunkDistributor,
+    ChunkResult,
+    JobResult,
+    JobTracker,
+    MapReduceJob,
+    SwarmAggregator,
+)
+from .zkp import (
+    PolicyCommitment,
+    ZKPVerifier,
+    ZKProof,
+)
+from .registry import (
+    PublishResult,
+    RegistryEntry,
+    SwarmRegistry,
+    ToolEndorsement,
+    ToolManifest,
+)
 
 __all__ = [
     "ActiveInterceptor",
@@ -391,4 +412,22 @@ __all__ = [
     "PolicyConflict",
     "PolicyVerifier",
     "VerificationResult",
+    # Phase 60 — Swarm MapReduce
+    "Chunk",
+    "ChunkDistributor",
+    "ChunkResult",
+    "JobResult",
+    "JobTracker",
+    "MapReduceJob",
+    "SwarmAggregator",
+    # Phase 61 — Zero-Knowledge Policy Proofs
+    "PolicyCommitment",
+    "ZKPVerifier",
+    "ZKProof",
+    # Phase 62 — Global App Registry
+    "PublishResult",
+    "RegistryEntry",
+    "SwarmRegistry",
+    "ToolEndorsement",
+    "ToolManifest",
 ]
