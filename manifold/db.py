@@ -149,10 +149,7 @@ class ManifoldDB:
     async def close(self) -> None:
         """Close the database connection."""
         if self._conn is not None:
-            if self._is_postgres:
-                await self._conn.close()
-            else:
-                await self._conn.close()
+            await self._conn.close()
             self._conn = None
 
     async def __aenter__(self) -> "ManifoldDB":
@@ -425,8 +422,13 @@ class ManifoldDB:
                 "INSERT INTO tool_reputation (tool_name, score, recorded_at) VALUES (?, ?, ?)",
                 (tool_name, float(score), _ts),
             )
-        except Exception:  # noqa: BLE001 — duplicate PRIMARY KEY on race; silently skip
-            pass
+        except Exception as exc:
+            # Silently ignore duplicate PRIMARY KEY conflicts (same tool/timestamp).
+            # Re-raise all other errors (connection issues, type errors, etc.).
+            exc_str = str(exc).lower()
+            if "unique" in exc_str or "primary key" in exc_str or "duplicate" in exc_str:
+                return
+            raise
 
     async def get_tool_history(
         self,

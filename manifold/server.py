@@ -490,13 +490,14 @@ class ManifoldHandler(BaseHTTPRequestHandler):
             else "risk within threshold"
         )
 
-        # Update in-memory counters for /metrics endpoint
+        # Update in-memory counters for /metrics endpoint (protected by _LOCK)
         global _TASK_COUNT, _ESCALATION_COUNT, _REFUSAL_COUNT
-        _TASK_COUNT += 1
-        if decision.action == "escalate":
-            _ESCALATION_COUNT += 1
-        elif decision.action == "refuse":
-            _REFUSAL_COUNT += 1
+        with _LOCK:
+            _TASK_COUNT += 1
+            if decision.action == "escalate":
+                _ESCALATION_COUNT += 1
+            elif decision.action == "refuse":
+                _REFUSAL_COUNT += 1
 
         result: dict[str, Any] = {
             "vetoed": vetoed,
