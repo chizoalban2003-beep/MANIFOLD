@@ -18,3 +18,8 @@ __pycache__/
 *.pyc
 .eggs/
 .env
+
+# SQLite database files (generated at runtime)
+*.db
+*.db-shm
+*.db-wal
