@@ -82,6 +82,8 @@ from .gc import ManifoldGC
 from .doctor import ManifoldDoctor
 from .autodoc import APIExplorer, DocExtractor, MANIFOLD_ENDPOINTS
 from .zkp import ZKPVerifier
+from .rosetta import ForeignPayloadIngress, EgressTranslator
+from .temporal import ParallelTimeline, TimelineCollapse
 
 
 # ---------------------------------------------------------------------------
@@ -228,6 +230,10 @@ _ZKP_VERIFIER = ZKPVerifier()
 
 # Phase 62: Global App Registry
 _TOOL_REGISTRY = SwarmRegistry(event_bus=_EVENT_BUS)
+
+# Phase 64: Rosetta Protocol Adapter
+_ROSETTA_INGRESS = ForeignPayloadIngress()
+_ROSETTA_EGRESS = EgressTranslator()
 
 # Thread lock guarding mutable singletons during parallel requests
 _LOCK = threading.Lock()
@@ -408,6 +414,10 @@ class ManifoldHandler(BaseHTTPRequestHandler):
                 self._handle_post_zkp_prove(body)
             elif path == "/zkp/verify":
                 self._handle_post_zkp_verify(body)
+            elif path == "/rosetta/ingress":
+                self._handle_post_rosetta_ingress(body)
+            elif path == "/temporal/fork":
+                self._handle_post_temporal_fork(body)
             else:
                 _send_error(self, 404, f"No route for POST {self.path}")
         except Exception as exc:  # noqa: BLE001
@@ -1671,6 +1681,64 @@ class ManifoldHandler(BaseHTTPRequestHandler):
             return
         valid = _ZKP_VERIFIER.verify(proof)
         _send_json(self, 200, {"valid": valid})
+
+    def _handle_post_rosetta_ingress(self, body: dict[str, Any]) -> None:
+        """POST /rosetta/ingress → Phase 64 translate foreign payload to BrainTask."""
+        result = _ROSETTA_INGRESS.ingest(body)
+        _send_json(self, 200, result.to_dict())
+
+    def _handle_post_temporal_fork(self, body: dict[str, Any]) -> None:
+        """POST /temporal/fork → Phase 63 fork parallel timelines and collapse.
+
+        Expects a JSON body with:
+        - ``branches``: list of label strings (required)
+        - ``grid_state``: optional dict passed as branch metadata
+        - ``fork_id``: optional string
+        """
+        branch_labels: list[str] = body.get("branches", [])
+        if not isinstance(branch_labels, list) or not branch_labels:
+            _send_error(self, 400, "'branches' must be a non-empty list of label strings")
+            return
+        fork_id: str | None = body.get("fork_id") or None
+
+        # Use a minimal GridState sourced from the GridMapper
+        from .gridmapper import GridState, GridWorld
+        from .b2b import AgentEconomyLedger as _AEL
+
+        meta: dict[str, object] = body.get("grid_state", {})
+        world = GridWorld(size=5)
+        state = GridState(
+            world=world,
+            description=str(meta.get("description", "temporal-fork")),
+            domain=str(meta.get("domain", "general")),
+            parameters={},
+            cell_profile=(0.1, 0.2, 0.3, 0.4),
+        )
+        ledger = _AEL()
+
+        def default_executor(
+            branch_id: str,
+            _s: GridState,
+            _l: _AEL,
+        ) -> "BranchResult":
+            from .temporal import BranchResult as _BR
+            return _BR(
+                branch_id=branch_id,
+                label=branch_id,
+                asset=1.0,
+                cost=0.5,
+                risk=0.5,
+                success=True,
+            )
+
+        from .temporal import BranchResult
+        timeline = ParallelTimeline(state, ledger, fork_id=fork_id)
+        for label in branch_labels:
+            timeline.add_branch(str(label))
+
+        results = timeline.run(default_executor)
+        collapse = TimelineCollapse.collapse(results, fork_id=timeline.fork_id)
+        _send_json(self, 200, collapse.to_dict())
 
 
 # ---------------------------------------------------------------------------

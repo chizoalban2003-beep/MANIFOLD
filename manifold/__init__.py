@@ -232,6 +232,29 @@ from .registry import (
     ToolEndorsement,
     ToolManifest,
 )
+from .temporal import (
+    BranchResult,
+    CollapseResult,
+    ForkSpec,
+    ParallelTimeline,
+    StateForker,
+    TimelineCollapse,
+)
+from .rosetta import (
+    EgressResult,
+    EgressTranslator,
+    ForeignPayloadIngress,
+    FrameworkSchema,
+    IngressResult,
+)
+from .singularity import (
+    ASTMutator,
+    MutationProposal,
+    MutationStrategy,
+    OptimizationResult,
+    SandboxedTestRunner,
+    STRATEGIES,
+)
 
 __all__ = [
     "ActiveInterceptor",
@@ -430,4 +453,24 @@ __all__ = [
     "SwarmRegistry",
     "ToolEndorsement",
     "ToolManifest",
+    # Phase 63 — Temporal Forking Engine
+    "BranchResult",
+    "CollapseResult",
+    "ForkSpec",
+    "ParallelTimeline",
+    "StateForker",
+    "TimelineCollapse",
+    # Phase 64 — Rosetta Protocol Adapter
+    "EgressResult",
+    "EgressTranslator",
+    "ForeignPayloadIngress",
+    "FrameworkSchema",
+    "IngressResult",
+    # Phase 65 — Recursive Self-Optimization
+    "ASTMutator",
+    "MutationProposal",
+    "MutationStrategy",
+    "OptimizationResult",
+    "SandboxedTestRunner",
+    "STRATEGIES",
 ]
