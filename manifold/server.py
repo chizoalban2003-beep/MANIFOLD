@@ -84,6 +84,48 @@ from .autodoc import APIExplorer, DocExtractor, MANIFOLD_ENDPOINTS
 from .zkp import ZKPVerifier
 from .rosetta import ForeignPayloadIngress, EgressTranslator
 from .temporal import ParallelTimeline, TimelineCollapse
+from .auth import ManifoldAuth
+
+
+# ---------------------------------------------------------------------------
+# Optional bearer-token authentication
+# ---------------------------------------------------------------------------
+
+# ManifoldAuth is only activated when MANIFOLD_API_KEY is set.
+_API_KEY = os.environ.get("MANIFOLD_API_KEY", "")
+_AUTH: ManifoldAuth | None = ManifoldAuth(_API_KEY) if _API_KEY else None
+
+# Routes that require auth when _AUTH is active
+_PROTECTED_POSTS = frozenset({"/shield", "/b2b/handshake", "/recruit"})
+
+
+def _check_auth(handler: "ManifoldHandler", path: str) -> bool:
+    """Return True if the request is allowed to proceed.
+
+    When no API key is configured, all requests are allowed.  When an API
+    key is configured, protected POST endpoints require a valid Bearer token.
+    Returns False and sends a 401/403 response if auth fails.
+    """
+    if _AUTH is None:
+        return True
+    auth_header = handler.headers.get("Authorization", "")
+    if not _AUTH.is_authorized(handler.command, path, auth_header):
+        # Distinguish missing vs invalid token
+        if auth_header.startswith("Bearer "):
+            _send_json(handler, 403, {"code": 403, "message": "Forbidden"})
+        else:
+            _send_json(handler, 401, {"code": 401, "message": "Unauthorized"})
+        return False
+    return True
+
+
+# ---------------------------------------------------------------------------
+# In-memory task counters (incremented by the shield handler)
+# ---------------------------------------------------------------------------
+
+_TASK_COUNT: int = 0
+_ESCALATION_COUNT: int = 0
+_REFUSAL_COUNT: int = 0
 
 
 # ---------------------------------------------------------------------------
@@ -365,6 +407,11 @@ class ManifoldHandler(BaseHTTPRequestHandler):
                 self._handle_get_registry_list()
                 return
 
+            # GET /metrics  (Priority 7 — Prometheus-compatible metrics)
+            if path == "/metrics":
+                self._handle_get_metrics()
+                return
+
             _send_error(self, 404, f"No route for GET {self.path}")
         except Exception as exc:  # noqa: BLE001
             _send_error(self, 500, str(exc))
@@ -382,6 +429,8 @@ class ManifoldHandler(BaseHTTPRequestHandler):
             return
 
         try:
+            if path in _PROTECTED_POSTS and not _check_auth(self, path):
+                return
             if path == "/shield":
                 self._handle_post_shield(body)
             elif path == "/b2b/handshake":
@@ -440,6 +489,14 @@ class ManifoldHandler(BaseHTTPRequestHandler):
             if vetoed
             else "risk within threshold"
         )
+
+        # Update in-memory counters for /metrics endpoint
+        global _TASK_COUNT, _ESCALATION_COUNT, _REFUSAL_COUNT
+        _TASK_COUNT += 1
+        if decision.action == "escalate":
+            _ESCALATION_COUNT += 1
+        elif decision.action == "refuse":
+            _REFUSAL_COUNT += 1
 
         result: dict[str, Any] = {
             "vetoed": vetoed,
@@ -1562,6 +1619,46 @@ class ManifoldHandler(BaseHTTPRequestHandler):
         with _LOCK:
             report = _DOCTOR.run()
         _send_json(self, 200, report.to_dict())
+
+    def _handle_get_metrics(self) -> None:
+        """GET /metrics → Prometheus-compatible plain-text metrics."""
+        with _LOCK:
+            all_baselines = dict(_HUB.baseline.tool_baselines)
+
+        lines = [
+            "# HELP manifold_tasks_total Total tasks processed",
+            "# TYPE manifold_tasks_total counter",
+            f"manifold_tasks_total {_TASK_COUNT}",
+            "# HELP manifold_escalations_total Tasks escalated to human",
+            "# TYPE manifold_escalations_total counter",
+            f"manifold_escalations_total {_ESCALATION_COUNT}",
+            "# HELP manifold_refusals_total Tasks refused",
+            "# TYPE manifold_refusals_total counter",
+            f"manifold_refusals_total {_REFUSAL_COUNT}",
+            "# HELP manifold_tool_reliability Reputation score per tool",
+            "# TYPE manifold_tool_reliability gauge",
+        ]
+        for tool_name, (score, _weight) in sorted(all_baselines.items()):
+            safe_name = tool_name.replace("-", "_").replace(".", "_")
+            lines.append(f'manifold_tool_reliability{{tool="{safe_name}"}} {score:.4f}')
+
+        # Also emit live reliability if hub has contributions
+        with _LOCK:
+            for tool_name, (score, _weight) in sorted(all_baselines.items()):
+                live = _HUB.live_reliability(tool_name)
+                if live is not None:
+                    safe_name = tool_name.replace("-", "_").replace(".", "_")
+                    # Overwrite the baseline line with live value
+                    live_line = f'manifold_tool_reliability_live{{tool="{safe_name}"}} {live:.4f}'
+                    lines.append(live_line)
+
+        body = ("\n".join(lines) + "\n").encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.end_headers()
+        self.wfile.write(body)
 
     def _handle_post_mapreduce_submit(self, body: dict[str, Any]) -> None:
         """POST /mapreduce/submit → Phase 60 Swarm MapReduce job execution."""
