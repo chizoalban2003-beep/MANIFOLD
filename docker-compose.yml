@@ -19,6 +19,9 @@ services:
       - "8501:8501"
     environment:
       - MANIFOLD_API_KEY=${MANIFOLD_API_KEY}
+      - MANIFOLD_DB_URL=sqlite:///data/manifold.db
+    volumes:
+      - ./data:/app/data
     depends_on:
       - manifold
     restart: unless-stopped

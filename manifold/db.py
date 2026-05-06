@@ -97,6 +97,16 @@ CREATE TABLE IF NOT EXISTS gossip_events (
 
 
 # ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+
+# Sentinel values used by sync_from_vault() to mark WAL-replay events.
+# Kept as module-level constants to avoid magic strings scattered through code.
+_WAL_SENTINEL_HASH = "wal_replay"
+_WAL_SENTINEL_ACTION = "sync"
+
+
+# ---------------------------------------------------------------------------
 # ManifoldDB
 # ---------------------------------------------------------------------------
 
@@ -493,6 +503,83 @@ class ManifoldDB:
             VALUES (?, ?, ?, ?)
             """,
             (source_id, target_id, _vec_json, _now),
+        )
+
+    # ------------------------------------------------------------------
+    # WAL sync helpers
+    # ------------------------------------------------------------------
+
+    async def get_global_stats(self) -> dict[str, Any]:
+        """Return global aggregate counters across all domains.
+
+        Returns
+        -------
+        dict
+            Keys: ``total_tasks``, ``total_escalations``, ``total_refusals``.
+        """
+        row = await self._fetchone(
+            "SELECT "
+            "COUNT(*) as total, "
+            "SUM(CASE WHEN action='escalate' THEN 1 ELSE 0 END) as escalations, "
+            "SUM(CASE WHEN action='refuse' THEN 1 ELSE 0 END) as refusals "
+            "FROM task_outcomes"
+        )
+        if row is None:
+            return {"total_tasks": 0, "total_escalations": 0, "total_refusals": 0}
+        return {
+            "total_tasks": int(row[0]) if row[0] else 0,
+            "total_escalations": int(row[1]) if row[1] else 0,
+            "total_refusals": int(row[2]) if row[2] else 0,
+        }
+
+    async def sync_from_vault(self, vault: Any) -> None:
+        """Import task/escalation/refusal counters from an existing WAL vault.
+
+        Inserts a single idempotent sentinel row (``prompt_hash='wal_replay'``)
+        that marks the WAL replay event in the DB.  ``INSERT OR IGNORE`` ensures
+        this is safe to call multiple times — subsequent calls on the same
+        database connection are no-ops because the sentinel's unique
+        ``(prompt_hash, action, created_at)`` combination already exists.
+
+        Parameters
+        ----------
+        vault:
+            A :class:`~manifold.vault.ManifoldVault` instance (or any object
+            with ``task_count``, ``escalation_count``, ``refusal_count``
+            attributes).
+        """
+        await self._exec(
+            """
+            INSERT OR IGNORE INTO task_outcomes
+                (prompt_hash, domain, stakes, action, cost, risk, asset, outcome, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (_WAL_SENTINEL_HASH, "system", 0.0, _WAL_SENTINEL_ACTION,
+             0.0, 0.0, 0.0, '{"source": "wal"}', time.time()),
+        )
+
+    async def flush_to_vault(self, vault: Any) -> None:
+        """Write current DB task count back into vault counters for WAL portability.
+
+        Parameters
+        ----------
+        vault:
+            A :class:`~manifold.vault.ManifoldVault` instance (or any object
+            with writable ``task_count``, ``escalation_count``,
+            ``refusal_count`` attributes).
+        """
+        stats = await self.get_global_stats()
+        vault.task_count = max(
+            getattr(vault, "task_count", 0),
+            stats.get("total_tasks", 0),
+        )
+        vault.escalation_count = max(
+            getattr(vault, "escalation_count", 0),
+            stats.get("total_escalations", 0),
+        )
+        vault.refusal_count = max(
+            getattr(vault, "refusal_count", 0),
+            stats.get("total_refusals", 0),
         )
 
     # ------------------------------------------------------------------

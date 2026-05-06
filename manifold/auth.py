@@ -32,9 +32,9 @@ Environment variables
 
 from __future__ import annotations
 
-import hashlib
 import hmac
 import os
+import secrets
 from typing import Callable
 
 
@@ -78,7 +78,8 @@ class ManifoldAuth:
     """
 
     def __init__(self, secret: str | None = None) -> None:
-        self.secret: str = secret or os.environ.get("MANIFOLD_API_KEY", "")
+        _raw = secret if secret is not None else os.environ.get("MANIFOLD_API_KEY", "")
+        self.secret: str = _raw.strip() if _raw else ""
         if not self.secret:
             raise ValueError(
                 "MANIFOLD_API_KEY environment variable must be set, "
@@ -181,6 +182,6 @@ class ManifoldAuth:
         Returns
         -------
         str
-            A 64-character hex string derived from 32 random bytes.
+            A 64-character hex string (32 random bytes).
         """
-        return hashlib.sha256(os.urandom(32)).hexdigest()
+        return secrets.token_hex(32)

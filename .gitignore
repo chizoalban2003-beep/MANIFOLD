@@ -9,3 +9,12 @@ node_modules/
 cloudinary_python.txt
 kaggle.json
 .venv/
+
+# Python build artefacts
+*.egg-info/
+dist/
+build/
+__pycache__/
+*.pyc
+.eggs/
+.env

@@ -215,3 +215,98 @@ async def test_save_task_outcome_with_brain_task(db: ManifoldDB):
     stats = await db.get_domain_stats("medical")
     assert stats["total_tasks"] == 1
     assert stats["escalation_rate"] == pytest.approx(1.0)
+
+
+# ---------------------------------------------------------------------------
+# get_global_stats
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_get_global_stats_empty():
+    db = ManifoldDB(":memory:")
+    await db.connect()
+    stats = await db.get_global_stats()
+    assert stats["total_tasks"] == 0
+    assert stats["total_escalations"] == 0
+    assert stats["total_refusals"] == 0
+    await db.close()
+
+
+@pytest.mark.asyncio
+async def test_get_global_stats_with_data(db: ManifoldDB):
+    await db.save_task_outcome(
+        None, action="escalate", outcome={}, task_hash="h1", domain="x", stakes=0.5
+    )
+    await db.save_task_outcome(
+        None, action="refuse", outcome={}, task_hash="h2", domain="x", stakes=0.5
+    )
+    await db.save_task_outcome(
+        None, action="answer", outcome={}, task_hash="h3", domain="x", stakes=0.5
+    )
+    stats = await db.get_global_stats()
+    assert stats["total_tasks"] == 3
+    assert stats["total_escalations"] == 1
+    assert stats["total_refusals"] == 1
+
+
+# ---------------------------------------------------------------------------
+# sync_from_vault / flush_to_vault
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_sync_from_vault_does_not_raise():
+    db = ManifoldDB(":memory:")
+    await db.connect()
+
+    class FakeVault:
+        task_count = 10
+        escalation_count = 2
+        refusal_count = 1
+
+    await db.sync_from_vault(FakeVault())
+    await db.close()
+
+
+@pytest.mark.asyncio
+async def test_flush_to_vault_updates_counters():
+    db = ManifoldDB(":memory:")
+    await db.connect()
+    await db.save_task_outcome(
+        None, action="escalate", outcome={}, task_hash="h1", domain="x", stakes=0.5
+    )
+    await db.save_task_outcome(
+        None, action="refuse", outcome={}, task_hash="h2", domain="x", stakes=0.5
+    )
+
+    class FakeVault:
+        task_count = 0
+        escalation_count = 0
+        refusal_count = 0
+
+    vault = FakeVault()
+    await db.flush_to_vault(vault)
+    assert vault.task_count >= 2
+    assert vault.escalation_count >= 1
+    assert vault.refusal_count >= 1
+    await db.close()
+
+
+@pytest.mark.asyncio
+async def test_flush_to_vault_does_not_decrease_counters():
+    """flush_to_vault must not lower existing vault counters."""
+    db = ManifoldDB(":memory:")
+    await db.connect()
+
+    class FakeVault:
+        task_count = 999
+        escalation_count = 50
+        refusal_count = 25
+
+    vault = FakeVault()
+    await db.flush_to_vault(vault)
+    assert vault.task_count == 999
+    assert vault.escalation_count == 50
+    assert vault.refusal_count == 25
+    await db.close()

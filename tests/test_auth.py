@@ -189,3 +189,24 @@ class TestGenerateToken:
         auth = ManifoldAuth(token)
         assert auth.verify_token(token) is True
         assert auth.verify_token("not-the-token") is False
+
+
+# ---------------------------------------------------------------------------
+# Fail-fast on empty / whitespace keys
+# ---------------------------------------------------------------------------
+
+
+class TestEmptyKeyRejection:
+    def test_auth_raises_on_empty_key(self):
+        """ManifoldAuth must refuse to construct with an empty key."""
+        with pytest.raises(ValueError, match="MANIFOLD_API_KEY"):
+            ManifoldAuth("")
+
+    def test_auth_raises_on_whitespace_key(self):
+        """ManifoldAuth must refuse to construct with a whitespace-only key."""
+        with pytest.raises(ValueError, match="MANIFOLD_API_KEY"):
+            ManifoldAuth("   ")
+
+    def test_auth_raises_on_tab_key(self):
+        with pytest.raises(ValueError, match="MANIFOLD_API_KEY"):
+            ManifoldAuth("\t")

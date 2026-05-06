@@ -35,6 +35,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import sys
 import threading
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -91,9 +92,32 @@ from .auth import ManifoldAuth
 # Optional bearer-token authentication
 # ---------------------------------------------------------------------------
 
-# ManifoldAuth is only activated when MANIFOLD_API_KEY is set.
-_API_KEY = os.environ.get("MANIFOLD_API_KEY", "")
-_AUTH: ManifoldAuth | None = ManifoldAuth(_API_KEY) if _API_KEY else None
+
+def _init_auth() -> "ManifoldAuth | None":
+    """Initialise authentication from the environment.
+
+    Returns ``None`` when ``MANIFOLD_API_KEY`` is not set (auth disabled).
+    Exits the process immediately when the key is set but blank/whitespace,
+    which would indicate a misconfigured deployment.
+    """
+    key = os.environ.get("MANIFOLD_API_KEY", "")
+    if not key:
+        # Key absent → auth disabled (dev/test mode)
+        return None
+    key = key.strip()
+    if not key:
+        print(
+            "[MANIFOLD] ERROR: MANIFOLD_API_KEY is set but blank/whitespace.\n"
+            "           Set a non-empty key or unset the variable to disable auth.\n"
+            "           Generate one with: "
+            "python -c 'import secrets; print(secrets.token_hex(32))'",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    return ManifoldAuth(key)
+
+
+_AUTH: "ManifoldAuth | None" = _init_auth()
 
 # Routes that require auth when _AUTH is active
 _PROTECTED_POSTS = frozenset({"/shield", "/b2b/handshake", "/recruit"})
@@ -1887,7 +1911,8 @@ def run_server(port: int = 8080, *, host: str = "0.0.0.0") -> None:
     """Start the MANIFOLD HTTP server and block until interrupted.
 
     On startup the Vault WAL is replayed to restore any gossip and economy
-    state from previous runs.
+    state from previous runs.  The DB persistence layer is also initialised
+    and the WAL counters are synced into it.
 
     Parameters
     ----------
@@ -1896,6 +1921,9 @@ def run_server(port: int = 8080, *, host: str = "0.0.0.0") -> None:
     host:
         Bind address.  Default: ``"0.0.0.0"`` (all interfaces).
     """
+    import asyncio
+    from .db import ManifoldDB
+
     # Phase 24: replay WAL on startup
     with _LOCK:
         result = _VAULT.load_state(hub=_HUB, ledger=_ECONOMY_LEDGER)
@@ -1906,6 +1934,22 @@ def run_server(port: int = 8080, *, host: str = "0.0.0.0") -> None:
             f"({result.skipped} skipped)."
         )
 
+    # DB persistence layer startup: connect, initialise schema, sync WAL counters.
+    # asyncio.run() is safe here because this is a synchronous entry point and no
+    # event loop is running yet.  The HTTPServer itself is thread-based (not async).
+    # NOTE: in-memory task counters (_TASK_COUNT etc.) are incremented per request
+    # but only flushed to the DB on graceful shutdown via flush_to_vault().  If the
+    # process is killed (SIGKILL, OOM), in-flight increments since the last run are
+    # lost — this is an accepted trade-off to keep the server synchronous.
+    _db_url = os.environ.get("MANIFOLD_DB_URL", "sqlite:///manifold.db")
+    _db = ManifoldDB(_db_url)
+
+    async def _startup() -> None:
+        await _db.connect()
+        await _db.sync_from_vault(_VAULT)
+
+    asyncio.run(_startup())
+
     server = HTTPServer((host, port), ManifoldHandler)
     print(f"MANIFOLD server listening on {host}:{port}  (Ctrl-C to stop)")
     try:
@@ -1914,6 +1958,12 @@ def run_server(port: int = 8080, *, host: str = "0.0.0.0") -> None:
         pass
     finally:
         server.server_close()
+        # Flush DB state back to WAL for portability across container restarts
+        async def _shutdown() -> None:
+            await _db.flush_to_vault(_VAULT)
+            await _db.close()
+
+        asyncio.run(_shutdown())
         print("MANIFOLD server stopped.")
 
 
