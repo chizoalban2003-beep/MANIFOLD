@@ -211,6 +211,50 @@ from .polyglot import (
 from .privacy import PrivacyConfig, PrivacyGuard
 from .replay import ReplayReport, StateRehydrator, VirtualExecution
 from .verify import PolicyConflict, PolicyVerifier, VerificationResult
+from .mapreduce import (
+    Chunk,
+    ChunkDistributor,
+    ChunkResult,
+    JobResult,
+    JobTracker,
+    MapReduceJob,
+    SwarmAggregator,
+)
+from .zkp import (
+    PolicyCommitment,
+    ZKPVerifier,
+    ZKProof,
+)
+from .registry import (
+    PublishResult,
+    RegistryEntry,
+    SwarmRegistry,
+    ToolEndorsement,
+    ToolManifest,
+)
+from .temporal import (
+    BranchResult,
+    CollapseResult,
+    ForkSpec,
+    ParallelTimeline,
+    StateForker,
+    TimelineCollapse,
+)
+from .rosetta import (
+    EgressResult,
+    EgressTranslator,
+    ForeignPayloadIngress,
+    FrameworkSchema,
+    IngressResult,
+)
+from .singularity import (
+    ASTMutator,
+    MutationProposal,
+    MutationStrategy,
+    OptimizationResult,
+    SandboxedTestRunner,
+    STRATEGIES,
+)
 
 __all__ = [
     "ActiveInterceptor",
@@ -391,4 +435,42 @@ __all__ = [
     "PolicyConflict",
     "PolicyVerifier",
     "VerificationResult",
+    # Phase 60 — Swarm MapReduce
+    "Chunk",
+    "ChunkDistributor",
+    "ChunkResult",
+    "JobResult",
+    "JobTracker",
+    "MapReduceJob",
+    "SwarmAggregator",
+    # Phase 61 — Zero-Knowledge Policy Proofs
+    "PolicyCommitment",
+    "ZKPVerifier",
+    "ZKProof",
+    # Phase 62 — Global App Registry
+    "PublishResult",
+    "RegistryEntry",
+    "SwarmRegistry",
+    "ToolEndorsement",
+    "ToolManifest",
+    # Phase 63 — Temporal Forking Engine
+    "BranchResult",
+    "CollapseResult",
+    "ForkSpec",
+    "ParallelTimeline",
+    "StateForker",
+    "TimelineCollapse",
+    # Phase 64 — Rosetta Protocol Adapter
+    "EgressResult",
+    "EgressTranslator",
+    "ForeignPayloadIngress",
+    "FrameworkSchema",
+    "IngressResult",
+    # Phase 65 — Recursive Self-Optimization
+    "ASTMutator",
+    "MutationProposal",
+    "MutationStrategy",
+    "OptimizationResult",
+    "SandboxedTestRunner",
+    "STRATEGIES",
 ]

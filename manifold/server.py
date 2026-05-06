@@ -51,6 +51,7 @@ from .fleet import B2BEconomySnapshot, CIBuildHistory, FleetDashboardData, Fleet
 from .genesis import GenesisMint, GenesisConfig
 from .hub import ReputationHub
 from .interceptor import ActiveInterceptor, InterceptorConfig
+from .mapreduce import MapReduceJob, JobTracker
 from .multisig import MultiSigConfig, MultiSigVault, PeerEndorsement
 from .pid import PIDConfig, RiskPIDController
 from .policy import ManifoldPolicy
@@ -59,6 +60,7 @@ from .probe import ActiveProber
 from .provenance import ProvenanceLedger
 from .quota import QuotaManager
 from .recruiter import SovereignRecruiter
+from .registry import SwarmRegistry, ToolManifest, ToolEndorsement
 from .replay import StateRehydrator
 from .sandbox import ASTValidator, BudgetedExecutor, SandboxTimeoutError
 from .sharding import ShardRouter
@@ -79,6 +81,9 @@ from .watchdog import ProcessWatchdog, WatchedComponent
 from .gc import ManifoldGC
 from .doctor import ManifoldDoctor
 from .autodoc import APIExplorer, DocExtractor, MANIFOLD_ENDPOINTS
+from .zkp import ZKPVerifier
+from .rosetta import ForeignPayloadIngress, EgressTranslator
+from .temporal import ParallelTimeline, TimelineCollapse
 
 
 # ---------------------------------------------------------------------------
@@ -212,6 +217,24 @@ _DOCTOR = ManifoldDoctor(
     data_dir=__import__("pathlib").Path(_VAULT_DIR),
 )
 
+# Phase 60: Swarm MapReduce
+_JOB_TRACKER = JobTracker(
+    shard_router=_SHARD_ROUTER,
+    clearing_engine=_CLEARING_ENGINE,
+    executor=BudgetedExecutor(max_instructions=50_000),
+    local_peer_id="manifold-server",
+)
+
+# Phase 61: Zero-Knowledge Policy Proofs
+_ZKP_VERIFIER = ZKPVerifier()
+
+# Phase 62: Global App Registry
+_TOOL_REGISTRY = SwarmRegistry(event_bus=_EVENT_BUS)
+
+# Phase 64: Rosetta Protocol Adapter
+_ROSETTA_INGRESS = ForeignPayloadIngress()
+_ROSETTA_EGRESS = EgressTranslator()
+
 # Thread lock guarding mutable singletons during parallel requests
 _LOCK = threading.Lock()
 
@@ -337,6 +360,11 @@ class ManifoldHandler(BaseHTTPRequestHandler):
                 self._handle_get_doctor_report()
                 return
 
+            # GET /registry/list  (Phase 62 global app registry)
+            if path == "/registry/list":
+                self._handle_get_registry_list()
+                return
+
             _send_error(self, 404, f"No route for GET {self.path}")
         except Exception as exc:  # noqa: BLE001
             _send_error(self, 500, str(exc))
@@ -376,6 +404,20 @@ class ManifoldHandler(BaseHTTPRequestHandler):
                 self._handle_post_vector_search(body)
             elif path == "/meta/outcome":
                 self._handle_post_meta_outcome(body)
+            elif path == "/mapreduce/submit":
+                self._handle_post_mapreduce_submit(body)
+            elif path == "/registry/publish":
+                self._handle_post_registry_publish(body)
+            elif path == "/registry/endorse":
+                self._handle_post_registry_endorse(body)
+            elif path == "/zkp/prove":
+                self._handle_post_zkp_prove(body)
+            elif path == "/zkp/verify":
+                self._handle_post_zkp_verify(body)
+            elif path == "/rosetta/ingress":
+                self._handle_post_rosetta_ingress(body)
+            elif path == "/temporal/fork":
+                self._handle_post_temporal_fork(body)
             else:
                 _send_error(self, 404, f"No route for POST {self.path}")
         except Exception as exc:  # noqa: BLE001
@@ -1502,6 +1544,201 @@ class ManifoldHandler(BaseHTTPRequestHandler):
         self.send_header("Access-Control-Allow-Origin", "*")
         self.end_headers()
         self.wfile.write(payload)
+
+    def _handle_get_docs(self) -> None:
+        """GET /docs → Phase 55 self-documenting API explorer."""
+        extractor = DocExtractor()
+        explorer = APIExplorer(endpoints=MANIFOLD_ENDPOINTS, extractor=extractor)
+        _send_json(self, 200, explorer.to_dict())
+
+    def _handle_get_gc_run(self) -> None:
+        """GET /gc/run → Phase 50 garbage collector run."""
+        with _LOCK:
+            summary = _GC.run()
+        _send_json(self, 200, summary)
+
+    def _handle_get_doctor_report(self) -> None:
+        """GET /doctor/report → Phase 51 system doctor diagnostic report."""
+        with _LOCK:
+            report = _DOCTOR.run()
+        _send_json(self, 200, report.to_dict())
+
+    def _handle_post_mapreduce_submit(self, body: dict[str, Any]) -> None:
+        """POST /mapreduce/submit → Phase 60 Swarm MapReduce job execution."""
+        job_id = str(body.get("job_id", ""))
+        dataset_raw = body.get("dataset")
+        map_func = str(body.get("map_func", ""))
+        reduce_func = str(body.get("reduce_func", ""))
+        chunk_size = int(body.get("chunk_size", 100))
+        timeout_seconds = float(body.get("timeout_seconds", 30.0))
+        submitter_org_id = str(body.get("submitter_org_id", "api-client"))
+
+        if not job_id:
+            _send_error(self, 400, "Body must contain 'job_id'.")
+            return
+        if not isinstance(dataset_raw, list) or not dataset_raw:
+            _send_error(self, 400, "Body must contain a non-empty 'dataset' list.")
+            return
+        if not map_func:
+            _send_error(self, 400, "Body must contain 'map_func'.")
+            return
+        if not reduce_func:
+            _send_error(self, 400, "Body must contain 'reduce_func'.")
+            return
+
+        try:
+            job = MapReduceJob(
+                job_id=job_id,
+                dataset=tuple(dataset_raw),
+                map_func=map_func,
+                reduce_func=reduce_func,
+                chunk_size=max(1, chunk_size),
+                timeout_seconds=max(1.0, timeout_seconds),
+                submitter_org_id=submitter_org_id,
+            )
+            result = _JOB_TRACKER.run(job)
+        except ValueError as exc:
+            _send_error(self, 400, str(exc))
+            return
+        _send_json(self, 200, result.to_dict())
+
+    def _handle_get_registry_list(self) -> None:
+        """GET /registry/list → Phase 62 global tool registry listing."""
+        status_filter = self.path.split("status=")[-1] if "status=" in self.path else None
+        with _LOCK:
+            tools = _TOOL_REGISTRY.list_tools(status=status_filter)
+            summary = _TOOL_REGISTRY.summary()
+        _send_json(self, 200, {"tools": tools, "summary": summary})
+
+    def _handle_post_registry_publish(self, body: dict[str, Any]) -> None:
+        """POST /registry/publish → Phase 62 publish a tool to the registry."""
+        try:
+            manifest = ToolManifest(
+                tool_id=str(body.get("tool_id", "")),
+                name=str(body.get("name", "")),
+                description=str(body.get("description", "")),
+                code=str(body.get("code", "")),
+                endpoints=tuple(body.get("endpoints", [])),
+                author_org_id=str(body.get("author_org_id", "")),
+                version=str(body.get("version", "1.0.0")),
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            _send_error(self, 400, f"Invalid manifest payload: {exc}")
+            return
+        with _LOCK:
+            result = _TOOL_REGISTRY.publish(manifest)
+        _send_json(self, 200 if result.accepted else 409, result.to_dict())
+
+    def _handle_post_registry_endorse(self, body: dict[str, Any]) -> None:
+        """POST /registry/endorse → Phase 62 endorse a registered tool."""
+        tool_id = str(body.get("tool_id", ""))
+        if not tool_id:
+            _send_error(self, 400, "Body must contain 'tool_id'.")
+            return
+        try:
+            import time as _time
+            endorsement = ToolEndorsement(
+                genesis_org_id=str(body.get("genesis_org_id", "")),
+                tool_id=tool_id,
+                manifest_hash=str(body.get("manifest_hash", "")),
+                signature=str(body.get("signature", "")),
+                key_id=str(body.get("key_id", "")),
+                timestamp=float(body.get("timestamp", _time.time())),
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            _send_error(self, 400, f"Invalid endorsement payload: {exc}")
+            return
+        with _LOCK:
+            result = _TOOL_REGISTRY.endorse(tool_id, endorsement)
+        _send_json(self, 200 if result.accepted else 409, result.to_dict())
+
+    def _handle_post_zkp_prove(self, body: dict[str, Any]) -> None:
+        """POST /zkp/prove → Phase 61 generate a Schnorr ZKP for a policy value."""
+        x_raw = body.get("x")
+        context = str(body.get("context", ""))
+        if x_raw is None:
+            _send_error(self, 400, "Body must contain 'x' (the secret integer).")
+            return
+        try:
+            x = int(x_raw)
+        except (TypeError, ValueError) as exc:
+            _send_error(self, 400, f"'x' must be an integer: {exc}")
+            return
+        try:
+            proof = _ZKP_VERIFIER.prove(x=x, context=context)
+        except ValueError as exc:
+            _send_error(self, 400, str(exc))
+            return
+        _send_json(self, 200, proof.to_dict())
+
+    def _handle_post_zkp_verify(self, body: dict[str, Any]) -> None:
+        """POST /zkp/verify → Phase 61 verify a Schnorr proof."""
+        from .zkp import ZKProof
+        try:
+            proof = ZKProof.from_dict(body)
+        except (KeyError, TypeError, ValueError) as exc:
+            _send_error(self, 400, f"Invalid proof payload: {exc}")
+            return
+        valid = _ZKP_VERIFIER.verify(proof)
+        _send_json(self, 200, {"valid": valid})
+
+    def _handle_post_rosetta_ingress(self, body: dict[str, Any]) -> None:
+        """POST /rosetta/ingress → Phase 64 translate foreign payload to BrainTask."""
+        result = _ROSETTA_INGRESS.ingest(body)
+        _send_json(self, 200, result.to_dict())
+
+    def _handle_post_temporal_fork(self, body: dict[str, Any]) -> None:
+        """POST /temporal/fork → Phase 63 fork parallel timelines and collapse.
+
+        Expects a JSON body with:
+        - ``branches``: list of label strings (required)
+        - ``grid_state``: optional dict passed as branch metadata
+        - ``fork_id``: optional string
+        """
+        branch_labels: list[str] = body.get("branches", [])
+        if not isinstance(branch_labels, list) or not branch_labels:
+            _send_error(self, 400, "'branches' must be a non-empty list of label strings")
+            return
+        fork_id: str | None = body.get("fork_id") or None
+
+        # Use a minimal GridState sourced from the GridMapper
+        from .gridmapper import GridState, GridWorld
+        from .b2b import AgentEconomyLedger as _AEL
+
+        meta: dict[str, object] = body.get("grid_state", {})
+        world = GridWorld(size=5)
+        state = GridState(
+            world=world,
+            description=str(meta.get("description", "temporal-fork")),
+            domain=str(meta.get("domain", "general")),
+            parameters={},
+            cell_profile=(0.1, 0.2, 0.3, 0.4),
+        )
+        ledger = _AEL()
+
+        def default_executor(
+            branch_id: str,
+            _s: GridState,
+            _l: _AEL,
+        ) -> "BranchResult":
+            from .temporal import BranchResult as _BR
+            return _BR(
+                branch_id=branch_id,
+                label=branch_id,
+                asset=1.0,
+                cost=0.5,
+                risk=0.5,
+                success=True,
+            )
+
+        from .temporal import BranchResult
+        timeline = ParallelTimeline(state, ledger, fork_id=fork_id)
+        for label in branch_labels:
+            timeline.add_branch(str(label))
+
+        results = timeline.run(default_executor)
+        collapse = TimelineCollapse.collapse(results, fork_id=timeline.fork_id)
+        _send_json(self, 200, collapse.to_dict())
 
 
 # ---------------------------------------------------------------------------
