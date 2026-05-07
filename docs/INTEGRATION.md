@@ -4,6 +4,80 @@ This guide shows how to connect your AI agent to MANIFOLD in three patterns.
 
 ---
 
+## Universal gateway — zero code changes
+
+The fastest integration. Change one environment variable in your
+existing agent. MANIFOLD governs every call automatically.
+
+### How it works
+
+Instead of calling OpenAI directly, your agent calls MANIFOLD.
+MANIFOLD governs the request, then forwards it to the real LLM.
+Your agent receives a standard OpenAI response with a `_manifold`
+metadata field appended.
+
+### Setup (30 seconds)
+
+Step 1 — Run MANIFOLD:
+```bash
+docker run -d -p 8080:8080 \
+  -e MANIFOLD_API_KEY=your-key \
+  -e MANIFOLD_UPSTREAM_URL=https://api.openai.com/v1 \
+  -e MANIFOLD_UPSTREAM_KEY=sk-your-openai-key \
+  manifold-ai
+```
+
+Step 2 — Point your agent at MANIFOLD:
+```python
+# Python / OpenAI SDK
+client = openai.OpenAI(
+    base_url="http://localhost:8080/v1",
+    api_key="your-manifold-key",
+)
+# That's it. Every call is now governed.
+```
+
+Step 3 — Verify governance is active:
+```python
+response = client.chat.completions.create(
+    model="gpt-4o",
+    messages=[{"role": "user", "content": "test"}]
+)
+print(response._manifold)
+# {"governed": true, "vetoed": false, "action": "answer", "risk_score": 0.08}
+```
+
+### Works with any framework
+
+LangChain:
+```python
+from langchain_openai import ChatOpenAI
+llm = ChatOpenAI(base_url="http://localhost:8080/v1", api_key="your-manifold-key")
+```
+
+LlamaIndex, AutoGen, CrewAI, or any OpenAI-compatible client:
+Set `base_url="http://localhost:8080/v1"` — done.
+
+### What governance-only mode means
+
+If `MANIFOLD_UPSTREAM_URL` is not set, MANIFOLD governs the request
+but returns a governance report instead of an LLM response.
+Useful for auditing without live LLM costs.
+
+### The _manifold response field
+
+Every response includes:
+
+| Field | Description |
+|---|---|
+| `_manifold.governed` | always `true` — this call was governed |
+| `_manifold.vetoed` | `true` if MANIFOLD refused the request |
+| `_manifold.action` | the governance action taken |
+| `_manifold.risk_score` | 0.0–1.0 risk score for this request |
+| `_manifold.domain` | auto-detected domain (finance, healthcare, etc.) |
+
+---
+
 ## Pattern 1 — Wrap any Python function with `@shield`
 
 The `@shield` decorator intercepts any callable before it runs and runs a

@@ -8,11 +8,15 @@ rule pressure.
 
 from __future__ import annotations
 
+import logging
+
 from dataclasses import dataclass, field
 from typing import Literal
 
 from .gridmapper import AgentPopulation, GridOptimizationResult, GridWorld
 from .trustrouter import clamp01
+
+_logger = logging.getLogger(__name__)
 
 
 BrainAction = Literal[
@@ -478,7 +482,7 @@ class PriceAdapter:
 
         # Inspect what was learned:
         corrections = adapter.price_corrections()
-        print(corrections["web_search"].cost_delta)
+        _logger.debug("web_search cost_delta: %s", corrections["web_search"].cost_delta)
     """
 
     lr: float = 0.12
@@ -912,7 +916,7 @@ class AssetAdapter:
 
         # Inspect learned asset for 'clarify':
         corr = adapter.asset_corrections().get("clarify")
-        print(corr.asset_delta)
+        _logger.debug("asset_delta: %s", corr.asset_delta)
     """
 
     lr: float = 0.12
@@ -1104,9 +1108,9 @@ class HierarchicalBrain(ManifoldBrain):
         hd = brain.decide_hierarchical(task)
         if hd.decomposed:
             for sub in hd.sub_decisions:
-                print(sub.action, sub.expected_utility)
+                _logger.debug("sub decision: action=%s utility=%s", sub.action, sub.expected_utility)
         else:
-            print(hd.top_decision.action)
+            _logger.debug("top decision: %s", hd.top_decision.action)
     """
 
     decompose_threshold: float = 0.72

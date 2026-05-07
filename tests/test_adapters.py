@@ -158,13 +158,14 @@ class TestManifoldCallbackHandler:
         assert len(handler.call_log()) == 5
         assert handler.failure_rate() == 0.0
 
-    def test_verbose_mode_does_not_crash(self, capsys):
+    def test_verbose_mode_does_not_crash(self, caplog):
+        import logging
         brain = _make_brain()
         handler = ManifoldCallbackHandler(brain=brain, verbose=True)
-        handler.on_tool_start({"name": "test_tool"}, "test input")
-        handler.on_tool_end("test output")
-        captured = capsys.readouterr()
-        assert "MANIFOLD" in captured.out
+        with caplog.at_level(logging.DEBUG, logger="manifold.adapters"):
+            handler.on_tool_start({"name": "test_tool"}, "test input")
+            handler.on_tool_end("test output")
+        assert "MANIFOLD" in caplog.text
 
 
 # ---------------------------------------------------------------------------
