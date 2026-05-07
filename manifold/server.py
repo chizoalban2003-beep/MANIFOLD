@@ -2750,7 +2750,7 @@ def _handle_get_report(self: "ManifoldHandler") -> None:
         promoted_rules_list = stats["promoted_rules_list"]
         orgs_count = stats["orgs_count"]
 
-        timestamp = _dt.utcnow().strftime("%Y-%m-%d %H:%M UTC")
+        timestamp = _dt.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
 
         # Colour-coded rate helpers
         def rate_colour(rate: float) -> str:
@@ -2826,7 +2826,9 @@ def _handle_get_report(self: "ManifoldHandler") -> None:
   <meta http-equiv="refresh" content="30">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>MANIFOLD — Governance Report</title>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"
+          integrity="sha384-eI7PSr3L1XLISH8NdEZGHToNATtgIFeIiu4lMZRpHBLElXP5s8cJnCGJSFZ2UbBk"
+          crossorigin="anonymous"></script>
   <style>
     *, *::before, *::after {{ box-sizing: border-box; margin: 0; padding: 0; }}
     body {{ background: #0f1117; color: #f3f4f6; font-family: system-ui, sans-serif;
@@ -3046,7 +3048,7 @@ def _handle_get_digest(self: "ManifoldHandler") -> None:
         cal = stats["calibration_signal"]
 
         response = {
-            "generated_at": _dt.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "generated_at": _dt.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
             "period": period,
             "version": str(_ver),
             "summary": {
