@@ -95,6 +95,7 @@ from .worker import ManifoldWorker
 from .auth import ManifoldAuth
 from .trust_network.registry import ATSRegistry
 from .trust_network.models import ToolRegistration, TrustSignal
+from .pipeline import ManifoldPipeline
 
 
 # ---------------------------------------------------------------------------
@@ -139,7 +140,6 @@ _worker: "Any | None" = None
 def _get_pipeline() -> "Any":
     global _pipeline  # noqa: PLW0603
     if _pipeline is None:
-        from .pipeline import ManifoldPipeline
         _pipeline = ManifoldPipeline()
     return _pipeline
 
@@ -1794,14 +1794,13 @@ class ManifoldHandler(BaseHTTPRequestHandler):
             _send_error(self, 400, "Body must contain 'tool_id'.")
             return
         try:
-            import time as _time
             endorsement = ToolEndorsement(
                 genesis_org_id=str(body.get("genesis_org_id", "")),
                 tool_id=tool_id,
                 manifest_hash=str(body.get("manifest_hash", "")),
                 signature=str(body.get("signature", "")),
                 key_id=str(body.get("key_id", "")),
-                timestamp=float(body.get("timestamp", _time.time())),
+                timestamp=float(body.get("timestamp", time.time())),
             )
         except (KeyError, TypeError, ValueError) as exc:
             _send_error(self, 400, f"Invalid endorsement payload: {exc}")
