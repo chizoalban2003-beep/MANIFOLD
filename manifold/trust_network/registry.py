@@ -46,7 +46,7 @@ class ATSRegistry:
         return [s for s in self.get_all_scores() if s.tier == tier]
 
     def leaderboard(self, limit: int = 10) -> list[AgentTrustScore]:
-        """Return top tools by score, excluding banned tools with < 5 signals."""
+        """Return top tools by score, excluding banned tools and tools with fewer than 5 signals."""
         scores = [
             s
             for s in self.get_all_scores()
