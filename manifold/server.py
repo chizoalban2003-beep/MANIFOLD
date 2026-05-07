@@ -35,9 +35,11 @@ from __future__ import annotations
 import asyncio
 import dataclasses
 import hashlib
+import hmac
 import json
 import os
 import re
+import secrets
 import sys
 import threading
 import time
@@ -145,24 +147,48 @@ def _get_pipeline() -> "Any":
     return _pipeline
 
 
-def _check_auth(handler: "ManifoldHandler", path: str) -> bool:
-    """Return True if the request is allowed to proceed.
+def _check_auth(handler: "ManifoldHandler", path: str = "") -> "tuple[bool, _OrgConfig | None]":
+    """Return ``(authorised, org_config)``.
 
-    When no API key is configured, all requests are allowed.  When an API
-    key is configured, protected POST endpoints require a valid Bearer token.
-    Returns False and sends a 401/403 response if auth fails.
+    Looks up the bearer token in OrgRegistry.  Falls back to the legacy
+    ``MANIFOLD_API_KEY`` environment variable for backward compatibility.
+    When auth is disabled (no key configured), returns ``(True, admin_org)``.
     """
-    if _AUTH is None:
-        return True
     auth_header = handler.headers.get("Authorization", "")
-    if not _AUTH.is_authorized(handler.command, path, auth_header):
-        # Distinguish missing vs invalid token
-        if auth_header.startswith("Bearer "):
-            _send_json(handler, 403, {"code": 403, "message": "Forbidden"})
-        else:
-            _send_json(handler, 401, {"code": 401, "message": "Unauthorized"})
-        return False
-    return True
+    env_key = os.environ.get("MANIFOLD_API_KEY", "")
+
+    # Auth disabled — no key configured at all
+    if not env_key and not auth_header:
+        return True, _OrgConfig(
+            org_id="anon",
+            display_name="Anonymous",
+            role=_OrgRole.ADMIN,
+            api_key_hash="",
+        )
+
+    if not auth_header.startswith("Bearer "):
+        _send_json(handler, 401, {"code": 401, "message": "Unauthorized"})
+        return False, None
+
+    token = auth_header[7:].strip()
+
+    # OrgRegistry lookup (primary path)
+    org = _ORG_REGISTRY.lookup(token)
+    if org is not None:
+        return True, org
+
+    # Backward compat: raw env-key match → treat as admin
+    if env_key and hmac.compare_digest(token, env_key):
+        return True, _OrgConfig(
+            org_id="env-admin",
+            display_name="Environment Admin",
+            role=_OrgRole.ADMIN,
+            api_key_hash="",
+        )
+
+    # Auth configured but token does not match
+    _send_json(handler, 403, {"code": 403, "message": "Forbidden"})
+    return False, None
 
 
 # ---------------------------------------------------------------------------
@@ -174,6 +200,13 @@ _ESCALATION_COUNT: int = 0
 _REFUSAL_COUNT: int = 0
 
 _ats_registry = ATSRegistry()
+
+# Multi-tenancy: OrgRegistry for per-org policy and RBAC
+from .orgs import OrgConfig as _OrgConfig, OrgRegistry, OrgRole as _OrgRole, has_permission as _rbac_check  # noqa: E402
+
+_ORG_REGISTRY = OrgRegistry(
+    orgs_file=os.environ.get("MANIFOLD_ORGS_FILE", "orgs.json")
+)
 
 
 # ---------------------------------------------------------------------------
@@ -481,6 +514,11 @@ class ManifoldHandler(BaseHTTPRequestHandler):
                 self._handle_get_v1_models()
                 return
 
+            # GET /admin  (org & policy management UI)
+            if path == "/admin":
+                self._handle_get_admin()
+                return
+
             _send_error(self, 404, f"No route for GET {self.path}")
         except Exception as exc:  # noqa: BLE001
             _send_error(self, 500, str(exc))
@@ -498,8 +536,10 @@ class ManifoldHandler(BaseHTTPRequestHandler):
             return
 
         try:
-            if path in _PROTECTED_POSTS and not _check_auth(self, path):
-                return
+            if path in _PROTECTED_POSTS:
+                _authed, _caller_org = _check_auth(self, path)
+                if not _authed:
+                    return
             if path == "/shield":
                 self._handle_post_shield(body)
             elif path == "/b2b/handshake":
@@ -544,6 +584,23 @@ class ManifoldHandler(BaseHTTPRequestHandler):
                 self._handle_post_run(body)
             elif path == "/v1/chat/completions":
                 self._handle_post_v1_chat_completions(body)
+            elif path == "/orgs":
+                _authed2, _caller2 = _check_auth(self, path)
+                if not _authed2:
+                    return
+                self._handle_post_orgs(body, _caller2)
+            elif re.fullmatch(r"/orgs/[^/]+/policy", path):
+                _authed2, _caller2 = _check_auth(self, path)
+                if not _authed2:
+                    return
+                org_id = path.split("/")[2]
+                self._handle_put_org_policy(org_id, body, _caller2)
+            elif re.fullmatch(r"/orgs/[^/]+/keys", path):
+                _authed2, _caller2 = _check_auth(self, path)
+                if not _authed2:
+                    return
+                org_id = path.split("/")[2]
+                self._handle_post_org_key(org_id, body, _caller2)
             else:
                 _send_error(self, 404, f"No route for POST {self.path}")
         except Exception as exc:  # noqa: BLE001
@@ -2223,11 +2280,364 @@ def _handle_post_v1_chat_completions(self: "ManifoldHandler", body: dict[str, An
     _send_json(self, 200, response)
 
 
+# ---------------------------------------------------------------------------
+# Multi-tenancy handlers (org management + admin UI)
+# ---------------------------------------------------------------------------
+
+
+def _handle_post_orgs(self: "ManifoldHandler", body: dict[str, Any], caller_org: "_OrgConfig") -> None:
+    """POST /orgs — create a new org. Admin only."""
+    if caller_org.role.value != "admin":
+        _send_error(self, 403, "Admin role required")
+        return
+    name = str(body.get("display_name", ""))
+    oid  = str(body.get("org_id", ""))
+    role = body.get("role", "agent")
+    if not name or not oid:
+        _send_error(self, 400, "display_name and org_id required")
+        return
+    kwargs = {
+        k: body[k]
+        for k in ("domain", "risk_tolerance", "veto_threshold",
+                  "min_reliability", "fallback", "notes")
+        if k in body
+    }
+    try:
+        raw_key, config = _ORG_REGISTRY.generate_key(
+            oid, name, _OrgRole(role), **kwargs
+        )
+    except ValueError as exc:
+        _send_error(self, 400, str(exc))
+        return
+    _send_json(self, 201, {
+        "org_id":  config.org_id,
+        "api_key": raw_key,
+        "role":    config.role.value,
+        "warning": "Store this API key — it will not be shown again",
+    })
+
+
+def _handle_put_org_policy(self: "ManifoldHandler", org_id: str, body: dict[str, Any], caller_org: "_OrgConfig") -> None:
+    """PUT /orgs/{org_id}/policy — update org policy fields. Admin only."""
+    if caller_org.role.value != "admin":
+        _send_error(self, 403, "Admin role required")
+        return
+    allowed = {"domain", "risk_tolerance", "veto_threshold",
+               "min_reliability", "fallback", "notes", "allowed_tools"}
+    updates = {k: v for k, v in body.items() if k in allowed}
+    all_orgs = _ORG_REGISTRY.all_orgs()
+    target = next((o for o in all_orgs if o.org_id == org_id), None)
+    if target is None:
+        _send_error(self, 404, f"Org {org_id!r} not found")
+        return
+    for k, v in updates.items():
+        setattr(target, k, v)
+    _ORG_REGISTRY.save()
+    _send_json(self, 200, target.to_dict())
+
+
+def _handle_post_org_key(self: "ManifoldHandler", org_id: str, body: dict[str, Any], caller_org: "_OrgConfig") -> None:
+    """POST /orgs/{org_id}/keys — generate a new API key. Admin only."""
+    if caller_org.role.value != "admin":
+        _send_error(self, 403, "Admin role required")
+        return
+    all_orgs = _ORG_REGISTRY.all_orgs()
+    target = next((o for o in all_orgs if o.org_id == org_id), None)
+    if target is None:
+        _send_error(self, 404, f"Org {org_id!r} not found")
+        return
+    raw_key = secrets.token_hex(32)
+    _ORG_REGISTRY.register(
+        raw_key,
+        target.org_id,
+        target.display_name,
+        target.role,
+        domain=target.domain,
+        risk_tolerance=target.risk_tolerance,
+    )
+    _send_json(self, 201, {
+        "org_id":  org_id,
+        "api_key": raw_key,
+        "warning": "Store this key — it will not be shown again",
+    })
+
+
+def _handle_get_admin(self: "ManifoldHandler") -> None:
+    """GET /admin — org & policy management dashboard. Admin only."""
+    from manifold import __version__ as _version
+
+    all_orgs = _ORG_REGISTRY.all_orgs()
+    org_count = len(all_orgs)
+
+    # Build table rows
+    def _esc_js(s: str) -> str:
+        """Escape a string for safe embedding in a JS string literal."""
+        return (
+            s.replace("\\", "\\\\")
+             .replace("'", "\\'")
+             .replace("\n", "\\n")
+             .replace("\r", "\\r")
+             .replace("<", "\\x3C")
+             .replace(">", "\\x3E")
+        )
+
+    def _esc_html(s: str) -> str:
+        """Escape a string for safe embedding in HTML text content."""
+        return (
+            s.replace("&", "&amp;")
+             .replace("<", "&lt;")
+             .replace(">", "&gt;")
+             .replace('"', "&quot;")
+             .replace("'", "&#x27;")
+        )
+
+    rows_html = ""
+    for org in all_orgs:
+        rows_html += f"""
+        <tr class="border-b hover:bg-gray-50">
+          <td class="px-4 py-2 font-mono text-sm">{_esc_html(org.org_id)}</td>
+          <td class="px-4 py-2">{_esc_html(org.display_name)}</td>
+          <td class="px-4 py-2"><span class="px-2 py-0.5 rounded text-xs font-semibold bg-blue-100 text-blue-800">{_esc_html(org.role.value)}</span></td>
+          <td class="px-4 py-2">{_esc_html(org.domain)}</td>
+          <td class="px-4 py-2">{org.risk_tolerance}</td>
+          <td class="px-4 py-2">{org.veto_threshold}</td>
+          <td class="px-4 py-2">{org.min_reliability}</td>
+          <td class="px-4 py-2">{_esc_html(org.fallback)}</td>
+          <td class="px-4 py-2 space-x-2">
+            <button onclick="editOrg('{_esc_js(org.org_id)}', {org.risk_tolerance}, {org.veto_threshold}, '{_esc_js(org.domain)}', '{_esc_js(org.fallback)}', '{_esc_js(org.notes)}')"
+                    class="px-2 py-1 text-xs bg-yellow-400 hover:bg-yellow-500 rounded">Edit Policy</button>
+            <button onclick="newKey('{_esc_js(org.org_id)}')"
+                    class="px-2 py-1 text-xs bg-green-500 hover:bg-green-600 text-white rounded">New Key</button>
+          </td>
+        </tr>"""
+
+    html = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>MANIFOLD Admin</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 min-h-screen p-6">
+  <div class="max-w-7xl mx-auto">
+    <div class="mb-6 flex items-center justify-between">
+      <div>
+        <h1 class="text-2xl font-bold text-gray-900">MANIFOLD Admin — Org &amp; Policy Management</h1>
+        <p class="text-sm text-gray-500 mt-1">Version {_version} &bull; {org_count} org(s) registered</p>
+      </div>
+      <a href="/dashboard" class="text-sm text-blue-600 hover:underline">← Dashboard</a>
+    </div>
+
+    <!-- Orgs table -->
+    <div class="bg-white rounded-lg shadow overflow-x-auto mb-8">
+      <table class="min-w-full text-sm text-gray-700">
+        <thead class="bg-gray-800 text-white text-xs uppercase">
+          <tr>
+            <th class="px-4 py-3 text-left">Org ID</th>
+            <th class="px-4 py-3 text-left">Display Name</th>
+            <th class="px-4 py-3 text-left">Role</th>
+            <th class="px-4 py-3 text-left">Domain</th>
+            <th class="px-4 py-3 text-left">Risk Tol.</th>
+            <th class="px-4 py-3 text-left">Veto Thresh.</th>
+            <th class="px-4 py-3 text-left">Min Reliability</th>
+            <th class="px-4 py-3 text-left">Fallback</th>
+            <th class="px-4 py-3 text-left">Actions</th>
+          </tr>
+        </thead>
+        <tbody>{rows_html}
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Create Org form -->
+    <div class="bg-white rounded-lg shadow p-6 mb-8">
+      <h2 class="text-lg font-semibold mb-4">Create New Org</h2>
+      <form id="createOrgForm" class="grid grid-cols-2 gap-4">
+        <div>
+          <label class="block text-xs font-medium text-gray-600 mb-1">Org ID</label>
+          <input name="org_id" required class="w-full border rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" placeholder="acme-corp">
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-gray-600 mb-1">Display Name</label>
+          <input name="display_name" required class="w-full border rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" placeholder="Acme Corporation">
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-gray-600 mb-1">Role</label>
+          <select name="role" class="w-full border rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400">
+            <option value="agent">agent</option>
+            <option value="admin">admin</option>
+            <option value="readonly">readonly</option>
+            <option value="viewer">viewer</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-gray-600 mb-1">Domain</label>
+          <select name="domain" class="w-full border rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400">
+            <option value="general">general</option>
+            <option value="finance">finance</option>
+            <option value="healthcare">healthcare</option>
+            <option value="legal">legal</option>
+            <option value="devops">devops</option>
+            <option value="custom">custom</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-gray-600 mb-1">Risk Tolerance</label>
+          <input type="number" name="risk_tolerance" min="0.05" max="0.95" step="0.05" value="0.45" class="w-full border rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400">
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-gray-600 mb-1">Veto Threshold</label>
+          <input type="number" name="veto_threshold" min="0.05" max="0.95" step="0.05" value="0.45" class="w-full border rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400">
+        </div>
+        <div class="col-span-2">
+          <label class="block text-xs font-medium text-gray-600 mb-1">Notes</label>
+          <textarea name="notes" rows="2" class="w-full border rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" placeholder="Optional notes"></textarea>
+        </div>
+        <div class="col-span-2">
+          <button type="submit" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded text-sm font-medium">
+            Create Org + Generate Key
+          </button>
+        </div>
+      </form>
+      <div id="createResult" class="mt-4 hidden p-4 bg-green-50 border border-green-200 rounded text-sm font-mono"></div>
+    </div>
+
+    <!-- Edit Policy section -->
+    <div id="editSection" class="bg-white rounded-lg shadow p-6 hidden mb-8">
+      <h2 class="text-lg font-semibold mb-4">Edit Policy — <span id="editOrgId" class="font-mono text-blue-700"></span></h2>
+      <form id="editPolicyForm" class="grid grid-cols-2 gap-4">
+        <input type="hidden" name="org_id" id="editOrgIdInput">
+        <div>
+          <label class="block text-xs font-medium text-gray-600 mb-1">Risk Tolerance</label>
+          <input type="number" name="risk_tolerance" id="editRiskTol" min="0.05" max="0.95" step="0.05" class="w-full border rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-yellow-400">
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-gray-600 mb-1">Veto Threshold</label>
+          <input type="number" name="veto_threshold" id="editVetoThresh" min="0.05" max="0.95" step="0.05" class="w-full border rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-yellow-400">
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-gray-600 mb-1">Domain</label>
+          <input name="domain" id="editDomain" class="w-full border rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-yellow-400">
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-gray-600 mb-1">Fallback</label>
+          <select name="fallback" id="editFallback" class="w-full border rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-yellow-400">
+            <option value="hitl">hitl</option>
+            <option value="refuse">refuse</option>
+          </select>
+        </div>
+        <div class="col-span-2">
+          <label class="block text-xs font-medium text-gray-600 mb-1">Notes</label>
+          <textarea name="notes" id="editNotes" rows="2" class="w-full border rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-yellow-400"></textarea>
+        </div>
+        <div class="col-span-2">
+          <button type="submit" class="px-4 py-2 bg-yellow-500 hover:bg-yellow-600 text-white rounded text-sm font-medium">
+            Save Policy
+          </button>
+          <button type="button" onclick="document.getElementById('editSection').classList.add('hidden')" class="ml-2 px-4 py-2 bg-gray-200 hover:bg-gray-300 rounded text-sm">Cancel</button>
+        </div>
+      </form>
+      <div id="editResult" class="mt-4 hidden p-4 rounded text-sm font-mono"></div>
+    </div>
+  </div>
+
+  <script>
+    function editOrg(orgId, riskTol, vetoThresh, domain, fallback, notes) {{
+      document.getElementById('editSection').classList.remove('hidden');
+      document.getElementById('editOrgId').textContent = orgId;
+      document.getElementById('editOrgIdInput').value = orgId;
+      document.getElementById('editRiskTol').value = riskTol;
+      document.getElementById('editVetoThresh').value = vetoThresh;
+      document.getElementById('editDomain').value = domain;
+      document.getElementById('editFallback').value = fallback;
+      document.getElementById('editNotes').value = notes;
+      document.getElementById('editSection').scrollIntoView({{behavior:'smooth'}});
+    }}
+
+    function newKey(orgId) {{
+      if (!confirm('Generate a new API key for ' + orgId + '? Existing keys remain valid.')) return;
+      const authKey = prompt('Enter your admin API key:');
+      if (!authKey) return;
+      fetch('/orgs/' + orgId + '/keys', {{
+        method: 'POST',
+        headers: {{'Content-Type': 'application/json', 'Authorization': 'Bearer ' + authKey}},
+        body: JSON.stringify({{}})
+      }}).then(r => r.json()).then(data => {{
+        alert('New API key: ' + data.api_key + '\\n\\nStore it now — it will not be shown again.');
+      }}).catch(e => alert('Error: ' + e));
+    }}
+
+    document.getElementById('createOrgForm').addEventListener('submit', function(e) {{
+      e.preventDefault();
+      const fd = new FormData(e.target);
+      const body = Object.fromEntries(fd.entries());
+      body.risk_tolerance = parseFloat(body.risk_tolerance);
+      body.veto_threshold = parseFloat(body.veto_threshold);
+      const authKey = prompt('Enter your admin API key:');
+      if (!authKey) return;
+      fetch('/orgs', {{
+        method: 'POST',
+        headers: {{'Content-Type': 'application/json', 'Authorization': 'Bearer ' + authKey}},
+        body: JSON.stringify(body)
+      }}).then(r => r.json()).then(data => {{
+        const el = document.getElementById('createResult');
+        el.classList.remove('hidden');
+        if (data.api_key) {{
+          el.innerHTML = '<strong>Org created!</strong> API Key: <span class="text-green-700">' + data.api_key + '</span><br><em>Store this key now — it will not be shown again.</em>';
+        }} else {{
+          el.innerHTML = '<span class="text-red-600">' + JSON.stringify(data) + '</span>';
+        }}
+      }}).catch(e => alert('Error: ' + e));
+    }});
+
+    document.getElementById('editPolicyForm').addEventListener('submit', function(e) {{
+      e.preventDefault();
+      const fd = new FormData(e.target);
+      const body = Object.fromEntries(fd.entries());
+      const orgId = body.org_id;
+      delete body.org_id;
+      body.risk_tolerance = parseFloat(body.risk_tolerance);
+      body.veto_threshold = parseFloat(body.veto_threshold);
+      const authKey = prompt('Enter your admin API key:');
+      if (!authKey) return;
+      fetch('/orgs/' + orgId + '/policy', {{
+        method: 'POST',
+        headers: {{'Content-Type': 'application/json', 'Authorization': 'Bearer ' + authKey}},
+        body: JSON.stringify(body)
+      }}).then(r => r.json()).then(data => {{
+        const el = document.getElementById('editResult');
+        el.classList.remove('hidden');
+        if (data.org_id) {{
+          el.className = 'mt-4 p-4 bg-green-50 border border-green-200 rounded text-sm font-mono';
+          el.textContent = 'Policy updated: ' + JSON.stringify(data);
+        }} else {{
+          el.className = 'mt-4 p-4 bg-red-50 border border-red-200 rounded text-sm font-mono';
+          el.textContent = JSON.stringify(data);
+        }}
+      }}).catch(e => alert('Error: ' + e));
+    }});
+  </script>
+</body>
+</html>"""
+
+    payload = html.encode("utf-8")
+    self.send_response(200)
+    self.send_header("Content-Type", "text/html; charset=utf-8")
+    self.send_header("Content-Length", str(len(payload)))
+    self.send_header("Access-Control-Allow-Origin", "*")
+    self.end_headers()
+    self.wfile.write(payload)
+
+
 # Bind the new methods to ManifoldHandler
 ManifoldHandler._handle_post_run = _handle_post_run  # type: ignore[attr-defined]
 ManifoldHandler._handle_get_learned = _handle_get_learned  # type: ignore[attr-defined]
 ManifoldHandler._handle_get_v1_models = _handle_get_v1_models  # type: ignore[attr-defined]
 ManifoldHandler._handle_post_v1_chat_completions = _handle_post_v1_chat_completions  # type: ignore[attr-defined]
+ManifoldHandler._handle_post_orgs = _handle_post_orgs  # type: ignore[attr-defined]
+ManifoldHandler._handle_put_org_policy = _handle_put_org_policy  # type: ignore[attr-defined]
+ManifoldHandler._handle_post_org_key = _handle_post_org_key  # type: ignore[attr-defined]
+ManifoldHandler._handle_get_admin = _handle_get_admin  # type: ignore[attr-defined]
 
 
 # ---------------------------------------------------------------------------

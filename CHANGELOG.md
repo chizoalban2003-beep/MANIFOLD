@@ -1,5 +1,27 @@
 # Changelog
 
+## [1.5.3] — 2026-05-07
+
+### Added
+- manifold/orgs.py — OrgRegistry, OrgConfig, OrgRole, RBAC
+  Multi-tenant org management with per-org policy configuration.
+  Roles: admin / agent / readonly / viewer.
+  Persists to orgs.json (configurable via MANIFOLD_ORGS_FILE).
+- server.py — OrgRegistry wired into auth.
+  POST /orgs — create org (admin only)
+  PUT /orgs/{id}/policy — update org policy (admin only)
+  POST /orgs/{id}/keys — generate new API key (admin only)
+  GET /admin — policy management UI for non-technical operators
+- 20 new tests. Total: 2271 passing.
+
+### What this enables
+An organisation can self-serve:
+- Create isolated agent identities with their own API keys
+- Configure per-org risk tolerance, veto threshold, and domain
+- Update policies without touching code or redeploying
+- Use the /admin UI without writing Python or curl commands
+- Enforce role separation: admin configures, agent runs, viewer monitors
+
 ## [1.5.2] — 2026-05-07
 
 ### Added
