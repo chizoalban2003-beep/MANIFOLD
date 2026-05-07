@@ -122,7 +122,19 @@ def _init_auth() -> "ManifoldAuth | None":
 _AUTH: "ManifoldAuth | None" = _init_auth()
 
 # Routes that require auth when _AUTH is active
-_PROTECTED_POSTS = frozenset({"/shield", "/b2b/handshake", "/recruit", "/ats/register", "/ats/signal"})
+_PROTECTED_POSTS = frozenset({"/shield", "/b2b/handshake", "/recruit", "/ats/register", "/ats/signal", "/run"})
+
+# Lazy pipeline singleton (created on first request to avoid circular imports)
+_pipeline: "Any | None" = None
+_worker: "Any | None" = None
+
+
+def _get_pipeline() -> "Any":
+    global _pipeline  # noqa: PLW0603
+    if _pipeline is None:
+        from .pipeline import ManifoldPipeline
+        _pipeline = ManifoldPipeline()
+    return _pipeline
 
 
 def _check_auth(handler: "ManifoldHandler", path: str) -> bool:
@@ -451,6 +463,11 @@ class ManifoldHandler(BaseHTTPRequestHandler):
                 self._handle_get_ats_leaderboard()
                 return
 
+            # GET /learned
+            if path == "/learned":
+                self._handle_get_learned()
+                return
+
             _send_error(self, 404, f"No route for GET {self.path}")
         except Exception as exc:  # noqa: BLE001
             _send_error(self, 500, str(exc))
@@ -510,6 +527,8 @@ class ManifoldHandler(BaseHTTPRequestHandler):
                 self._handle_post_ats_register(body)
             elif path == "/ats/signal":
                 self._handle_post_ats_signal(body)
+            elif path == "/run":
+                self._handle_post_run(body)
             else:
                 _send_error(self, 404, f"No route for POST {self.path}")
         except Exception as exc:  # noqa: BLE001
@@ -1965,6 +1984,105 @@ ReputationHub.observation_weight = lambda self, agent_id: self.baseline.observat
 
 
 # ---------------------------------------------------------------------------
+# Pipeline endpoint handler helpers (methods added to ManifoldHandler)
+# ---------------------------------------------------------------------------
+
+
+def _handle_post_run(self: "ManifoldHandler", body: dict[str, Any]) -> None:
+    """POST /run — execute ManifoldPipeline and return the result."""
+    prompt = body.get("prompt")
+    if not prompt:
+        _send_json(self, 400, {"error": "prompt required"})
+        return
+    try:
+        pipeline = _get_pipeline()
+        result = pipeline.run(
+            prompt=str(prompt),
+            data=body.get("data"),
+            encoder_hint=str(body.get("encoder_hint", "auto")),
+            explicit_domain=body.get("domain") or None,
+            stakes=float(body.get("stakes", 0.5)),
+            uncertainty=float(body.get("uncertainty", 0.5)),
+            tools_used=body.get("tools_used"),
+        )
+        # Serialise to plain JSON-safe dict
+        serialised = {
+            "action": result["action"],
+            "domain": result["domain"],
+            "risk_score": result["risk_score"],
+            "nearest_cells": [
+                {"row": c.get("row", 0), "col": c.get("col", 0), "distance": c.get("distance", 0.0)}
+                for c in result.get("nearest_cells", [])
+            ],
+            "flagged_tools": result.get("flagged_tools", []),
+        }
+        _send_json(self, 200, serialised)
+    except Exception as exc:  # noqa: BLE001
+        _send_json(self, 500, {"error": str(exc)})
+
+
+def _handle_get_learned(self: "ManifoldHandler") -> None:
+    """GET /learned — return what the system has learned so far."""
+    try:
+        pipeline = _get_pipeline()
+
+        # Section 1: cognitive_map
+        outcome_log = pipeline._cognitive_map._outcome_log
+        all_outcomes = [entry for entries in outcome_log.values() for entry in entries]
+        total_outcomes = len(all_outcomes)
+        recent_actions = [e["action"] for e in all_outcomes[-10:]]
+        success_rate = (
+            sum(1 for e in all_outcomes if e.get("success")) / total_outcomes
+            if total_outcomes > 0 else None
+        )
+
+        # Section 2: cooccurrence
+        cooccurrence_summary = pipeline._cooccurrence.summary()
+
+        # Section 3: consolidation
+        promoted = pipeline._consolidator.promoted_rules()
+        consolidation_list = [
+            {
+                "domain": r.domain,
+                "action": r.action,
+                "stakes_min": r.stakes_min,
+                "confidence": r.confidence,
+                "sample_count": r.sample_count,
+            }
+            for r in promoted
+        ]
+
+        # Section 4: prediction
+        prediction_cal = pipeline._predictor.calibration_signal()
+
+        # Section 5: worker
+        if _worker is not None:
+            worker_status = _worker.status()
+        else:
+            worker_status = {"running": False, "last_run": None}
+
+        response = {
+            "cognitive_map": {
+                "total_outcomes": total_outcomes,
+                "recent_actions": recent_actions,
+                "success_rate": success_rate,
+            },
+            "cooccurrence": cooccurrence_summary,
+            "consolidation": consolidation_list,
+            "prediction": prediction_cal,
+            "worker": worker_status,
+        }
+        _send_json(self, 200, response)
+    except Exception as exc:  # noqa: BLE001
+        _send_json(self, 500, {"error": str(exc)})
+
+
+# Bind the new methods to ManifoldHandler
+ManifoldHandler._handle_post_run = _handle_post_run  # type: ignore[attr-defined]
+ManifoldHandler._handle_get_learned = _handle_get_learned  # type: ignore[attr-defined]
+
+
+# ---------------------------------------------------------------------------
 # Public entry point
 # ---------------------------------------------------------------------------
 
@@ -2012,6 +2130,12 @@ def run_server(port: int = 8080, *, host: str = "0.0.0.0") -> None:
 
     asyncio.run(_startup())
 
+    # Start background learning worker
+    global _worker  # noqa: PLW0603
+    from .worker import ManifoldWorker
+    _worker = ManifoldWorker(pipeline=_get_pipeline(), db=_db)
+    _worker.start()
+
     server = HTTPServer((host, port), ManifoldHandler)
     print(f"MANIFOLD server listening on {host}:{port}  (Ctrl-C to stop)")
     try:
@@ -2020,6 +2144,8 @@ def run_server(port: int = 8080, *, host: str = "0.0.0.0") -> None:
         pass
     finally:
         server.server_close()
+        if _worker is not None:
+            _worker.stop()
         # Flush DB state back to WAL for portability across container restarts
         async def _shutdown() -> None:
             await _db.flush_to_vault(_VAULT)
