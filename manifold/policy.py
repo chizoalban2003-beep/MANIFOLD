@@ -102,6 +102,11 @@ class PolicyDomain:
     fallback_strategy: str = "hitl"
     min_tool_reliability: float = 0.70
     notes: str = ""
+    escalation_threshold: float = 0.35
+    refusal_threshold: float = 0.2
+    verification_cost: float = 0.15
+    penalty_scale: float = 1.5
+    allowed_actions: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         """Serialise to a plain dict (YAML-serialisable)."""
@@ -113,6 +118,11 @@ class PolicyDomain:
             "fallback_strategy": self.fallback_strategy,
             "min_tool_reliability": round(self.min_tool_reliability, 4),
             "notes": self.notes,
+            "escalation_threshold": round(self.escalation_threshold, 4),
+            "refusal_threshold": round(self.refusal_threshold, 4),
+            "verification_cost": round(self.verification_cost, 4),
+            "penalty_scale": round(self.penalty_scale, 4),
+            "allowed_actions": list(self.allowed_actions),
         }
 
     @classmethod
@@ -126,6 +136,11 @@ class PolicyDomain:
             fallback_strategy=str(data.get("fallback_strategy", "hitl")),
             min_tool_reliability=float(data.get("min_tool_reliability", 0.70)),
             notes=str(data.get("notes", "")),
+            escalation_threshold=float(data.get("escalation_threshold", 0.35)),
+            refusal_threshold=float(data.get("refusal_threshold", 0.2)),
+            verification_cost=float(data.get("verification_cost", 0.15)),
+            penalty_scale=float(data.get("penalty_scale", 1.5)),
+            allowed_actions=list(data.get("allowed_actions", [])),
         )
 
 
