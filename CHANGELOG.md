@@ -1,5 +1,31 @@
 # Changelog
 
+## [1.5.0] — 2026-05-07
+
+### Added
+- manifold/cognitive_map.py — CognitiveMap, 4D grid navigation,
+  outcome memory, suggest_action()
+- manifold/predictor.py — PredictiveBrain, predict_and_decide(),
+  calibration_signal()
+- manifold/consolidator.py — MemoryConsolidator, ConsolidatedRule,
+  nightly pattern promotion
+- manifold/workspace.py — GlobalWorkspace, keyword domain routing,
+  competition_scores()
+- manifold/cooccurrence.py — ToolCooccurrenceGraph, Jaccard correlation,
+  propagate_flag()
+- manifold/encoders/ — encode_any(), TimeSeriesEncoder, StructuredEncoder
+- manifold/pipeline.py — ManifoldPipeline, full 6-module integration
+- 52 new tests. Total: 2227 passing.
+- 0 new mandatory dependencies added.
+
+### Brain-to-MANIFOLD correspondence
+- CognitiveMap     → hippocampal place cells / cognitive map
+- PredictiveBrain  → predictive processing / cerebellum error signal
+- MemoryConsolidator → slow-wave sleep consolidation
+- GlobalWorkspace  → global workspace theory / thalamic routing
+- ToolCooccurrenceGraph → Hebbian co-occurrence / synaptic linking
+- encode_any()     → sensory cortex universal projection
+
 ## [1.4.0] — 2026-05-07
 
 ### Added
