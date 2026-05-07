@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.5.1] — 2026-05-07
+
+### Added
+- deploy/fly.toml — Fly.io deployment config
+- deploy/render.yaml — Render deployment config
+- deploy/railway.json — Railway deployment config
+- README.md — "Deploy to production" section with 4 deployment paths
+- docs/API.md — complete HTTP endpoint reference
+- docs/INTEGRATION.md — three integration patterns with examples
+- docs/DOMAIN_PACKS.md — domain pack reference and custom pack guide
+
+### No source code changes. No new tests needed.
+
 ## [1.5.0] — 2026-05-07
 
 ### Added
