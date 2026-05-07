@@ -1,5 +1,24 @@
 # Changelog
 
+## [1.5.2] — 2026-05-07
+
+### Added
+- POST /v1/chat/completions — OpenAI-compatible AI gateway endpoint.
+  Any OpenAI-compatible agent governed with a single base_url change.
+  Supports: govern-only mode, full upstream forwarding, framework
+  auto-detection via rosetta.py (OpenAI, LangChain, AutoGen, generic).
+- GET /v1/models — OpenAI-compatible models list endpoint.
+- MANIFOLD_UPSTREAM_URL and MANIFOLD_UPSTREAM_KEY env vars.
+- docs/INTEGRATION.md — "Universal gateway" section.
+- README.md — Gateway quickstart.
+- 8 new tests. Total: 2251 passing.
+
+### What this enables
+Any agent using openai.OpenAI(), langchain_openai.ChatOpenAI(),
+LlamaIndex, AutoGen, CrewAI, or any OpenAI-compatible SDK is
+governed by MANIFOLD with one environment variable change:
+  base_url="http://your-manifold-host/v1"
+
 ## [1.5.1] — 2026-05-07
 
 ### Added

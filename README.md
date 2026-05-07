@@ -1,6 +1,6 @@
 # Project MANIFOLD
 
-> **v1.5.1 | 2243 Tests Passing | Production Ready**
+> **v1.5.2 | 2251 Tests Passing | Production Ready**
 >
 > **The Trust Operating System for AI agents.**
 > MANIFOLD prices risk before the agent acts — detecting adversarial
@@ -8,7 +8,7 @@
 > calibrated penalty legislation from observed outcomes.
 
 [![CI](https://github.com/chizoalban2003-beep/MANIFOLD/actions/workflows/manifold-ci.yml/badge.svg)](https://github.com/chizoalban2003-beep/MANIFOLD/actions/workflows/manifold-ci.yml)
-[![Tests](https://img.shields.io/badge/tests-2243%2F2243-brightgreen)]()
+[![Tests](https://img.shields.io/badge/tests-2251%2F2251-brightgreen)]()
 [![Dashboard](https://img.shields.io/badge/dashboard-live%20%2Fdashboard-purple)]()
 [![Python](https://img.shields.io/badge/python-3.12%2B-blue)]()
 [![Zero deps](https://img.shields.io/badge/external%20deps-0-success)]()
@@ -38,6 +38,26 @@ python deploy_shadow.py --tasks 200
 
 # Launch the dashboard
 streamlit run app.py
+```
+
+### Universal gateway (zero code changes to your agents)
+
+```bash
+# Run MANIFOLD as an AI gateway
+docker run -d -p 8080:8080 \
+  -e MANIFOLD_API_KEY=your-key \
+  -e MANIFOLD_UPSTREAM_URL=https://api.openai.com/v1 \
+  -e MANIFOLD_UPSTREAM_KEY=$OPENAI_API_KEY \
+  manifold-ai
+```
+
+```python
+# Point any OpenAI-compatible agent at MANIFOLD
+client = openai.OpenAI(
+    base_url="http://localhost:8080/v1",
+    api_key="your-manifold-key"
+)
+# Every call is now governed. Nothing else changes.
 ```
 
 ### What you get

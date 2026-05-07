@@ -33,6 +33,7 @@ or as a module::
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import hashlib
 import json
 import os
@@ -130,7 +131,7 @@ def _init_auth() -> "ManifoldAuth | None":
 _AUTH: "ManifoldAuth | None" = _init_auth()
 
 # Routes that require auth when _AUTH is active
-_PROTECTED_POSTS = frozenset({"/shield", "/b2b/handshake", "/recruit", "/ats/register", "/ats/signal", "/run"})
+_PROTECTED_POSTS = frozenset({"/shield", "/b2b/handshake", "/recruit", "/ats/register", "/ats/signal", "/run", "/v1/chat/completions"})
 
 # Lazy pipeline singleton (created on first request to avoid circular imports)
 _pipeline: "Any | None" = None
@@ -475,6 +476,11 @@ class ManifoldHandler(BaseHTTPRequestHandler):
                 self._handle_get_learned()
                 return
 
+            # GET /v1/models  (OpenAI-compatible models list)
+            if path == "/v1/models":
+                self._handle_get_v1_models()
+                return
+
             _send_error(self, 404, f"No route for GET {self.path}")
         except Exception as exc:  # noqa: BLE001
             _send_error(self, 500, str(exc))
@@ -536,6 +542,8 @@ class ManifoldHandler(BaseHTTPRequestHandler):
                 self._handle_post_ats_signal(body)
             elif path == "/run":
                 self._handle_post_run(body)
+            elif path == "/v1/chat/completions":
+                self._handle_post_v1_chat_completions(body)
             else:
                 _send_error(self, 404, f"No route for POST {self.path}")
         except Exception as exc:  # noqa: BLE001
@@ -2068,9 +2076,158 @@ def _handle_get_learned(self: "ManifoldHandler") -> None:
         _send_json(self, 500, {"error": str(exc)})
 
 
+# ---------------------------------------------------------------------------
+# Universal AI Gateway handlers (OpenAI-compatible)
+# ---------------------------------------------------------------------------
+
+_V1_MODELS_LIST = {
+    "object": "list",
+    "data": [
+        {"id": "manifold-governed", "object": "model", "created": 0, "owned_by": "manifold"},
+        {"id": "gpt-4o", "object": "model", "created": 0, "owned_by": "manifold-proxy"},
+        {"id": "gpt-4-turbo", "object": "model", "created": 0, "owned_by": "manifold-proxy"},
+        {"id": "claude-3-5-sonnet", "object": "model", "created": 0, "owned_by": "manifold-proxy"},
+    ],
+}
+
+
+def _handle_get_v1_models(self: "ManifoldHandler") -> None:
+    """GET /v1/models — OpenAI-compatible models list (public)."""
+    _send_json(self, 200, _V1_MODELS_LIST)
+
+
+def _handle_post_v1_chat_completions(self: "ManifoldHandler", body: dict[str, Any]) -> None:
+    """POST /v1/chat/completions — Universal AI gateway endpoint.
+
+    Governs the request through ManifoldBrain, then either forwards to the
+    configured upstream LLM or returns a governance-only response.
+    """
+    import uuid as _uuid
+
+    # STEP 1 — Extract prompt from messages array
+    messages = body.get("messages", [])
+    model = body.get("model", "gpt-4o")
+    prompt = ""
+    for msg in reversed(messages):
+        if msg.get("role") == "user":
+            content = msg.get("content", "")
+            prompt = content if isinstance(content, str) else str(content)
+            break
+    if not prompt:
+        prompt = str(messages) if messages else str(body)
+
+    # STEP 2 — Auto-detect framework and translate to BrainTask via rosetta
+    ingress_result = _ROSETTA_INGRESS.ingest(body)
+    task = dataclasses.replace(ingress_result.task, prompt=prompt)
+
+    # STEP 3 — Govern through ManifoldBrain
+    brain_decision = _BRAIN.decide(task)
+    vetoed = brain_decision.action in ("refuse", "stop")
+
+    # STEP 4a — Vetoed: return governance refusal in OpenAI format
+    if vetoed:
+        refusal_msg = (
+            f"[MANIFOLD GOVERNANCE] Request refused. "
+            f"Risk score: {brain_decision.risk_score:.2f}. "
+            f"Action: {brain_decision.action}. "
+            f"Domain: {task.domain}. "
+            f"To override, reduce stakes or contact your system administrator."
+        )
+        response: dict[str, Any] = {
+            "id": f"chatcmpl-manifold-{_uuid.uuid4().hex[:8]}",
+            "object": "chat.completion",
+            "created": int(time.time()),
+            "model": model,
+            "choices": [{
+                "index": 0,
+                "message": {"role": "assistant", "content": refusal_msg},
+                "finish_reason": "stop",
+            }],
+            "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+            "_manifold": {
+                "governed": True,
+                "vetoed": True,
+                "action": brain_decision.action,
+                "risk_score": round(brain_decision.risk_score, 4),
+                "domain": task.domain,
+            },
+        }
+        _send_json(self, 200, response)
+        return
+
+    # STEP 4b — Permitted and upstream configured: forward to real LLM
+    upstream_url = os.environ.get("MANIFOLD_UPSTREAM_URL", "").rstrip("/")
+    upstream_key = (
+        os.environ.get("MANIFOLD_UPSTREAM_KEY")
+        or os.environ.get("OPENAI_API_KEY", "")
+    )
+
+    if upstream_url and upstream_key:
+        import urllib.request
+        import urllib.error
+        import json as _json
+
+        req_data = _json.dumps(body).encode("utf-8")
+        req = urllib.request.Request(
+            f"{upstream_url}/chat/completions",
+            data=req_data,
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {upstream_key}",
+            },
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=60) as resp:
+                upstream_response = _json.loads(resp.read().decode("utf-8"))
+            upstream_response["_manifold"] = {
+                "governed": True,
+                "vetoed": False,
+                "action": brain_decision.action,
+                "risk_score": round(brain_decision.risk_score, 4),
+                "domain": task.domain,
+            }
+            _send_json(self, 200, upstream_response)
+            return
+        except urllib.error.URLError:
+            # Upstream unreachable — fall through to governance-only response
+            pass
+
+    # STEP 4c — Governance-only mode (no upstream configured or upstream failed)
+    governed_content = (
+        f"[MANIFOLD GOVERNANCE — PERMITTED] "
+        f"Action: {brain_decision.action}. "
+        f"Risk score: {brain_decision.risk_score:.2f}. "
+        f"No upstream LLM configured. Set MANIFOLD_UPSTREAM_URL and "
+        f"MANIFOLD_UPSTREAM_KEY to enable response forwarding."
+    )
+    response = {
+        "id": f"chatcmpl-manifold-{_uuid.uuid4().hex[:8]}",
+        "object": "chat.completion",
+        "created": int(time.time()),
+        "model": "manifold-governed",
+        "choices": [{
+            "index": 0,
+            "message": {"role": "assistant", "content": governed_content},
+            "finish_reason": "stop",
+        }],
+        "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+        "_manifold": {
+            "governed": True,
+            "vetoed": False,
+            "action": brain_decision.action,
+            "risk_score": round(brain_decision.risk_score, 4),
+            "domain": task.domain,
+        },
+    }
+    _send_json(self, 200, response)
+
+
 # Bind the new methods to ManifoldHandler
 ManifoldHandler._handle_post_run = _handle_post_run  # type: ignore[attr-defined]
 ManifoldHandler._handle_get_learned = _handle_get_learned  # type: ignore[attr-defined]
+ManifoldHandler._handle_get_v1_models = _handle_get_v1_models  # type: ignore[attr-defined]
+ManifoldHandler._handle_post_v1_chat_completions = _handle_post_v1_chat_completions  # type: ignore[attr-defined]
 
 
 # ---------------------------------------------------------------------------
