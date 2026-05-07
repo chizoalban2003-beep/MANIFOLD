@@ -25,6 +25,7 @@ dashboard = ["streamlit>=1.40"]
 dev = ["pytest>=9.0", "pytest-asyncio>=0.23"]
 db = ["aiosqlite>=0.19"]
 db-pg = ["aiosqlite>=0.19", "asyncpg>=0.29"]
+embeddings = ["sentence-transformers>=2.7.0"]
 all = ["streamlit>=1.40", "pytest>=9.0", "pytest-asyncio>=0.23", "aiosqlite>=0.19"]
 
 [project.urls]
