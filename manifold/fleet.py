@@ -35,12 +35,16 @@ Key classes
 
 from __future__ import annotations
 
+import logging
+
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Sequence
 
 from .b2b import AgentEconomyLedger, B2BRouter, EconomyEntry
 from .gitops import CIRiskReport
+
+_logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -117,8 +121,8 @@ class CIBuildHistory:
 
         history = CIBuildHistory()
         history.add(record)
-        print(history.pass_rate())
-        print(history.most_risky_tools(top_n=3))
+        _logger.debug("%s", history.pass_rate())
+        _logger.debug("%s", history.most_risky_tools(top_n=3))
     """
 
     def __init__(self) -> None:
@@ -242,7 +246,7 @@ class B2BEconomySnapshot:
     ::
 
         snapshot = B2BEconomySnapshot.from_routers([router_a, router_b])
-        print(snapshot.total_trust_cost())
+        _logger.debug("%s", snapshot.total_trust_cost())
     """
 
     entries: list[EconomyEntry] = field(default_factory=list)
@@ -393,7 +397,7 @@ class FleetDashboardData:
             node_id="prod-node-1",
         )
         renderer = FleetPanelRenderer(data)
-        print(renderer.ci_summary_text())
+        _logger.debug("%s", renderer.ci_summary_text())
     """
 
     ci_history: CIBuildHistory = field(default_factory=CIBuildHistory)
@@ -432,8 +436,8 @@ class FleetPanelRenderer:
     ::
 
         renderer = FleetPanelRenderer(data)
-        print(renderer.ci_summary_text())
-        print(renderer.economy_summary_text())
+        _logger.debug("%s", renderer.ci_summary_text())
+        _logger.debug("%s", renderer.economy_summary_text())
     """
 
     def __init__(self, data: FleetDashboardData) -> None:

@@ -2713,7 +2713,11 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(description="Run the MANIFOLD HTTP server.")
-    parser.add_argument("--port", type=int, default=8080)
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=int(os.environ.get("PORT", os.environ.get("MANIFOLD_PORT", 8080))),
+    )
     parser.add_argument("--host", default="0.0.0.0")
     args = parser.parse_args()
     run_server(port=args.port, host=args.host)

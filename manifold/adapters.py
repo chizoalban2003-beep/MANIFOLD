@@ -39,6 +39,7 @@ Key classes
 
 from __future__ import annotations
 
+import logging
 import time
 from dataclasses import dataclass, field
 from typing import Any
@@ -49,6 +50,8 @@ from .encoder import DualPathEncoder, PromptEncoder
 from .interceptor import ActiveInterceptor, InterceptorVeto
 from .live import GossipBus
 from .trustrouter import clamp01
+
+_logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -155,9 +158,9 @@ class ManifoldCallbackHandler:
         self._call_log.append(entry)
 
         if self.verbose:
-            print(
-                f"[MANIFOLD] on_tool_start: tool={tool_name!r}  "
-                f"action={decision.action!r}  risk={decision.risk_score:.2f}"
+            _logger.debug(
+                "[MANIFOLD] on_tool_start: tool=%r  action=%r  risk=%.2f",
+                tool_name, decision.action, decision.risk_score,
             )
 
     def on_tool_end(self, output: Any, **kwargs: Any) -> None:
@@ -187,7 +190,10 @@ class ManifoldCallbackHandler:
             )
 
         if self.verbose:
-            print(f"[MANIFOLD] on_tool_end: tool={tool_name!r}  latency={latency:.3f}s  ok=True")
+            _logger.debug(
+                "[MANIFOLD] on_tool_end: tool=%r  latency=%.3fs  ok=True",
+                tool_name, latency,
+            )
 
         self._pending_tool = None
         self._pending_start = 0.0
@@ -220,9 +226,9 @@ class ManifoldCallbackHandler:
             )
 
         if self.verbose:
-            print(
-                f"[MANIFOLD] on_tool_error: tool={tool_name!r}  "
-                f"latency={latency:.3f}s  error={error_msg!r}"
+            _logger.debug(
+                "[MANIFOLD] on_tool_error: tool=%r  latency=%.3fs  error=%r",
+                tool_name, latency, error_msg,
             )
 
         self._pending_tool = None
@@ -407,7 +413,7 @@ class ManifoldOpenAIWrapper:
                 messages=[{"role": "user", "content": "Draft a refund policy."}],
             )
         except InterceptorVeto as exc:
-            print(f"MANIFOLD blocked: {exc}")
+            _logger.debug("MANIFOLD blocked: %s", exc)
     """
 
     client: Any
