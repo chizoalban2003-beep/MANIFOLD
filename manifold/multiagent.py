@@ -96,7 +96,12 @@ class MultiAgentBridge:
                 "injection_detected": True,
             }
 
-        stakes = max(0.3, 1.0 - pair_trust.trust_score)
+        # Stakes are inversely proportional to established trust: a brand-new or
+        # untrusted agent pair defaults to high stakes.  MIN_STAKES_FOR_UNTRUSTED_AGENT
+        # prevents the score from collapsing to zero even for perfectly trusted pairs,
+        # so the brain always applies a non-trivial safety check.
+        _MIN_STAKES = 0.3
+        stakes = max(_MIN_STAKES, 1.0 - pair_trust.trust_score)
         task = BrainTask(
             prompt=message.content,
             domain="general",

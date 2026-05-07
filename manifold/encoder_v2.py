@@ -47,11 +47,16 @@ _RISK_WORDS = {"delete", "remove", "payment", "transfer", "override", "bypass", 
 _COST_WORDS = {"verify", "check", "confirm", "retrieve", "fetch", "audit"}
 _ASSET_WORDS = {"resolve", "fix", "help", "complete", "deliver", "generate"}
 
+# Weight applied per matched keyword: 0.18 means ~6 matches saturate the score (6 × 0.18 = 1.08 > 1.0).
+# Chosen so a realistic worst-case prompt (2–3 matches) produces a mid-range score, not a ceiling.
+_KEYWORD_WEIGHT_FACTOR: float = 0.18
+
+
 def _keyword_encode(prompt: str) -> EncodedTask:
     words = set(prompt.lower().split())
-    risk = min(1.0, len(words & _RISK_WORDS) * 0.18)
-    cost = min(1.0, len(words & _COST_WORDS) * 0.18)
-    asset = min(1.0, len(words & _ASSET_WORDS) * 0.18)
+    risk = min(1.0, len(words & _RISK_WORDS) * _KEYWORD_WEIGHT_FACTOR)
+    cost = min(1.0, len(words & _COST_WORDS) * _KEYWORD_WEIGHT_FACTOR)
+    asset = min(1.0, len(words & _ASSET_WORDS) * _KEYWORD_WEIGHT_FACTOR)
     neutrality = max(0.0, 1.0 - risk - cost)
     return EncodedTask(cost=cost, risk=risk, neutrality=neutrality, asset=asset)
 
