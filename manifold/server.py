@@ -32,11 +32,14 @@ or as a module::
 
 from __future__ import annotations
 
+import asyncio
+import hashlib
 import json
 import os
 import re
 import sys
 import threading
+import time
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Any
@@ -73,6 +76,7 @@ from .vectorfs import VectorIndex
 from .meta import ABTestingEngine, PromptGenome
 from .ipc import (
     EventBus,
+    TOPIC_META_CHAMPION_PROMOTED,
     TOPIC_SANDBOX_VIOLATION,
     TOPIC_SANDBOX_TIMEOUT,
     TOPIC_VECTOR_ENTRY_ADDED,
@@ -82,9 +86,12 @@ from .watchdog import ProcessWatchdog, WatchedComponent
 from .gc import ManifoldGC
 from .doctor import ManifoldDoctor
 from .autodoc import APIExplorer, DocExtractor, MANIFOLD_ENDPOINTS
-from .zkp import ZKPVerifier
+from .zkp import ZKPVerifier, ZKProof
 from .rosetta import ForeignPayloadIngress, EgressTranslator
-from .temporal import ParallelTimeline, TimelineCollapse
+from .temporal import BranchResult, ParallelTimeline, TimelineCollapse
+from .gridmapper import GridState, GridWorld
+from .db import ManifoldDB
+from .worker import ManifoldWorker
 from .auth import ManifoldAuth
 from .trust_network.registry import ATSRegistry
 from .trust_network.models import ToolRegistration, TrustSignal
@@ -780,17 +787,12 @@ class ManifoldHandler(BaseHTTPRequestHandler):
     def _handle_post_system_shutdown(self, body: dict[str, Any]) -> None:  # noqa: ARG002
         """POST /system/shutdown → graceful flush and shutdown."""
         _send_json(self, 200, {"status": "flushing", "message": "Vault WALs flushed. Server shutting down."})
-        import threading as _threading
         def _shutdown() -> None:
-            import time as _time
-            _time.sleep(0.1)
-        _threading.Thread(target=_shutdown, daemon=True).start()
+            time.sleep(0.1)
+        threading.Thread(target=_shutdown, daemon=True).start()
 
     def _handle_post_sandbox_execute(self, body: dict[str, Any]) -> None:
         """POST /sandbox/execute → Phase 44 AST-sandboxed code execution."""
-        import hashlib as _hashlib
-        import time as _time
-
         source = str(body.get("source", ""))
         agent_id = str(body.get("agent_id", ""))
         if not source:
@@ -847,8 +849,6 @@ class ManifoldHandler(BaseHTTPRequestHandler):
 
     def _handle_post_vector_add(self, body: dict[str, Any]) -> None:
         """POST /vector/add → Phase 47 VectorIndex.add."""
-        import time as _time
-
         vector_id = str(body.get("vector_id", ""))
         vector = body.get("vector")
         metadata = body.get("metadata") or {}
@@ -894,8 +894,6 @@ class ManifoldHandler(BaseHTTPRequestHandler):
 
     def _handle_post_meta_outcome(self, body: dict[str, Any]) -> None:
         """POST /meta/outcome → Phase 48 ABTestingEngine.record_outcome."""
-        from .ipc import TOPIC_META_CHAMPION_PROMOTED
-
         prompt_id = str(body.get("prompt_id", ""))
         success = bool(body.get("success", False))
         grid_delta = body.get("grid_delta")
@@ -1833,7 +1831,6 @@ class ManifoldHandler(BaseHTTPRequestHandler):
 
     def _handle_post_zkp_verify(self, body: dict[str, Any]) -> None:
         """POST /zkp/verify → Phase 61 verify a Schnorr proof."""
-        from .zkp import ZKProof
         try:
             proof = ZKProof.from_dict(body)
         except (KeyError, TypeError, ValueError) as exc:
@@ -1862,9 +1859,6 @@ class ManifoldHandler(BaseHTTPRequestHandler):
         fork_id: str | None = body.get("fork_id") or None
 
         # Use a minimal GridState sourced from the GridMapper
-        from .gridmapper import GridState, GridWorld
-        from .b2b import AgentEconomyLedger as _AEL
-
         meta: dict[str, object] = body.get("grid_state", {})
         world = GridWorld(size=5)
         state = GridState(
@@ -1874,15 +1868,14 @@ class ManifoldHandler(BaseHTTPRequestHandler):
             parameters={},
             cell_profile=(0.1, 0.2, 0.3, 0.4),
         )
-        ledger = _AEL()
+        ledger = AgentEconomyLedger()
 
         def default_executor(
             branch_id: str,
             _s: GridState,
-            _l: _AEL,
+            _l: AgentEconomyLedger,
         ) -> "BranchResult":
-            from .temporal import BranchResult as _BR
-            return _BR(
+            return BranchResult(
                 branch_id=branch_id,
                 label=branch_id,
                 asset=1.0,
@@ -1891,7 +1884,6 @@ class ManifoldHandler(BaseHTTPRequestHandler):
                 success=True,
             )
 
-        from .temporal import BranchResult
         timeline = ParallelTimeline(state, ledger, fork_id=fork_id)
         for label in branch_labels:
             timeline.add_branch(str(label))
@@ -2101,9 +2093,6 @@ def run_server(port: int = 8080, *, host: str = "0.0.0.0") -> None:
     host:
         Bind address.  Default: ``"0.0.0.0"`` (all interfaces).
     """
-    import asyncio
-    from .db import ManifoldDB
-
     # Phase 24: replay WAL on startup
     with _LOCK:
         result = _VAULT.load_state(hub=_HUB, ledger=_ECONOMY_LEDGER)
@@ -2132,7 +2121,6 @@ def run_server(port: int = 8080, *, host: str = "0.0.0.0") -> None:
 
     # Start background learning worker
     global _worker  # noqa: PLW0603
-    from .worker import ManifoldWorker
     _worker = ManifoldWorker(pipeline=_get_pipeline(), db=_db)
     _worker.start()
 

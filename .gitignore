@@ -23,3 +23,13 @@ __pycache__/
 *.db
 *.db-shm
 *.db-wal
+
+# Additional build / test artefacts
+*.pyo
+.DS_Store
+*.log
+.pytest_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+manifold-ts/dist/
