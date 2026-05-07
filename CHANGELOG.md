@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.5.4] — 2026-05-07
+### Added
+- GET /report — self-reporting visual dashboard (Chart.js, auto-refreshes every 30s)
+  Shows: decision counts, escalation/refusal rates, action distribution chart,
+  domain breakdown chart, tool health table, consolidated rules panel.
+  No Streamlit. No dependencies. Opens in any browser.
+- GET /digest?period=7d — structured JSON governance summary.
+  Suitable for email alerts, Slack webhooks, Grafana, or any automation.
+  Fields: summary stats, domain breakdown, tool health, policy state,
+  top risky decisions (anonymised), calibration signal.
+- 8 new tests. Total: 2299 passing.
+
 ## [1.5.3] — 2026-05-07
 
 ### Added

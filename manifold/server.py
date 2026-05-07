@@ -519,6 +519,16 @@ class ManifoldHandler(BaseHTTPRequestHandler):
                 self._handle_get_admin()
                 return
 
+            # GET /report  (self-reporting visual dashboard)
+            if path == "/report":
+                self._handle_get_report()
+                return
+
+            # GET /digest  (structured JSON governance summary)
+            if path.startswith("/digest"):
+                self._handle_get_digest()
+                return
+
             _send_error(self, 404, f"No route for GET {self.path}")
         except Exception as exc:  # noqa: BLE001
             _send_error(self, 500, str(exc))
@@ -2629,7 +2639,445 @@ def _handle_get_admin(self: "ManifoldHandler") -> None:
     self.wfile.write(payload)
 
 
-# Bind the new methods to ManifoldHandler
+# ---------------------------------------------------------------------------
+# Shared helper: collect live pipeline statistics
+# ---------------------------------------------------------------------------
+
+def _collect_pipeline_stats() -> dict:
+    """Return a dict of live pipeline statistics.  Safe when _pipeline is None."""
+    import html as _html
+    from collections import Counter as _Counter
+
+    pipeline = _pipeline  # read module-level singleton without creating one
+
+    total_tasks = 0
+    action_counts: dict = {}
+    mean_risk = 0.0
+    top_domains: dict = {}
+    tool_summary: dict = {}
+    rules_promoted = 0
+    promoted_rules_list: list = []
+    orgs_count = 1
+    calibration_signal: dict = {"mean_error": 0.0, "samples": 0,
+                                 "overestimates": 0, "underestimates": 0}
+
+    try:
+        orgs_count = max(1, len(_ORG_REGISTRY.all_orgs()))
+    except Exception:  # noqa: BLE001
+        pass
+
+    if pipeline is not None:
+        try:
+            log = getattr(pipeline._predictor, "_prediction_log", [])
+            total_tasks = len(log)
+            action_counts = dict(_Counter(
+                e["decision"].action
+                for e in log
+                if "decision" in e and hasattr(e["decision"], "action")
+            ))
+            risks = [
+                e["decision"].risk_score
+                for e in log
+                if "decision" in e and hasattr(e["decision"], "risk_score")
+            ]
+            mean_risk = sum(risks) / len(risks) if risks else 0.0
+            top_domains = dict(_Counter(
+                getattr(e["task"], "domain", "general")
+                for e in log
+                if "task" in e
+            ).most_common(5))
+        except Exception:  # noqa: BLE001
+            pass
+
+        try:
+            tool_summary = pipeline._cooccurrence.summary()
+        except Exception:  # noqa: BLE001
+            pass
+
+        try:
+            promoted_rules_list = pipeline._consolidator.promoted_rules()
+            rules_promoted = len(promoted_rules_list)
+        except Exception:  # noqa: BLE001
+            pass
+
+        try:
+            calibration_signal = pipeline._predictor.calibration_signal()
+        except Exception:  # noqa: BLE001
+            pass
+
+    escalated = action_counts.get("escalate", 0)
+    refused = action_counts.get("refuse", 0)
+    escalation_rate = escalated / max(total_tasks, 1)
+    refusal_rate = refused / max(total_tasks, 1)
+
+    return {
+        "total_tasks": total_tasks,
+        "action_counts": action_counts,
+        "escalated": escalated,
+        "refused": refused,
+        "escalation_rate": escalation_rate,
+        "refusal_rate": refusal_rate,
+        "mean_risk": mean_risk,
+        "top_domains": top_domains,
+        "tool_summary": tool_summary,
+        "rules_promoted": rules_promoted,
+        "promoted_rules_list": promoted_rules_list,
+        "orgs_count": orgs_count,
+        "calibration_signal": calibration_signal,
+    }
+
+
+# ---------------------------------------------------------------------------
+# GET /report — self-reporting visual dashboard
+# ---------------------------------------------------------------------------
+
+def _handle_get_report(self: "ManifoldHandler") -> None:
+    """GET /report — serve a self-contained HTML governance dashboard."""
+    import html as _html
+    import json as _json
+    from datetime import datetime as _dt
+
+    try:
+        stats = _collect_pipeline_stats()
+
+        total_tasks = stats["total_tasks"]
+        action_counts = stats["action_counts"]
+        escalation_rate = stats["escalation_rate"]
+        refusal_rate = stats["refusal_rate"]
+        top_domains = stats["top_domains"]
+        tool_summary = stats["tool_summary"]
+        rules_promoted = stats["rules_promoted"]
+        promoted_rules_list = stats["promoted_rules_list"]
+        orgs_count = stats["orgs_count"]
+
+        timestamp = _dt.utcnow().strftime("%Y-%m-%d %H:%M UTC")
+
+        # Colour-coded rate helpers
+        def rate_colour(rate: float) -> str:
+            if rate < 0.10:
+                return "#22c55e"  # green
+            if rate <= 0.30:
+                return "#f59e0b"  # amber
+            return "#ef4444"  # red
+
+        esc_colour = rate_colour(escalation_rate)
+        ref_colour = rate_colour(refusal_rate)
+
+        # Chart.js data (safe JSON — no user content in chart labels themselves)
+        action_labels = ["escalate", "verify", "answer", "refuse", "other"]
+        action_colours = ["#ef4444", "#f59e0b", "#22c55e", "#7f1d1d", "#6b7280"]
+        action_data = [action_counts.get(a, 0) for a in action_labels[:-1]]
+        other_count = sum(v for k, v in action_counts.items() if k not in action_labels[:-1])
+        action_data.append(other_count)
+
+        domain_labels = list(top_domains.keys())
+        domain_data = list(top_domains.values())
+
+        chart_data_json = _json.dumps({
+            "actionLabels": action_labels,
+            "actionData": action_data,
+            "actionColours": action_colours,
+            "domainLabels": domain_labels,
+            "domainData": domain_data,
+        })
+
+        # Tool rows
+        tool_rows_html = ""
+        if tool_summary:
+            for tool_name, info in tool_summary.items():
+                sr = info.get("success_rate", 1.0)
+                tasks = info.get("total_tasks", 0)
+                if sr > 0.8:
+                    status_html = '<span style="color:#22c55e">✓ Healthy</span>'
+                elif sr >= 0.5:
+                    status_html = '<span style="color:#f59e0b">⚠ Degraded</span>'
+                else:
+                    status_html = '<span style="color:#ef4444">✗ Flagged</span>'
+                safe_name = _html.escape(str(tool_name))
+                tool_rows_html += (
+                    f"<tr><td>{safe_name}</td><td>{tasks}</td>"
+                    f"<td>{sr:.0%}</td><td>{status_html}</td></tr>\n"
+                )
+        else:
+            tool_rows_html = '<tr><td colspan="4" style="color:#9ca3af">No tool data yet</td></tr>'
+
+        # Rules panel
+        if promoted_rules_list:
+            rules_html = "<ul style='margin:0;padding-left:1.2em'>"
+            for r in promoted_rules_list:
+                d = _html.escape(str(getattr(r, "domain", "?")))
+                a = _html.escape(str(getattr(r, "action", "?")))
+                conf = getattr(r, "confidence", 0.0)
+                n = getattr(r, "sample_count", 0)
+                rules_html += f"<li>{d} → {a} (confidence {conf:.0%}, n={n})</li>"
+            rules_html += "</ul>"
+        else:
+            rules_html = (
+                '<p style="color:#9ca3af;margin:0">'
+                'No rules consolidated yet — needs more traffic</p>'
+            )
+
+        from . import __version__ as _ver
+
+        html_page = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="refresh" content="30">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MANIFOLD — Governance Report</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <style>
+    *, *::before, *::after {{ box-sizing: border-box; margin: 0; padding: 0; }}
+    body {{ background: #0f1117; color: #f3f4f6; font-family: system-ui, sans-serif;
+            padding: 1.5rem; min-height: 100vh; }}
+    h1 {{ font-size: 1.75rem; font-weight: 700; }}
+    h2 {{ font-size: 1.1rem; font-weight: 600; margin-bottom: .75rem; color: #e5e7eb; }}
+    .subtitle {{ color: #9ca3af; font-size: .9rem; margin-top: .25rem; }}
+    .timestamp {{ color: #6b7280; font-size: .8rem; margin-top: .25rem; }}
+    .header {{ margin-bottom: 2rem; }}
+    .cards {{ display: flex; gap: 1rem; flex-wrap: wrap; margin-bottom: 2rem; }}
+    .card {{ background: #1f2937; border-radius: .75rem; padding: 1.25rem 1.5rem;
+             flex: 1 1 160px; min-width: 140px; }}
+    .card-label {{ font-size: .75rem; color: #9ca3af; text-transform: uppercase;
+                   letter-spacing: .05em; margin-bottom: .5rem; }}
+    .card-value {{ font-size: 2rem; font-weight: 700; line-height: 1; }}
+    .charts {{ display: flex; gap: 1.5rem; flex-wrap: wrap; margin-bottom: 2rem; }}
+    .chart-box {{ background: #1f2937; border-radius: .75rem; padding: 1.25rem;
+                  flex: 1 1 320px; min-width: 280px; }}
+    canvas {{ max-height: 260px; }}
+    .section {{ background: #1f2937; border-radius: .75rem; padding: 1.25rem;
+                margin-bottom: 1.5rem; }}
+    table {{ width: 100%; border-collapse: collapse; font-size: .875rem; }}
+    th {{ text-align: left; color: #9ca3af; font-weight: 500; padding: .5rem .75rem;
+          border-bottom: 1px solid #374151; }}
+    td {{ padding: .5rem .75rem; border-bottom: 1px solid #1f2937; }}
+    tr:last-child td {{ border-bottom: none; }}
+    .footer {{ margin-top: 2rem; color: #6b7280; font-size: .8rem; }}
+    .footer a {{ color: #818cf8; text-decoration: none; margin-right: 1rem; }}
+    .footer a:hover {{ text-decoration: underline; }}
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>MANIFOLD — Governance Report</h1>
+    <p class="subtitle">v{_html.escape(str(_ver))} · Live data · Auto-refreshes every 30s</p>
+    <p class="timestamp">Generated: {_html.escape(timestamp)}</p>
+  </div>
+
+  <div class="cards">
+    <div class="card">
+      <div class="card-label">Total Decisions</div>
+      <div class="card-value">{total_tasks:,}</div>
+    </div>
+    <div class="card">
+      <div class="card-label">Escalation Rate</div>
+      <div class="card-value" style="color:{esc_colour}">{escalation_rate:.1%}</div>
+    </div>
+    <div class="card">
+      <div class="card-label">Refusal Rate</div>
+      <div class="card-value" style="color:{ref_colour}">{refusal_rate:.1%}</div>
+    </div>
+    <div class="card">
+      <div class="card-label">Active Orgs</div>
+      <div class="card-value">{orgs_count}</div>
+    </div>
+  </div>
+
+  <div class="charts">
+    <div class="chart-box">
+      <h2>Action Distribution</h2>
+      <canvas id="actionChart"></canvas>
+    </div>
+    <div class="chart-box">
+      <h2>Top Domains</h2>
+      <canvas id="domainChart"></canvas>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>Tool Health</h2>
+    <table>
+      <thead><tr><th>Tool Name</th><th>Tasks</th><th>Success Rate</th><th>Status</th></tr></thead>
+      <tbody>{tool_rows_html}</tbody>
+    </table>
+  </div>
+
+  <div class="section">
+    <h2>Consolidated Policy Rules</h2>
+    <p style="color:#9ca3af;font-size:.875rem;margin-bottom:.75rem">
+      {rules_promoted} rule{'s' if rules_promoted != 1 else ''} promoted from observed patterns
+    </p>
+    {rules_html}
+  </div>
+
+  <div class="footer">
+    <a href="/docs">API Docs</a>
+    <a href="/admin">Admin</a>
+    <a href="/metrics">Metrics</a>
+    <a href="/learned">Learned State</a>
+  </div>
+
+  <script>
+    const _d = JSON.parse({_json.dumps(chart_data_json)});
+    new Chart(document.getElementById('actionChart'), {{
+      type: 'doughnut',
+      data: {{
+        labels: _d.actionLabels,
+        datasets: [{{ data: _d.actionData, backgroundColor: _d.actionColours, borderWidth: 2,
+                      borderColor: '#0f1117' }}]
+      }},
+      options: {{ plugins: {{ legend: {{ labels: {{ color: '#e5e7eb' }} }} }},
+                  responsive: true, maintainAspectRatio: true }}
+    }});
+    new Chart(document.getElementById('domainChart'), {{
+      type: 'bar',
+      data: {{
+        labels: _d.domainLabels,
+        datasets: [{{ data: _d.domainData, backgroundColor: '#7F77DD',
+                      borderRadius: 4 }}]
+      }},
+      options: {{
+        indexAxis: 'y',
+        plugins: {{ legend: {{ display: false }} }},
+        scales: {{
+          x: {{ ticks: {{ color: '#9ca3af' }}, grid: {{ color: '#374151' }} }},
+          y: {{ ticks: {{ color: '#e5e7eb' }} }}
+        }},
+        responsive: true, maintainAspectRatio: true
+      }}
+    }});
+  </script>
+</body>
+</html>"""
+
+    except Exception as exc:  # noqa: BLE001
+        import html as _html
+        html_page = f"""<!DOCTYPE html><html><head><title>MANIFOLD Report Error</title></head>
+<body style="background:#0f1117;color:#f3f4f6;font-family:system-ui;padding:2rem">
+<h1>Report Error</h1>
+<p>Could not generate report: {_html.escape(str(exc))}</p>
+</body></html>"""
+
+    payload = html_page.encode("utf-8")
+    self.send_response(200)
+    self.send_header("Content-Type", "text/html; charset=utf-8")
+    self.send_header("Content-Length", str(len(payload)))
+    self.send_header("Access-Control-Allow-Origin", "*")
+    self.end_headers()
+    self.wfile.write(payload)
+
+
+# ---------------------------------------------------------------------------
+# GET /digest — structured JSON governance summary
+# ---------------------------------------------------------------------------
+
+def _handle_get_digest(self: "ManifoldHandler") -> None:
+    """GET /digest?period=7d — structured JSON governance summary."""
+    from urllib.parse import parse_qs, urlparse
+    from datetime import datetime as _dt
+
+    try:
+        query = parse_qs(urlparse(self.path).query)
+        period = query.get("period", ["7d"])[0]
+        if period not in ("24h", "7d", "30d"):
+            period = "7d"
+
+        stats = _collect_pipeline_stats()
+        pipeline = _pipeline
+
+        total_tasks = stats["total_tasks"]
+        escalated = stats["escalated"]
+        refused = stats["refused"]
+        permitted = max(0, total_tasks - escalated - refused)
+
+        # Top risky decisions (anonymised)
+        top_risky: list[dict] = []
+        if pipeline is not None:
+            try:
+                log = getattr(pipeline._predictor, "_prediction_log", [])
+                entries = []
+                for e in log:
+                    decision = e.get("decision")
+                    task = e.get("task")
+                    if decision is None or task is None:
+                        continue
+                    prompt = getattr(task, "prompt", "") or ""
+                    entries.append({
+                        "prompt_prefix": prompt[:40],
+                        "action": getattr(decision, "action", ""),
+                        "risk_score": round(float(getattr(decision, "risk_score", 0.0)), 4),
+                        "domain": getattr(task, "domain", "general"),
+                    })
+                top_risky = sorted(entries, key=lambda x: x["risk_score"], reverse=True)[:5]
+            except Exception:  # noqa: BLE001
+                top_risky = []
+
+        # Flagged tools via cooccurrence
+        flagged_tools: list[str] = []
+        if pipeline is not None:
+            try:
+                tool_summary = stats["tool_summary"]
+                flagged_tools = [
+                    t for t, info in tool_summary.items()
+                    if info.get("success_rate", 1.0) < 0.5
+                ]
+            except Exception:  # noqa: BLE001
+                pass
+
+        # Build tools list
+        tools_list = []
+        for tool_name, info in stats["tool_summary"].items():
+            sr = info.get("success_rate", 1.0)
+            if sr > 0.8:
+                status = "healthy"
+            elif sr >= 0.5:
+                status = "degraded"
+            else:
+                status = "flagged"
+            tools_list.append({
+                "name": str(tool_name),
+                "total_tasks": int(info.get("total_tasks", 0)),
+                "success_rate": round(float(sr), 4),
+                "status": status,
+            })
+
+        from . import __version__ as _ver
+        cal = stats["calibration_signal"]
+
+        response = {
+            "generated_at": _dt.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "period": period,
+            "version": str(_ver),
+            "summary": {
+                "total_decisions": total_tasks,
+                "escalated": escalated,
+                "refused": refused,
+                "permitted": permitted,
+                "escalation_rate": round(stats["escalation_rate"], 4),
+                "refusal_rate": round(stats["refusal_rate"], 4),
+                "mean_risk_score": round(stats["mean_risk"], 4),
+            },
+            "domains": stats["top_domains"],
+            "tools": tools_list,
+            "policy": {
+                "rules_promoted": stats["rules_promoted"],
+                "active_orgs": stats["orgs_count"],
+                "calibration": {
+                    "mean_prediction_error": round(float(cal.get("mean_error", 0.0)), 4),
+                    "samples": int(cal.get("samples", 0)),
+                    "overestimates": int(cal.get("overestimates", 0)),
+                    "underestimates": int(cal.get("underestimates", 0)),
+                },
+            },
+            "governance": {
+                "flagged_tools": flagged_tools,
+                "top_risky_decisions": top_risky,
+            },
+        }
+        _send_json(self, 200, response)
+    except Exception as exc:  # noqa: BLE001
+        _send_json(self, 500, {"error": str(exc)})
 ManifoldHandler._handle_post_run = _handle_post_run  # type: ignore[attr-defined]
 ManifoldHandler._handle_get_learned = _handle_get_learned  # type: ignore[attr-defined]
 ManifoldHandler._handle_get_v1_models = _handle_get_v1_models  # type: ignore[attr-defined]
@@ -2638,6 +3086,8 @@ ManifoldHandler._handle_post_orgs = _handle_post_orgs  # type: ignore[attr-defin
 ManifoldHandler._handle_put_org_policy = _handle_put_org_policy  # type: ignore[attr-defined]
 ManifoldHandler._handle_post_org_key = _handle_post_org_key  # type: ignore[attr-defined]
 ManifoldHandler._handle_get_admin = _handle_get_admin  # type: ignore[attr-defined]
+ManifoldHandler._handle_get_report = _handle_get_report  # type: ignore[attr-defined]
+ManifoldHandler._handle_get_digest = _handle_get_digest  # type: ignore[attr-defined]
 
 
 # ---------------------------------------------------------------------------
