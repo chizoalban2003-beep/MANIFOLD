@@ -414,8 +414,19 @@ class ShadowModeWrapper:
 
     brain: ManifoldBrain
     active: bool = False
+    agent: Any = None
 
     _regret_log: list[VirtualRegret] = field(default_factory=list, init=False, repr=False)
+
+    def __call__(self, *args: Any, **kwargs: Any) -> Any:
+        """Call the wrapped agent when not active, or raise if no agent set."""
+        if not self.active and self.agent is not None:
+            return self.agent(*args, **kwargs)
+        if self.agent is not None:
+            task = BrainTask(prompt=str(args[0]) if args else "", domain="general")
+            decision = self.brain.decide(task)
+            return decision.action
+        raise RuntimeError("ShadowModeWrapper: no agent configured")
 
     def observe(self, task: BrainTask, actual_action: str) -> VirtualRegret:
         """Shadow one agent decision.

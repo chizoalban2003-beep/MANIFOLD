@@ -9,3 +9,27 @@ node_modules/
 cloudinary_python.txt
 kaggle.json
 .venv/
+
+# Python build artefacts
+*.egg-info/
+dist/
+build/
+__pycache__/
+*.pyc
+.eggs/
+.env
+
+# SQLite database files (generated at runtime)
+*.db
+*.db-shm
+*.db-wal
+
+# Additional build / test artefacts
+*.pyo
+.DS_Store
+*.log
+.pytest_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+manifold-ts/dist/

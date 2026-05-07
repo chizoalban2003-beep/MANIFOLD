@@ -1,0 +1,27 @@
+version: "3.9"
+
+services:
+  manifold:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      - MANIFOLD_API_KEY=${MANIFOLD_API_KEY}
+      - MANIFOLD_DB_URL=sqlite:///data/manifold.db
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped
+
+  manifold-dashboard:
+    build: .
+    command: streamlit run app.py --server.port 8501 --server.address 0.0.0.0
+    ports:
+      - "8501:8501"
+    environment:
+      - MANIFOLD_API_KEY=${MANIFOLD_API_KEY}
+      - MANIFOLD_DB_URL=sqlite:///data/manifold.db
+    volumes:
+      - ./data:/app/data
+    depends_on:
+      - manifold
+    restart: unless-stopped

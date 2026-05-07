@@ -38,7 +38,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 from .brain import BrainMemory, GossipNote
 
@@ -267,6 +267,7 @@ class AdversarialPricingDetector:
     _state: dict[str, dict[str, object]] = field(
         default_factory=dict, init=False, repr=False
     )
+    _anomaly_detector: object = field(default=None, init=False, repr=False)
 
     def record(self, tool_name: str, success: bool) -> None:
         """Record one outcome for *tool_name*.
@@ -321,6 +322,22 @@ class AdversarialPricingDetector:
         """Return ``True`` if the tool shows honey-pot behaviour."""
         d = self.drop(tool_name)
         return d is not None and d >= self.drop_threshold
+
+    def record_tool_outcome(self, tool_name: str, success: bool) -> None:
+        """Record an outcome for both the warm-up/post detector and anomaly detector."""
+        self.record(tool_name, success)
+        if self._anomaly_detector is None:
+            from .anomaly import ManifoldAnomalyDetector
+            self._anomaly_detector = ManifoldAnomalyDetector()
+        self._anomaly_detector.record_outcome(tool_name, success)
+
+    def is_tool_adversarial(self, tool_name: str) -> bool:
+        """Return True if EITHER the honey-pot detector OR z-score anomaly flags the tool."""
+        if self.is_suspect(tool_name):
+            return True
+        if self._anomaly_detector is not None:
+            return self._anomaly_detector.is_anomalous(tool_name)
+        return False
 
     def suspects(self) -> list[dict[str, object]]:
         """Return all suspected honey-pot tools.

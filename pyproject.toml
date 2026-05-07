@@ -1,6 +1,6 @@
 [project]
 name = "manifold-ai"
-version = "1.3.0"
+version = "1.5.1"
 description = "The Trust Operating System for AI agents — prices risk, delegates hierarchically, detects adversarial gaming, and writes its own legislation."
 requires-python = ">=3.12"
 license = {text = "MIT"}
@@ -22,8 +22,11 @@ dependencies = [
 [project.optional-dependencies]
 ui = ["streamlit>=1.40"]
 dashboard = ["streamlit>=1.40"]
-dev = ["pytest>=9.0"]
-all = ["streamlit>=1.40", "pytest>=9.0"]
+dev = ["pytest>=9.0", "pytest-asyncio>=0.23"]
+db = ["aiosqlite>=0.19"]
+db-pg = ["aiosqlite>=0.19", "asyncpg>=0.29"]
+embeddings = ["sentence-transformers>=2.7.0"]
+all = ["streamlit>=1.40", "pytest>=9.0", "pytest-asyncio>=0.23", "aiosqlite>=0.19"]
 
 [project.urls]
 Homepage = "https://github.com/chizoalban2003-beep/MANIFOLD"

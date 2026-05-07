@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: manifold-ai
+    runtime: docker
+    plan: starter
+    healthCheckPath: /metrics
+    envVars:
+      - key: MANIFOLD_PORT
+        value: "8080"
+      - key: MANIFOLD_LOG_LEVEL
+        value: "INFO"
+      - key: MANIFOLD_API_KEY
+        sync: false
+      - key: MANIFOLD_DB_URL
+        sync: false

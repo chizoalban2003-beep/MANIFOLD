@@ -32,10 +32,14 @@ or as a module::
 
 from __future__ import annotations
 
+import asyncio
+import hashlib
 import json
 import os
 import re
+import sys
 import threading
+import time
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Any
@@ -72,6 +76,7 @@ from .vectorfs import VectorIndex
 from .meta import ABTestingEngine, PromptGenome
 from .ipc import (
     EventBus,
+    TOPIC_META_CHAMPION_PROMOTED,
     TOPIC_SANDBOX_VIOLATION,
     TOPIC_SANDBOX_TIMEOUT,
     TOPIC_VECTOR_ENTRY_ADDED,
@@ -81,9 +86,93 @@ from .watchdog import ProcessWatchdog, WatchedComponent
 from .gc import ManifoldGC
 from .doctor import ManifoldDoctor
 from .autodoc import APIExplorer, DocExtractor, MANIFOLD_ENDPOINTS
-from .zkp import ZKPVerifier
+from .zkp import ZKPVerifier, ZKProof
 from .rosetta import ForeignPayloadIngress, EgressTranslator
-from .temporal import ParallelTimeline, TimelineCollapse
+from .temporal import BranchResult, ParallelTimeline, TimelineCollapse
+from .gridmapper import GridState, GridWorld
+from .db import ManifoldDB
+from .worker import ManifoldWorker
+from .auth import ManifoldAuth
+from .trust_network.registry import ATSRegistry
+from .trust_network.models import ToolRegistration, TrustSignal
+from .pipeline import ManifoldPipeline
+
+
+# ---------------------------------------------------------------------------
+# Optional bearer-token authentication
+# ---------------------------------------------------------------------------
+
+
+def _init_auth() -> "ManifoldAuth | None":
+    """Initialise authentication from the environment.
+
+    Returns ``None`` when ``MANIFOLD_API_KEY`` is not set (auth disabled).
+    Exits the process immediately when the key is set but blank/whitespace,
+    which would indicate a misconfigured deployment.
+    """
+    key = os.environ.get("MANIFOLD_API_KEY", "")
+    if not key:
+        # Key absent → auth disabled (dev/test mode)
+        return None
+    key = key.strip()
+    if not key:
+        print(
+            "[MANIFOLD] ERROR: MANIFOLD_API_KEY is set but blank/whitespace.\n"
+            "           Set a non-empty key or unset the variable to disable auth.\n"
+            "           Generate one with: "
+            "python -c 'import secrets; print(secrets.token_hex(32))'",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    return ManifoldAuth(key)
+
+
+_AUTH: "ManifoldAuth | None" = _init_auth()
+
+# Routes that require auth when _AUTH is active
+_PROTECTED_POSTS = frozenset({"/shield", "/b2b/handshake", "/recruit", "/ats/register", "/ats/signal", "/run"})
+
+# Lazy pipeline singleton (created on first request to avoid circular imports)
+_pipeline: "Any | None" = None
+_worker: "Any | None" = None
+
+
+def _get_pipeline() -> "Any":
+    global _pipeline  # noqa: PLW0603
+    if _pipeline is None:
+        _pipeline = ManifoldPipeline()
+    return _pipeline
+
+
+def _check_auth(handler: "ManifoldHandler", path: str) -> bool:
+    """Return True if the request is allowed to proceed.
+
+    When no API key is configured, all requests are allowed.  When an API
+    key is configured, protected POST endpoints require a valid Bearer token.
+    Returns False and sends a 401/403 response if auth fails.
+    """
+    if _AUTH is None:
+        return True
+    auth_header = handler.headers.get("Authorization", "")
+    if not _AUTH.is_authorized(handler.command, path, auth_header):
+        # Distinguish missing vs invalid token
+        if auth_header.startswith("Bearer "):
+            _send_json(handler, 403, {"code": 403, "message": "Forbidden"})
+        else:
+            _send_json(handler, 401, {"code": 401, "message": "Unauthorized"})
+        return False
+    return True
+
+
+# ---------------------------------------------------------------------------
+# In-memory task counters (incremented by the shield handler)
+# ---------------------------------------------------------------------------
+
+_TASK_COUNT: int = 0
+_ESCALATION_COUNT: int = 0
+_REFUSAL_COUNT: int = 0
+
+_ats_registry = ATSRegistry()
 
 
 # ---------------------------------------------------------------------------
@@ -365,6 +454,27 @@ class ManifoldHandler(BaseHTTPRequestHandler):
                 self._handle_get_registry_list()
                 return
 
+            # GET /metrics  (Priority 7 — Prometheus-compatible metrics)
+            if path == "/metrics":
+                self._handle_get_metrics()
+                return
+
+            # GET /ats/score/<tool_id>
+            m_ats = re.fullmatch(r"/ats/score/(.+)", path)
+            if m_ats:
+                self._handle_get_ats_score(m_ats.group(1))
+                return
+
+            # GET /ats/leaderboard
+            if path == "/ats/leaderboard":
+                self._handle_get_ats_leaderboard()
+                return
+
+            # GET /learned
+            if path == "/learned":
+                self._handle_get_learned()
+                return
+
             _send_error(self, 404, f"No route for GET {self.path}")
         except Exception as exc:  # noqa: BLE001
             _send_error(self, 500, str(exc))
@@ -382,6 +492,8 @@ class ManifoldHandler(BaseHTTPRequestHandler):
             return
 
         try:
+            if path in _PROTECTED_POSTS and not _check_auth(self, path):
+                return
             if path == "/shield":
                 self._handle_post_shield(body)
             elif path == "/b2b/handshake":
@@ -418,6 +530,12 @@ class ManifoldHandler(BaseHTTPRequestHandler):
                 self._handle_post_rosetta_ingress(body)
             elif path == "/temporal/fork":
                 self._handle_post_temporal_fork(body)
+            elif path == "/ats/register":
+                self._handle_post_ats_register(body)
+            elif path == "/ats/signal":
+                self._handle_post_ats_signal(body)
+            elif path == "/run":
+                self._handle_post_run(body)
             else:
                 _send_error(self, 404, f"No route for POST {self.path}")
         except Exception as exc:  # noqa: BLE001
@@ -440,6 +558,15 @@ class ManifoldHandler(BaseHTTPRequestHandler):
             if vetoed
             else "risk within threshold"
         )
+
+        # Update in-memory counters for /metrics endpoint (protected by _LOCK)
+        global _TASK_COUNT, _ESCALATION_COUNT, _REFUSAL_COUNT
+        with _LOCK:
+            _TASK_COUNT += 1
+            if decision.action == "escalate":
+                _ESCALATION_COUNT += 1
+            elif decision.action == "refuse":
+                _REFUSAL_COUNT += 1
 
         result: dict[str, Any] = {
             "vetoed": vetoed,
@@ -660,17 +787,12 @@ class ManifoldHandler(BaseHTTPRequestHandler):
     def _handle_post_system_shutdown(self, body: dict[str, Any]) -> None:  # noqa: ARG002
         """POST /system/shutdown → graceful flush and shutdown."""
         _send_json(self, 200, {"status": "flushing", "message": "Vault WALs flushed. Server shutting down."})
-        import threading as _threading
         def _shutdown() -> None:
-            import time as _time
-            _time.sleep(0.1)
-        _threading.Thread(target=_shutdown, daemon=True).start()
+            time.sleep(0.1)
+        threading.Thread(target=_shutdown, daemon=True).start()
 
     def _handle_post_sandbox_execute(self, body: dict[str, Any]) -> None:
         """POST /sandbox/execute → Phase 44 AST-sandboxed code execution."""
-        import hashlib as _hashlib
-        import time as _time
-
         source = str(body.get("source", ""))
         agent_id = str(body.get("agent_id", ""))
         if not source:
@@ -727,8 +849,6 @@ class ManifoldHandler(BaseHTTPRequestHandler):
 
     def _handle_post_vector_add(self, body: dict[str, Any]) -> None:
         """POST /vector/add → Phase 47 VectorIndex.add."""
-        import time as _time
-
         vector_id = str(body.get("vector_id", ""))
         vector = body.get("vector")
         metadata = body.get("metadata") or {}
@@ -774,8 +894,6 @@ class ManifoldHandler(BaseHTTPRequestHandler):
 
     def _handle_post_meta_outcome(self, body: dict[str, Any]) -> None:
         """POST /meta/outcome → Phase 48 ABTestingEngine.record_outcome."""
-        from .ipc import TOPIC_META_CHAMPION_PROMOTED
-
         prompt_id = str(body.get("prompt_id", ""))
         success = bool(body.get("success", False))
         grid_delta = body.get("grid_delta")
@@ -1563,6 +1681,46 @@ class ManifoldHandler(BaseHTTPRequestHandler):
             report = _DOCTOR.run()
         _send_json(self, 200, report.to_dict())
 
+    def _handle_get_metrics(self) -> None:
+        """GET /metrics → Prometheus-compatible plain-text metrics."""
+        with _LOCK:
+            all_baselines = dict(_HUB.baseline.tool_baselines)
+
+        lines = [
+            "# HELP manifold_tasks_total Total tasks processed",
+            "# TYPE manifold_tasks_total counter",
+            f"manifold_tasks_total {_TASK_COUNT}",
+            "# HELP manifold_escalations_total Tasks escalated to human",
+            "# TYPE manifold_escalations_total counter",
+            f"manifold_escalations_total {_ESCALATION_COUNT}",
+            "# HELP manifold_refusals_total Tasks refused",
+            "# TYPE manifold_refusals_total counter",
+            f"manifold_refusals_total {_REFUSAL_COUNT}",
+            "# HELP manifold_tool_reliability Reputation score per tool",
+            "# TYPE manifold_tool_reliability gauge",
+        ]
+        for tool_name, (score, _weight) in sorted(all_baselines.items()):
+            safe_name = tool_name.replace("-", "_").replace(".", "_")
+            lines.append(f'manifold_tool_reliability{{tool="{safe_name}"}} {score:.4f}')
+
+        # Also emit live reliability if hub has contributions
+        with _LOCK:
+            for tool_name, (score, _weight) in sorted(all_baselines.items()):
+                live = _HUB.live_reliability(tool_name)
+                if live is not None:
+                    safe_name = tool_name.replace("-", "_").replace(".", "_")
+                    # Overwrite the baseline line with live value
+                    live_line = f'manifold_tool_reliability_live{{tool="{safe_name}"}} {live:.4f}'
+                    lines.append(live_line)
+
+        body = ("\n".join(lines) + "\n").encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.end_headers()
+        self.wfile.write(body)
+
     def _handle_post_mapreduce_submit(self, body: dict[str, Any]) -> None:
         """POST /mapreduce/submit → Phase 60 Swarm MapReduce job execution."""
         job_id = str(body.get("job_id", ""))
@@ -1636,14 +1794,13 @@ class ManifoldHandler(BaseHTTPRequestHandler):
             _send_error(self, 400, "Body must contain 'tool_id'.")
             return
         try:
-            import time as _time
             endorsement = ToolEndorsement(
                 genesis_org_id=str(body.get("genesis_org_id", "")),
                 tool_id=tool_id,
                 manifest_hash=str(body.get("manifest_hash", "")),
                 signature=str(body.get("signature", "")),
                 key_id=str(body.get("key_id", "")),
-                timestamp=float(body.get("timestamp", _time.time())),
+                timestamp=float(body.get("timestamp", time.time())),
             )
         except (KeyError, TypeError, ValueError) as exc:
             _send_error(self, 400, f"Invalid endorsement payload: {exc}")
@@ -1673,7 +1830,6 @@ class ManifoldHandler(BaseHTTPRequestHandler):
 
     def _handle_post_zkp_verify(self, body: dict[str, Any]) -> None:
         """POST /zkp/verify → Phase 61 verify a Schnorr proof."""
-        from .zkp import ZKProof
         try:
             proof = ZKProof.from_dict(body)
         except (KeyError, TypeError, ValueError) as exc:
@@ -1702,9 +1858,6 @@ class ManifoldHandler(BaseHTTPRequestHandler):
         fork_id: str | None = body.get("fork_id") or None
 
         # Use a minimal GridState sourced from the GridMapper
-        from .gridmapper import GridState, GridWorld
-        from .b2b import AgentEconomyLedger as _AEL
-
         meta: dict[str, object] = body.get("grid_state", {})
         world = GridWorld(size=5)
         state = GridState(
@@ -1714,15 +1867,14 @@ class ManifoldHandler(BaseHTTPRequestHandler):
             parameters={},
             cell_profile=(0.1, 0.2, 0.3, 0.4),
         )
-        ledger = _AEL()
+        ledger = AgentEconomyLedger()
 
         def default_executor(
             branch_id: str,
             _s: GridState,
-            _l: _AEL,
+            _l: AgentEconomyLedger,
         ) -> "BranchResult":
-            from .temporal import BranchResult as _BR
-            return _BR(
+            return BranchResult(
                 branch_id=branch_id,
                 label=branch_id,
                 asset=1.0,
@@ -1731,7 +1883,6 @@ class ManifoldHandler(BaseHTTPRequestHandler):
                 success=True,
             )
 
-        from .temporal import BranchResult
         timeline = ParallelTimeline(state, ledger, fork_id=fork_id)
         for label in branch_labels:
             timeline.add_branch(str(label))
@@ -1739,6 +1890,49 @@ class ManifoldHandler(BaseHTTPRequestHandler):
         results = timeline.run(default_executor)
         collapse = TimelineCollapse.collapse(results, fork_id=timeline.fork_id)
         _send_json(self, 200, collapse.to_dict())
+
+    # -------------------------------------------------------------------------
+    # ATS endpoint implementations — Phase 70
+    # -------------------------------------------------------------------------
+
+    def _handle_get_ats_score(self, tool_id: str) -> None:
+        """GET /ats/score/<tool_id> → AgentTrustScore as JSON (public)."""
+        with _LOCK:
+            data = _ats_registry.to_dict(tool_id)
+        _send_json(self, 200, data)
+
+    def _handle_get_ats_leaderboard(self) -> None:
+        """GET /ats/leaderboard → top 10 AgentTrustScores as JSON (public)."""
+        with _LOCK:
+            board = [_ats_registry.to_dict(s.tool_id) for s in _ats_registry.leaderboard()]
+        _send_json(self, 200, board)
+
+    def _handle_post_ats_register(self, body: dict[str, Any]) -> None:
+        """POST /ats/register → register a tool in the ATS network (authenticated)."""
+        tool = ToolRegistration(
+            tool_id=body["tool_id"],
+            org_id=body.get("org_id", "unknown"),
+            display_name=body.get("display_name", body["tool_id"]),
+            domain=body.get("domain", "general"),
+            description=body.get("description", ""),
+        )
+        with _LOCK:
+            _ats_registry.register_tool(tool)
+        _send_json(self, 200, {"registered": True, "tool_id": tool.tool_id})
+
+    def _handle_post_ats_signal(self, body: dict[str, Any]) -> None:
+        """POST /ats/signal → submit a trust signal (authenticated)."""
+        signal = TrustSignal(
+            tool_id=body["tool_id"],
+            signal_type=body["signal_type"],
+            domain=body.get("domain", "general"),
+            stakes=float(body.get("stakes", 0.5)),
+            submitter_hash=body.get("submitter_hash", "anonymous"),
+            metadata=body.get("metadata", {}),
+        )
+        with _LOCK:
+            _ats_registry.submit_signal(signal)
+        _send_json(self, 200, {"recorded": True, "tool_id": signal.tool_id})
 
 
 # ---------------------------------------------------------------------------
@@ -1781,6 +1975,105 @@ ReputationHub.observation_weight = lambda self, agent_id: self.baseline.observat
 
 
 # ---------------------------------------------------------------------------
+# Pipeline endpoint handler helpers (methods added to ManifoldHandler)
+# ---------------------------------------------------------------------------
+
+
+def _handle_post_run(self: "ManifoldHandler", body: dict[str, Any]) -> None:
+    """POST /run — execute ManifoldPipeline and return the result."""
+    prompt = body.get("prompt")
+    if not prompt:
+        _send_json(self, 400, {"error": "prompt required"})
+        return
+    try:
+        pipeline = _get_pipeline()
+        result = pipeline.run(
+            prompt=str(prompt),
+            data=body.get("data"),
+            encoder_hint=str(body.get("encoder_hint", "auto")),
+            explicit_domain=body.get("domain") or None,
+            stakes=float(body.get("stakes", 0.5)),
+            uncertainty=float(body.get("uncertainty", 0.5)),
+            tools_used=body.get("tools_used"),
+        )
+        # Serialise to plain JSON-safe dict
+        serialised = {
+            "action": result["action"],
+            "domain": result["domain"],
+            "risk_score": result["risk_score"],
+            "nearest_cells": [
+                {"row": c.get("row", 0), "col": c.get("col", 0), "distance": c.get("distance", 0.0)}
+                for c in result.get("nearest_cells", [])
+            ],
+            "flagged_tools": result.get("flagged_tools", []),
+        }
+        _send_json(self, 200, serialised)
+    except Exception as exc:  # noqa: BLE001
+        _send_json(self, 500, {"error": str(exc)})
+
+
+def _handle_get_learned(self: "ManifoldHandler") -> None:
+    """GET /learned — return what the system has learned so far."""
+    try:
+        pipeline = _get_pipeline()
+
+        # Section 1: cognitive_map
+        outcome_log = pipeline._cognitive_map._outcome_log
+        all_outcomes = [entry for entries in outcome_log.values() for entry in entries]
+        total_outcomes = len(all_outcomes)
+        recent_actions = [e["action"] for e in all_outcomes[-10:]]
+        success_rate = (
+            sum(1 for e in all_outcomes if e.get("success")) / total_outcomes
+            if total_outcomes > 0 else None
+        )
+
+        # Section 2: cooccurrence
+        cooccurrence_summary = pipeline._cooccurrence.summary()
+
+        # Section 3: consolidation
+        promoted = pipeline._consolidator.promoted_rules()
+        consolidation_list = [
+            {
+                "domain": r.domain,
+                "action": r.action,
+                "stakes_min": r.stakes_min,
+                "confidence": r.confidence,
+                "sample_count": r.sample_count,
+            }
+            for r in promoted
+        ]
+
+        # Section 4: prediction
+        prediction_cal = pipeline._predictor.calibration_signal()
+
+        # Section 5: worker
+        if _worker is not None:
+            worker_status = _worker.status()
+        else:
+            worker_status = {"running": False, "last_run": None}
+
+        response = {
+            "cognitive_map": {
+                "total_outcomes": total_outcomes,
+                "recent_actions": recent_actions,
+                "success_rate": success_rate,
+            },
+            "cooccurrence": cooccurrence_summary,
+            "consolidation": consolidation_list,
+            "prediction": prediction_cal,
+            "worker": worker_status,
+        }
+        _send_json(self, 200, response)
+    except Exception as exc:  # noqa: BLE001
+        _send_json(self, 500, {"error": str(exc)})
+
+
+# Bind the new methods to ManifoldHandler
+ManifoldHandler._handle_post_run = _handle_post_run  # type: ignore[attr-defined]
+ManifoldHandler._handle_get_learned = _handle_get_learned  # type: ignore[attr-defined]
+
+
+# ---------------------------------------------------------------------------
 # Public entry point
 # ---------------------------------------------------------------------------
 
@@ -1789,7 +2082,8 @@ def run_server(port: int = 8080, *, host: str = "0.0.0.0") -> None:
     """Start the MANIFOLD HTTP server and block until interrupted.
 
     On startup the Vault WAL is replayed to restore any gossip and economy
-    state from previous runs.
+    state from previous runs.  The DB persistence layer is also initialised
+    and the WAL counters are synced into it.
 
     Parameters
     ----------
@@ -1808,6 +2102,27 @@ def run_server(port: int = 8080, *, host: str = "0.0.0.0") -> None:
             f"({result.skipped} skipped)."
         )
 
+    # DB persistence layer startup: connect, initialise schema, sync WAL counters.
+    # asyncio.run() is safe here because this is a synchronous entry point and no
+    # event loop is running yet.  The HTTPServer itself is thread-based (not async).
+    # NOTE: in-memory task counters (_TASK_COUNT etc.) are incremented per request
+    # but only flushed to the DB on graceful shutdown via flush_to_vault().  If the
+    # process is killed (SIGKILL, OOM), in-flight increments since the last run are
+    # lost — this is an accepted trade-off to keep the server synchronous.
+    _db_url = os.environ.get("MANIFOLD_DB_URL", "sqlite:///manifold.db")
+    _db = ManifoldDB(_db_url)
+
+    async def _startup() -> None:
+        await _db.connect()
+        await _db.sync_from_vault(_VAULT)
+
+    asyncio.run(_startup())
+
+    # Start background learning worker
+    global _worker  # noqa: PLW0603
+    _worker = ManifoldWorker(pipeline=_get_pipeline(), db=_db)
+    _worker.start()
+
     server = HTTPServer((host, port), ManifoldHandler)
     print(f"MANIFOLD server listening on {host}:{port}  (Ctrl-C to stop)")
     try:
@@ -1816,6 +2131,14 @@ def run_server(port: int = 8080, *, host: str = "0.0.0.0") -> None:
         pass
     finally:
         server.server_close()
+        if _worker is not None:
+            _worker.stop()
+        # Flush DB state back to WAL for portability across container restarts
+        async def _shutdown() -> None:
+            await _db.flush_to_vault(_VAULT)
+            await _db.close()
+
+        asyncio.run(_shutdown())
         print("MANIFOLD server stopped.")
 
 

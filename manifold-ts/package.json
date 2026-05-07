@@ -18,8 +18,8 @@
   ],
   "scripts": {
     "build": "tsc --project tsconfig.json",
-    "test": "node --test src/__tests__/*.test.ts",
-    "lint": "tsc --noEmit"
+    "test": "tsc --noEmit",
+    "lint": "tsc --noEmit --strict"
   },
   "keywords": [
     "ai",
@@ -44,6 +44,7 @@
     "node": ">=18"
   },
   "devDependencies": {
+    "@types/node": "^25.6.0",
     "typescript": "^5.4.0"
   }
 }

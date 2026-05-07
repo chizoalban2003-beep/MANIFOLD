@@ -22,6 +22,12 @@ git clone https://github.com/chizoalban2003-beep/MANIFOLD.git
 cd MANIFOLD
 pip install -e .                     # core engine (no Streamlit)
 pip install -e ".[ui]"               # + dashboard
+pip install -e ".[embeddings]"       # + semantic encoder
+pip install -e ".[embeddings,ui,db]" # install everything
+
+# Load a domain pack
+from manifold.domains import load_domain
+policy = load_domain("healthcare")  # or finance, devops, legal, etc.
 
 # Run a shadow audit on your support logs
 python deploy_shadow.py --input your_support_logs.csv --json > report.json
@@ -58,6 +64,64 @@ Three numbers close the enterprise sale:
 | `virtual_regret_saved` | High-risk tasks MANIFOLD would have escalated that the naive agent auto-resolved |
 | `gossip_inoculation_speed` | Tasks until all agents routed around the failing tool after its first failure |
 | `hitl_escalations` | Decisions where risk × stakes exceeded threshold and demanded human review |
+
+---
+
+## Deploy to production
+
+### Docker (self-hosted)
+
+```bash
+docker build -t manifold-ai .
+docker run -d \
+  -p 8080:8080 \
+  -e MANIFOLD_API_KEY=your-key \
+  -e MANIFOLD_DB_URL=sqlite:///data/manifold.db \
+  -v ./data:/app/data \
+  manifold-ai
+```
+
+### Fly.io
+
+```bash
+fly launch --config deploy/fly.toml
+fly secrets set MANIFOLD_API_KEY=your-key
+fly secrets set MANIFOLD_DB_URL=postgresql://...
+fly deploy
+```
+
+### Render
+
+Push repo to GitHub.
+New Web Service → connect repo → select `render.yaml`.
+Set `MANIFOLD_API_KEY` and `MANIFOLD_DB_URL` in the dashboard.
+Deploy.
+
+### Railway
+
+```bash
+railway login
+railway init
+railway up
+railway variables set MANIFOLD_API_KEY=your-key
+railway variables set MANIFOLD_DB_URL=$DATABASE_URL
+```
+
+### Verify your deployment
+
+```bash
+curl https://your-domain/metrics
+# Should return Prometheus-format text starting with manifold_tasks_total
+
+curl https://your-domain/learned
+# Should return JSON with cognitive_map, cooccurrence, consolidation keys
+
+curl -X POST https://your-domain/run \
+  -H "Authorization: Bearer your-key" \
+  -H "Content-Type: application/json" \
+  -d '{"prompt": "test task", "stakes": 0.5}'
+# Should return JSON with action, domain, risk_score keys
+```
 
 ---
 

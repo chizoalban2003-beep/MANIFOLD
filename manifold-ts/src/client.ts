@@ -13,6 +13,7 @@
  */
 
 import type {
+  AgentTrustScore,
   BrainTask,
   HandshakeResult,
   InterceptResult,
@@ -22,6 +23,8 @@ import type {
   RecruitmentRequest,
   RecruitmentResult,
   ReputationScore,
+  ToolRegistration,
+  TrustSignal,
 } from "./types.js";
 
 const DEFAULT_BASE_URL = "http://localhost:8080";
@@ -186,5 +189,46 @@ export class ManifoldClient {
    */
   getPolicy(): Promise<OrgPolicy> {
     return this.request<OrgPolicy>("GET", "/policy");
+  }
+
+  // -------------------------------------------------------------------------
+  // Agent Trust Score (ATS) — Phase 70
+  // -------------------------------------------------------------------------
+
+  /**
+   * Retrieve the Agent Trust Score for a specific tool.
+   *
+   * @param toolId - The unique tool identifier (e.g. `"billing-api-v2"`).
+   */
+  getToolScore(toolId: string): Promise<AgentTrustScore> {
+    return this.request<AgentTrustScore>(
+      "GET",
+      `/ats/score/${encodeURIComponent(toolId)}`,
+    );
+  }
+
+  /**
+   * Retrieve the ATS leaderboard (top 10 tools by score).
+   */
+  getLeaderboard(): Promise<AgentTrustScore[]> {
+    return this.request<AgentTrustScore[]>("GET", "/ats/leaderboard");
+  }
+
+  /**
+   * Register a tool in the ATS network. Requires authentication.
+   *
+   * @param tool - Tool registration details.
+   */
+  registerTool(tool: ToolRegistration): Promise<void> {
+    return this.request<void>("POST", "/ats/register", tool);
+  }
+
+  /**
+   * Submit a trust signal for a tool. Requires authentication.
+   *
+   * @param signal - The trust signal to record.
+   */
+  submitSignal(signal: TrustSignal): Promise<void> {
+    return this.request<void>("POST", "/ats/signal", signal);
   }
 }

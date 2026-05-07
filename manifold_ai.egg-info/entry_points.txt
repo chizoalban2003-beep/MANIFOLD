@@ -1,3 +1,0 @@
-[console_scripts]
-manifold = manifold.cli:main
-manifold-shadow = deploy_shadow:main

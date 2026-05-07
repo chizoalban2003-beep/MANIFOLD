@@ -102,6 +102,11 @@ class PolicyDomain:
     fallback_strategy: str = "hitl"
     min_tool_reliability: float = 0.70
     notes: str = ""
+    escalation_threshold: float = 0.35
+    refusal_threshold: float = 0.2
+    verification_cost: float = 0.15
+    penalty_scale: float = 1.5
+    allowed_actions: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         """Serialise to a plain dict (YAML-serialisable)."""
@@ -113,6 +118,11 @@ class PolicyDomain:
             "fallback_strategy": self.fallback_strategy,
             "min_tool_reliability": round(self.min_tool_reliability, 4),
             "notes": self.notes,
+            "escalation_threshold": round(self.escalation_threshold, 4),
+            "refusal_threshold": round(self.refusal_threshold, 4),
+            "verification_cost": round(self.verification_cost, 4),
+            "penalty_scale": round(self.penalty_scale, 4),
+            "allowed_actions": list(self.allowed_actions),
         }
 
     @classmethod
@@ -126,6 +136,11 @@ class PolicyDomain:
             fallback_strategy=str(data.get("fallback_strategy", "hitl")),
             min_tool_reliability=float(data.get("min_tool_reliability", 0.70)),
             notes=str(data.get("notes", "")),
+            escalation_threshold=float(data.get("escalation_threshold", 0.35)),
+            refusal_threshold=float(data.get("refusal_threshold", 0.2)),
+            verification_cost=float(data.get("verification_cost", 0.15)),
+            penalty_scale=float(data.get("penalty_scale", 1.5)),
+            allowed_actions=list(data.get("allowed_actions", [])),
         )
 
 
@@ -257,6 +272,11 @@ DOMAIN_TEMPLATES: dict[str, dict[str, Any]] = {
         "fallback_strategy": "hitl",
         "min_tool_reliability": 0.85,
         "notes": "High-stakes financial operations; minimal risk tolerance.",
+        "escalation_threshold": 0.4,
+        "refusal_threshold": 0.25,
+        "verification_cost": 0.15,
+        "penalty_scale": 1.8,
+        "allowed_actions": ["answer", "clarify", "verify", "retrieve", "use_tool", "escalate", "refuse"],
     },
     "legal": {
         "stakes": 0.85,
@@ -265,6 +285,11 @@ DOMAIN_TEMPLATES: dict[str, dict[str, Any]] = {
         "fallback_strategy": "hitl",
         "min_tool_reliability": 0.88,
         "notes": "Legal and compliance domain; strict veto on uncertainty.",
+        "escalation_threshold": 0.35,
+        "refusal_threshold": 0.2,
+        "verification_cost": 0.20,
+        "penalty_scale": 2.0,
+        "allowed_actions": ["answer", "clarify", "verify", "retrieve", "escalate", "refuse"],
     },
     "creative": {
         "stakes": 0.3,
@@ -305,6 +330,48 @@ DOMAIN_TEMPLATES: dict[str, dict[str, Any]] = {
         "fallback_strategy": "hitl",
         "min_tool_reliability": 0.70,
         "notes": "Default general-purpose policy.",
+    },
+    # ---------------------------------------------------------------------------
+    # Priority 6 — Extended domain templates
+    # ---------------------------------------------------------------------------
+    "healthcare": {
+        "stakes": 0.95,
+        "risk_tolerance": 0.15,
+        "coordination_tax_cap": 0.05,
+        "fallback_strategy": "hitl",
+        "min_tool_reliability": 0.90,
+        "notes": "Healthcare domain; escalate early — stakes are life.",
+        "escalation_threshold": 0.3,
+        "refusal_threshold": 0.15,
+        "verification_cost": 0.25,
+        "penalty_scale": 2.5,
+        "allowed_actions": ["answer", "clarify", "verify", "retrieve", "escalate", "refuse"],
+    },
+    "cybersecurity": {
+        "stakes": 0.95,
+        "risk_tolerance": 0.10,
+        "coordination_tax_cap": 0.05,
+        "fallback_strategy": "refuse",
+        "min_tool_reliability": 0.92,
+        "notes": "Cybersecurity domain; maximum verification, minimal tolerance.",
+        "escalation_threshold": 0.25,
+        "refusal_threshold": 0.1,
+        "verification_cost": 0.30,
+        "penalty_scale": 3.0,
+        "allowed_actions": ["verify", "clarify", "retrieve", "escalate", "refuse"],
+    },
+    "ecommerce": {
+        "stakes": 0.5,
+        "risk_tolerance": 0.45,
+        "coordination_tax_cap": 0.18,
+        "fallback_strategy": "hitl",
+        "min_tool_reliability": 0.72,
+        "notes": "E-commerce domain; balance speed and safety for order fulfilment.",
+        "escalation_threshold": 0.6,
+        "refusal_threshold": 0.45,
+        "verification_cost": 0.08,
+        "penalty_scale": 1.2,
+        "allowed_actions": ["answer", "clarify", "use_tool", "verify", "escalate"],
     },
 }
 
