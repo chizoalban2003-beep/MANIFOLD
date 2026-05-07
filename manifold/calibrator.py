@@ -57,7 +57,7 @@ async def calibrate_domain(db, domain: str, lookback_hours: int = 24) -> Calibra
     total_escalations = stats.get("total_escalations", 0)
     target_rate = TARGET_ESCALATION_RATES.get(domain, 0.08)
     tpl = DOMAIN_TEMPLATES.get(domain, DOMAIN_TEMPLATES.get("general", {}))
-    old_threshold = tpl.get("escalation_threshold", 0.35) if isinstance(tpl, dict) else 0.35
+    old_threshold = tpl.get("escalation_threshold", 0.35) if tpl else 0.35
 
     if total_tasks < MIN_SAMPLES:
         return CalibrationResult(
