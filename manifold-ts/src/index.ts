@@ -55,4 +55,10 @@ export type {
 } from "./types.js";
 export type { ShieldOptions } from "./shield.js";
 export type { ShadowModeOptions } from "./shadow.js";
+export type {
+  TrustTier,
+  ToolRegistration,
+  TrustSignal,
+  AgentTrustScore,
+} from "./types.js";
 

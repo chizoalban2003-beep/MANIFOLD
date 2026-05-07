@@ -251,3 +251,45 @@ export interface ManifoldClientOptions {
   timeoutMs?: number;
 }
 
+
+// ---------------------------------------------------------------------------
+// Agent Trust Score (ATS) types — Phase 70
+// ---------------------------------------------------------------------------
+
+/** Trust tier assigned to a tool based on its accumulated trust signals. */
+export type TrustTier = "verified" | "provisional" | "flagged" | "banned";
+
+/** A tool registered in the ATS network. */
+export interface ToolRegistration {
+  tool_id: string;
+  org_id: string;
+  display_name: string;
+  domain: string;
+  description?: string;
+}
+
+/** One anonymised trust signal submitted by a MANIFOLD deployment. */
+export interface TrustSignal {
+  tool_id: string;
+  signal_type: "success" | "failure" | "adversarial" | "escalation";
+  domain: string;
+  /** Consequentiality of the interaction [0, 1]. */
+  stakes: number;
+  /** SHA-256 of org_id — anonymised submitter identity. */
+  submitter_hash: string;
+  metadata?: Record<string, unknown>;
+}
+
+/** Computed ATS for a tool, aggregated across all submitters. */
+export interface AgentTrustScore {
+  tool_id: string;
+  display_name: string;
+  domain: string;
+  /** Weighted success score [0, 1]. */
+  score: number;
+  tier: TrustTier;
+  total_signals: number;
+  success_rate: number;
+  adversarial_rate: number;
+  contributing_orgs: number;
+}

@@ -86,6 +86,8 @@ from .zkp import ZKPVerifier
 from .rosetta import ForeignPayloadIngress, EgressTranslator
 from .temporal import ParallelTimeline, TimelineCollapse
 from .auth import ManifoldAuth
+from .trust_network.registry import ATSRegistry
+from .trust_network.models import ToolRegistration, TrustSignal
 
 
 # ---------------------------------------------------------------------------
@@ -120,7 +122,7 @@ def _init_auth() -> "ManifoldAuth | None":
 _AUTH: "ManifoldAuth | None" = _init_auth()
 
 # Routes that require auth when _AUTH is active
-_PROTECTED_POSTS = frozenset({"/shield", "/b2b/handshake", "/recruit"})
+_PROTECTED_POSTS = frozenset({"/shield", "/b2b/handshake", "/recruit", "/ats/register", "/ats/signal"})
 
 
 def _check_auth(handler: "ManifoldHandler", path: str) -> bool:
@@ -150,6 +152,8 @@ def _check_auth(handler: "ManifoldHandler", path: str) -> bool:
 _TASK_COUNT: int = 0
 _ESCALATION_COUNT: int = 0
 _REFUSAL_COUNT: int = 0
+
+_ats_registry = ATSRegistry()
 
 
 # ---------------------------------------------------------------------------
@@ -436,6 +440,17 @@ class ManifoldHandler(BaseHTTPRequestHandler):
                 self._handle_get_metrics()
                 return
 
+            # GET /ats/score/<tool_id>
+            m_ats = re.fullmatch(r"/ats/score/(.+)", path)
+            if m_ats:
+                self._handle_get_ats_score(m_ats.group(1))
+                return
+
+            # GET /ats/leaderboard
+            if path == "/ats/leaderboard":
+                self._handle_get_ats_leaderboard()
+                return
+
             _send_error(self, 404, f"No route for GET {self.path}")
         except Exception as exc:  # noqa: BLE001
             _send_error(self, 500, str(exc))
@@ -491,6 +506,10 @@ class ManifoldHandler(BaseHTTPRequestHandler):
                 self._handle_post_rosetta_ingress(body)
             elif path == "/temporal/fork":
                 self._handle_post_temporal_fork(body)
+            elif path == "/ats/register":
+                self._handle_post_ats_register(body)
+            elif path == "/ats/signal":
+                self._handle_post_ats_signal(body)
             else:
                 _send_error(self, 404, f"No route for POST {self.path}")
         except Exception as exc:  # noqa: BLE001
@@ -1861,6 +1880,49 @@ class ManifoldHandler(BaseHTTPRequestHandler):
         results = timeline.run(default_executor)
         collapse = TimelineCollapse.collapse(results, fork_id=timeline.fork_id)
         _send_json(self, 200, collapse.to_dict())
+
+    # -------------------------------------------------------------------------
+    # ATS endpoint implementations — Phase 70
+    # -------------------------------------------------------------------------
+
+    def _handle_get_ats_score(self, tool_id: str) -> None:
+        """GET /ats/score/<tool_id> → AgentTrustScore as JSON (public)."""
+        with _LOCK:
+            data = _ats_registry.to_dict(tool_id)
+        _send_json(self, 200, data)
+
+    def _handle_get_ats_leaderboard(self) -> None:
+        """GET /ats/leaderboard → top 10 AgentTrustScores as JSON (public)."""
+        with _LOCK:
+            board = [_ats_registry.to_dict(s.tool_id) for s in _ats_registry.leaderboard()]
+        _send_json(self, 200, board)
+
+    def _handle_post_ats_register(self, body: dict[str, Any]) -> None:
+        """POST /ats/register → register a tool in the ATS network (authenticated)."""
+        tool = ToolRegistration(
+            tool_id=body["tool_id"],
+            org_id=body.get("org_id", "unknown"),
+            display_name=body.get("display_name", body["tool_id"]),
+            domain=body.get("domain", "general"),
+            description=body.get("description", ""),
+        )
+        with _LOCK:
+            _ats_registry.register_tool(tool)
+        _send_json(self, 200, {"registered": True, "tool_id": tool.tool_id})
+
+    def _handle_post_ats_signal(self, body: dict[str, Any]) -> None:
+        """POST /ats/signal → submit a trust signal (authenticated)."""
+        signal = TrustSignal(
+            tool_id=body["tool_id"],
+            signal_type=body["signal_type"],
+            domain=body.get("domain", "general"),
+            stakes=float(body.get("stakes", 0.5)),
+            submitter_hash=body.get("submitter_hash", "anonymous"),
+            metadata=body.get("metadata", {}),
+        )
+        with _LOCK:
+            _ats_registry.submit_signal(signal)
+        _send_json(self, 200, {"recorded": True, "tool_id": signal.tool_id})
 
 
 # ---------------------------------------------------------------------------

@@ -22,6 +22,12 @@ git clone https://github.com/chizoalban2003-beep/MANIFOLD.git
 cd MANIFOLD
 pip install -e .                     # core engine (no Streamlit)
 pip install -e ".[ui]"               # + dashboard
+pip install -e ".[embeddings]"       # + semantic encoder
+pip install -e ".[embeddings,ui,db]" # install everything
+
+# Load a domain pack
+from manifold.domains import load_domain
+policy = load_domain("healthcare")  # or finance, devops, legal, etc.
 
 # Run a shadow audit on your support logs
 python deploy_shadow.py --input your_support_logs.csv --json > report.json
