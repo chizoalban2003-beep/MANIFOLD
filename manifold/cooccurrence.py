@@ -1,6 +1,7 @@
 """ToolCooccurrenceGraph — tracks tool co-usage and propagates trust signals."""
 from __future__ import annotations
 
+import json
 from collections import defaultdict
 from statistics import mean
 
@@ -64,6 +65,45 @@ class ToolCooccurrenceGraph:
         if not outcomes:
             return 1.0
         return mean(float(o) for o in outcomes)
+
+    # ------------------------------------------------------------------
+    def save(self, path: str) -> None:
+        """Serialise state to a JSON file at path."""
+        cooc = [[a, b, cnt] for (a, b), cnt in self._cooccurrence.items()]
+        tool_outcomes = {k: list(v) for k, v in self._tool_outcomes.items()}
+        tool_counts = dict(self._tool_counts)
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump(
+                {
+                    "cooccurrence": cooc,
+                    "tool_outcomes": tool_outcomes,
+                    "tool_counts": tool_counts,
+                },
+                fh,
+            )
+
+    # ------------------------------------------------------------------
+    @classmethod
+    def load(cls, path: str) -> "ToolCooccurrenceGraph":
+        """Deserialise from a JSON file at path.
+
+        Returns a new instance with restored state.
+        Returns a fresh instance if the file does not exist.
+        """
+        instance = cls()
+        try:
+            with open(path, encoding="utf-8") as fh:
+                data = json.load(fh)
+            for entry in data.get("cooccurrence", []):
+                a, b, cnt = entry
+                instance._cooccurrence[(a, b)] = cnt
+            for tool, outcomes in data.get("tool_outcomes", {}).items():
+                instance._tool_outcomes[tool] = [bool(o) for o in outcomes]
+            for tool, cnt in data.get("tool_counts", {}).items():
+                instance._tool_counts[tool] = cnt
+        except FileNotFoundError:
+            pass
+        return instance
 
     # ------------------------------------------------------------------
     def summary(self) -> dict:

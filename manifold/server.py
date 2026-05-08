@@ -32,6 +32,7 @@ or as a module::
 
 from __future__ import annotations
 
+import atexit
 import asyncio
 import dataclasses
 import hashlib
@@ -45,6 +46,7 @@ import threading
 import time
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
+from pathlib import Path
 from typing import Any
 
 from .b2b import AgentEconomyLedger, B2BRouter, OrgPolicy
@@ -99,6 +101,60 @@ from .auth import ManifoldAuth
 from .trust_network.registry import ATSRegistry
 from .trust_network.models import ToolRegistration, TrustSignal
 from .pipeline import ManifoldPipeline
+from .cognitive_map import CognitiveMap
+from .cooccurrence import ToolCooccurrenceGraph
+from .predictor import PredictiveBrain
+from .consolidator import MemoryConsolidator
+
+
+# ---------------------------------------------------------------------------
+# Brain state persistence
+# ---------------------------------------------------------------------------
+
+_BRAIN_STATE_DIR = Path(
+    os.environ.get("MANIFOLD_STATE_DIR", os.path.expanduser("~/.manifold/brain"))
+)
+
+
+def _save_brain_state() -> None:
+    """Serialise all four brain components to disk."""
+    global _pipeline  # noqa: PLW0602
+    if _pipeline is None:
+        return
+    try:
+        _BRAIN_STATE_DIR.mkdir(parents=True, exist_ok=True)
+        _pipeline._cognitive_map.save(str(_BRAIN_STATE_DIR / "cognitive_map.json"))
+        _pipeline._cooccurrence.save(str(_BRAIN_STATE_DIR / "cooccurrence.json"))
+        _pipeline._predictor.save(str(_BRAIN_STATE_DIR / "predictor.json"))
+        _pipeline._consolidator.save(str(_BRAIN_STATE_DIR / "consolidator.json"))
+    except Exception as exc:  # noqa: BLE001
+        print(f"[MANIFOLD] Brain state save failed: {exc}")
+
+
+def _rehydrate_brain() -> None:
+    """Load persisted brain components into the active pipeline (if any)."""
+    global _pipeline  # noqa: PLW0602
+    if _pipeline is None:
+        return
+    try:
+        cmap_path = _BRAIN_STATE_DIR / "cognitive_map.json"
+        cooc_path = _BRAIN_STATE_DIR / "cooccurrence.json"
+        pred_path = _BRAIN_STATE_DIR / "predictor.json"
+        cons_path = _BRAIN_STATE_DIR / "consolidator.json"
+        if cmap_path.exists():
+            _pipeline._cognitive_map = CognitiveMap.load(str(cmap_path))
+        if cooc_path.exists():
+            _pipeline._cooccurrence = ToolCooccurrenceGraph.load(str(cooc_path))
+        if pred_path.exists():
+            _pipeline._predictor = PredictiveBrain.load(str(pred_path))
+        if cons_path.exists():
+            _pipeline._consolidator = MemoryConsolidator.load(str(cons_path))
+        print("[MANIFOLD] Brain state rehydrated from disk")
+    except Exception as exc:  # noqa: BLE001
+        print(f"[MANIFOLD] Brain rehydration skipped: {exc}")
+
+
+atexit.register(_save_brain_state)
 
 
 # ---------------------------------------------------------------------------
@@ -571,6 +627,11 @@ class ManifoldHandler(BaseHTTPRequestHandler):
             # GET /ws  (WebSocket upgrade)
             if path == "/ws":
                 self._handle_ws_upgrade()
+                return
+
+            # GET /brain/state  (brain persistence status)
+            if path == "/brain/state":
+                self._handle_get_brain_state()
                 return
 
             _send_error(self, 404, f"No route for GET {self.path}")
@@ -3638,6 +3699,34 @@ def _ws_read_frame(conn: "_socket.socket") -> "bytes | None":
         return None
 
 
+def _handle_get_brain_state(self: "ManifoldHandler") -> None:
+    """GET /brain/state — return brain persistence status."""
+    pipeline = _get_pipeline()
+    cmap_nodes = len(pipeline._cognitive_map._outcome_log)
+    cooc_tools = len(pipeline._cooccurrence._tool_counts)
+    pred_entries = len(pipeline._predictor._prediction_log)
+    rules = len(pipeline._consolidator._promoted_rules)
+    state_dir = str(_BRAIN_STATE_DIR)
+    persisted = (
+        (_BRAIN_STATE_DIR / "cognitive_map.json").exists()
+        or (_BRAIN_STATE_DIR / "cooccurrence.json").exists()
+        or (_BRAIN_STATE_DIR / "predictor.json").exists()
+        or (_BRAIN_STATE_DIR / "consolidator.json").exists()
+    )
+    _send_json(
+        self,
+        200,
+        {
+            "cognitive_map_nodes": cmap_nodes,
+            "cooccurrence_tools": cooc_tools,
+            "prediction_log_entries": pred_entries,
+            "promoted_rules": rules,
+            "state_dir": state_dir,
+            "persisted": persisted,
+        },
+    )
+
+
 def _handle_ws_upgrade(self: "ManifoldHandler") -> None:
     """GET /ws — WebSocket upgrade + live event loop."""
     # Only accept Upgrade: websocket requests
@@ -3729,6 +3818,7 @@ def _handle_ws_upgrade(self: "ManifoldHandler") -> None:
 ManifoldHandler._handle_get_world = _handle_get_world  # type: ignore[attr-defined]
 ManifoldHandler._handle_get_world_manifest = _handle_get_world_manifest  # type: ignore[attr-defined]
 ManifoldHandler._handle_ws_upgrade = _handle_ws_upgrade  # type: ignore[attr-defined]
+ManifoldHandler._handle_get_brain_state = _handle_get_brain_state  # type: ignore[attr-defined]
 
 
 ManifoldHandler._handle_get_agents = _handle_get_agents  # type: ignore[attr-defined]
@@ -3788,6 +3878,9 @@ def run_server(port: int = 8080, *, host: str = "0.0.0.0") -> None:
     global _worker  # noqa: PLW0603
     _worker = ManifoldWorker(pipeline=_get_pipeline(), db=_db)
     _worker.start()
+
+    # Rehydrate brain state from disk (after pipeline is initialised)
+    _rehydrate_brain()
 
     # Start agent monitor
     _AGENT_MONITOR.start()
