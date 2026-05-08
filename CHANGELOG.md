@@ -1,5 +1,34 @@
 # Changelog
 
+## [1.5.5] — 2026-05-08
+
+### Added
+- manifold/agent_registry.py — AgentRegistry tracking all running agents
+  Register, heartbeat, pause, resume, health scoring, stale detection.
+- manifold/monitor.py — AgentMonitor background loop
+  Proactively marks stale agents, detects unhealthy agents, logs events.
+- manifold/task_router.py — TaskRouter for arbitrary task intake
+  Decomposes complex problems into governed sub-tasks.
+  Routes each to the best available registered agent.
+  Returns an execution plan with governance decisions per sub-task.
+- server.py: 6 new endpoints —
+  GET  /agents                  list all registered agents
+  POST /agents/register         agent announces itself
+  POST /agents/{id}/heartbeat   keep-alive
+  POST /agents/{id}/pause       MANIFOLD pauses a running agent
+  POST /agents/{id}/resume      MANIFOLD resumes a paused agent
+  POST /task                    submit any problem for governed routing
+- 26 new tests. Total: 2305 passing.
+
+### What this enables
+MANIFOLD can now:
+  1. Know which agents are running at any moment
+  2. Proactively detect stale or unhealthy agents
+  3. Pause or redirect a running agent via API
+  4. Receive any complex problem, decompose it into sub-tasks,
+     govern each sub-task, and route to the best available agent
+  This is Mode 3: MANIFOLD as active manager, not just traffic light.
+
 ## [1.5.4] — 2026-05-07
 ### Added
 - GET / — landing page for consumer onboarding

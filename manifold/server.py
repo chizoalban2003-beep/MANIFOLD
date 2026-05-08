@@ -208,6 +208,15 @@ _ORG_REGISTRY = OrgRegistry(
     orgs_file=os.environ.get("MANIFOLD_ORGS_FILE", "orgs.json")
 )
 
+# Agentic layer singletons
+from manifold.agent_registry import AgentRegistry as _AgentRegistry  # noqa: E402
+from manifold.monitor import AgentMonitor as _AgentMonitor  # noqa: E402
+from manifold.task_router import TaskRouter as _TaskRouter  # noqa: E402
+
+_AGENT_REGISTRY = _AgentRegistry(stale_timeout=120)
+_AGENT_MONITOR = _AgentMonitor(_AGENT_REGISTRY, check_interval=30)
+_TASK_ROUTER = _TaskRouter(registry=_AGENT_REGISTRY)
+
 
 # ---------------------------------------------------------------------------
 # Server-level singletons (created once at module import time)
@@ -544,6 +553,11 @@ class ManifoldHandler(BaseHTTPRequestHandler):
                 self._handle_get_connect()
                 return
 
+            # GET /agents  (list all registered agents)
+            if path == "/agents":
+                self._handle_get_agents()
+                return
+
             _send_error(self, 404, f"No route for GET {self.path}")
         except Exception as exc:  # noqa: BLE001
             _send_error(self, 500, str(exc))
@@ -628,6 +642,19 @@ class ManifoldHandler(BaseHTTPRequestHandler):
                 self._handle_post_org_key(org_id, body, _caller2)
             elif path == "/signup":
                 self._handle_post_signup(body)
+            elif path == "/agents/register":
+                self._handle_post_agents_register(body)
+            elif path.startswith("/agents/") and path.endswith("/heartbeat"):
+                agent_id = path.split("/")[2]
+                self._handle_post_agent_heartbeat(agent_id, body)
+            elif path.startswith("/agents/") and path.endswith("/pause"):
+                agent_id = path.split("/")[2]
+                self._handle_post_agent_pause(agent_id)
+            elif path.startswith("/agents/") and path.endswith("/resume"):
+                agent_id = path.split("/")[2]
+                self._handle_post_agent_resume(agent_id)
+            elif path == "/task":
+                self._handle_post_task(body)
             else:
                 _send_error(self, 404, f"No route for POST {self.path}")
         except Exception as exc:  # noqa: BLE001
@@ -3426,6 +3453,92 @@ ManifoldHandler._handle_get_digest = _handle_get_digest  # type: ignore[attr-def
 
 
 # ---------------------------------------------------------------------------
+# Agentic layer endpoint handlers
+# ---------------------------------------------------------------------------
+
+
+def _handle_get_agents(self: "ManifoldHandler") -> None:
+    """GET /agents — list all registered agents."""
+    agents = _AGENT_REGISTRY.all_agents()
+    _send_json(self, 200, {
+        "agents": [a.to_dict() for a in agents],
+        "summary": _AGENT_REGISTRY.summary(),
+        "monitor": _AGENT_MONITOR.status(),
+    })
+
+
+def _handle_post_agents_register(self: "ManifoldHandler", body: dict) -> None:
+    """POST /agents/register — agent announces itself."""
+    agent_id = str(body.get("agent_id", "")).strip()
+    name = str(body.get("display_name", "")).strip()
+    caps = body.get("capabilities", [])
+    org_id = str(body.get("org_id", "default")).strip()
+    endpoint = str(body.get("endpoint_url", "")).strip()
+    domain = str(body.get("domain", "general")).strip()
+    if not agent_id or not name:
+        _send_error(self, 400, "agent_id and display_name required")
+        return
+    record = _AGENT_REGISTRY.register(
+        agent_id=agent_id,
+        display_name=name,
+        capabilities=caps if isinstance(caps, list) else [],
+        org_id=org_id,
+        endpoint_url=endpoint,
+        domain=domain,
+    )
+    _send_json(self, 201, record.to_dict())
+
+
+def _handle_post_agent_heartbeat(
+    self: "ManifoldHandler", agent_id: str, body: dict
+) -> None:
+    """POST /agents/{id}/heartbeat — keep-alive."""
+    status = str(body.get("status", "active"))
+    ok = _AGENT_REGISTRY.heartbeat(agent_id, status)
+    if not ok:
+        _send_error(self, 404, f"Agent {agent_id!r} not registered")
+        return
+    _send_json(self, 200, {"agent_id": agent_id, "acknowledged": True})
+
+
+def _handle_post_agent_pause(self: "ManifoldHandler", agent_id: str) -> None:
+    """POST /agents/{id}/pause — MANIFOLD pauses an agent."""
+    ok = _AGENT_REGISTRY.pause(agent_id)
+    if not ok:
+        _send_error(self, 404, f"Agent {agent_id!r} not found")
+        return
+    _send_json(self, 200, {"agent_id": agent_id, "status": "paused"})
+
+
+def _handle_post_agent_resume(self: "ManifoldHandler", agent_id: str) -> None:
+    """POST /agents/{id}/resume — MANIFOLD resumes a paused agent."""
+    ok = _AGENT_REGISTRY.resume(agent_id)
+    if not ok:
+        _send_error(self, 404, f"Agent {agent_id!r} not found")
+        return
+    _send_json(self, 200, {"agent_id": agent_id, "status": "active"})
+
+
+def _handle_post_task(self: "ManifoldHandler", body: dict) -> None:
+    """POST /task — receive any problem, decompose, govern, route."""
+    task = str(body.get("task", "")).strip()
+    stakes = float(body.get("stakes", 0.5))
+    if not task:
+        _send_error(self, 400, "task field required")
+        return
+    plan = _TASK_ROUTER.route(task, stakes_hint=stakes)
+    _send_json(self, 200, plan.to_dict())
+
+
+ManifoldHandler._handle_get_agents = _handle_get_agents  # type: ignore[attr-defined]
+ManifoldHandler._handle_post_agents_register = _handle_post_agents_register  # type: ignore[attr-defined]
+ManifoldHandler._handle_post_agent_heartbeat = _handle_post_agent_heartbeat  # type: ignore[attr-defined]
+ManifoldHandler._handle_post_agent_pause = _handle_post_agent_pause  # type: ignore[attr-defined]
+ManifoldHandler._handle_post_agent_resume = _handle_post_agent_resume  # type: ignore[attr-defined]
+ManifoldHandler._handle_post_task = _handle_post_task  # type: ignore[attr-defined]
+
+
+# ---------------------------------------------------------------------------
 # Public entry point
 # ---------------------------------------------------------------------------
 
@@ -3475,6 +3588,9 @@ def run_server(port: int = 8080, *, host: str = "0.0.0.0") -> None:
     _worker = ManifoldWorker(pipeline=_get_pipeline(), db=_db)
     _worker.start()
 
+    # Start agent monitor
+    _AGENT_MONITOR.start()
+
     server = HTTPServer((host, port), ManifoldHandler)
     print(f"MANIFOLD server listening on {host}:{port}  (Ctrl-C to stop)")
     try:
@@ -3485,6 +3601,7 @@ def run_server(port: int = 8080, *, host: str = "0.0.0.0") -> None:
         server.server_close()
         if _worker is not None:
             _worker.stop()
+        _AGENT_MONITOR.stop()
         # Flush DB state back to WAL for portability across container restarts
         async def _shutdown() -> None:
             await _db.flush_to_vault(_VAULT)
