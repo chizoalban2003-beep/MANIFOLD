@@ -1,5 +1,37 @@
 # Changelog
 
+## [1.5.8] — 2026-05-08
+
+### Added
+- MANIFOLD World is now functionally built like Clash of Clans.
+  Every building serves a real governance function. Economy is
+  interconnected. Time is real. Consequences are real.
+- World State Engine: persistent localStorage state (manifold_world_state)
+  for all buildings, resources, agents, upgrades. Auto-saved every 10s.
+- Tower Levels (1-5): gates agent count, zones, calibrators, heroes.
+- Real resource economy: 5 token types (finance_tokens, compute_credits,
+  compliance_tokens, audit_credits, manifold_energy), finite pools,
+  generation rates scale with building level, depletion throttles agents.
+- Calibrator (The Builder): one upgrade at a time, real countdown timers
+  shown above building, scaffolding animation while upgrading, speed-up
+  with manifold_energy.
+- Upgrade system: domain houses and tower upgradeable with costs and timers.
+  Building tap panel shows cost/time/progress and speed-up option.
+- Defence Buildings: 4 functional buildings with real detection ranges —
+  Inject Detector (injection, red), Anomaly Tower (degradation, amber),
+  Gossip Relay (poisoning, purple), Honeypot (one-use trap, green).
+- Attack system: adversarial attacks spawn at map edges, move toward tower,
+  get intercepted by defences matching their type. Breach costs 50 domain
+  tokens and drains that zone's agents.
+- Agent Training: warmup periods tracked in WS state, level-up queue,
+  hero agents (Claude, GPT-4o) with energy bars unlocked at Tower level 4.
+- Base Layout Editor: toggle edit mode to drag-and-drop defence buildings,
+  with real-time range preview and overlap highlighting.
+- Full economy loop: tasks→domain resources, defence→manifold_energy,
+  world_health→governance quality, tower_level→zone activation.
+- Economy summary panel: tap centre to see income/expense/net rates.
+- Web Audio sound effects for harvest, upgrade, attack, breach events.
+
 ## [1.5.7] — 2026-05-08
 
 ### Added
