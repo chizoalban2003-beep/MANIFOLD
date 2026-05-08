@@ -1181,7 +1181,7 @@ function skipSetup(){
 // ========== OFFLINE TICK ==========
 function applyOfflineTick(){
   const last=WS.last_tick||Date.now();
-  const elapsed=Math.min(240,(Date.now()-last)/60000); // cap at 4 hours (240 min) to prevent resource overflow
+  const elapsed=Math.min(240,(Date.now()-last)/60000); // elapsed in minutes; cap at 240 min (4 hours) to prevent overflow
   if(elapsed>1){
     Object.entries(WS.resources).forEach(([key,res])=>{
       const blvl=WS.buildings[RES_BMAP[key]]?.level||1;
