@@ -558,6 +558,21 @@ class ManifoldHandler(BaseHTTPRequestHandler):
                 self._handle_get_agents()
                 return
 
+            # GET /world  (serve the isometric game world)
+            if path == "/world":
+                self._handle_get_world()
+                return
+
+            # GET /world/manifest.json  (PWA manifest)
+            if path == "/world/manifest.json":
+                self._handle_get_world_manifest()
+                return
+
+            # GET /ws  (WebSocket upgrade)
+            if path == "/ws":
+                self._handle_ws_upgrade()
+                return
+
             _send_error(self, 404, f"No route for GET {self.path}")
         except Exception as exc:  # noqa: BLE001
             _send_error(self, 500, str(exc))
@@ -3528,6 +3543,193 @@ def _handle_post_task(self: "ManifoldHandler", body: dict) -> None:
         return
     plan = _TASK_ROUTER.route(task, stakes_hint=stakes)
     _send_json(self, 200, plan.to_dict())
+
+
+# ---------------------------------------------------------------------------
+# MANIFOLD World + WebSocket handlers
+# ---------------------------------------------------------------------------
+
+import base64 as _base64
+import hashlib as _hashlib_ws
+import socket as _socket
+import struct as _struct
+import os as _os_world
+
+_WORLD_DIR = _os_world.path.join(_os_world.path.dirname(_os_world.path.dirname(_os_world.path.abspath(__file__))), "manifold-world")
+
+
+def _handle_get_world(self: "ManifoldHandler") -> None:
+    """GET /world — serve the isometric game world HTML."""
+    world_file = _os_world.path.join(_WORLD_DIR, "index.html")
+    if not _os_world.path.exists(world_file):
+        _send_error(self, 404, "MANIFOLD World not found")
+        return
+    with open(world_file, "rb") as fh:
+        data = fh.read()
+    self.send_response(200)
+    self.send_header("Content-Type", "text/html; charset=utf-8")
+    self.send_header("Content-Length", str(len(data)))
+    self.end_headers()
+    self.wfile.write(data)
+
+
+def _handle_get_world_manifest(self: "ManifoldHandler") -> None:
+    """GET /world/manifest.json — serve the PWA manifest."""
+    manifest_file = _os_world.path.join(_WORLD_DIR, "manifest.json")
+    if not _os_world.path.exists(manifest_file):
+        _send_error(self, 404, "Manifest not found")
+        return
+    with open(manifest_file, "rb") as fh:
+        data = fh.read()
+    self.send_response(200)
+    self.send_header("Content-Type", "application/json; charset=utf-8")
+    self.send_header("Content-Length", str(len(data)))
+    self.end_headers()
+    self.wfile.write(data)
+
+
+def _ws_send_frame(conn: "_socket.socket", payload: bytes, opcode: int = 0x1) -> None:
+    """Send a single WebSocket text frame."""
+    ln = len(payload)
+    if ln <= 125:
+        header = bytes([0x80 | opcode, ln])
+    elif ln <= 65535:
+        header = bytes([0x80 | opcode, 126]) + _struct.pack(">H", ln)
+    else:
+        header = bytes([0x80 | opcode, 127]) + _struct.pack(">Q", ln)
+    conn.sendall(header + payload)
+
+
+def _ws_read_frame(conn: "_socket.socket") -> "bytes | None":
+    """Read one WebSocket frame, return payload or None on close."""
+    try:
+        raw = b""
+        while len(raw) < 2:
+            chunk = conn.recv(2 - len(raw))
+            if not chunk:
+                return None
+            raw += chunk
+        first, second = raw[0], raw[1]
+        masked = bool(second & 0x80)
+        ln = second & 0x7F
+        if ln == 126:
+            buf = b""
+            while len(buf) < 2:
+                buf += conn.recv(2 - len(buf))
+            ln = _struct.unpack(">H", buf)[0]
+        elif ln == 127:
+            buf = b""
+            while len(buf) < 8:
+                buf += conn.recv(8 - len(buf))
+            ln = _struct.unpack(">Q", buf)[0]
+        mask_key = b""
+        if masked:
+            while len(mask_key) < 4:
+                mask_key += conn.recv(4 - len(mask_key))
+        payload = b""
+        while len(payload) < ln:
+            payload += conn.recv(ln - len(payload))
+        if masked:
+            payload = bytes(payload[i] ^ mask_key[i % 4] for i in range(ln))
+        opcode = first & 0x0F
+        if opcode == 0x8:  # close frame
+            return None
+        return payload
+    except OSError:
+        return None
+
+
+def _handle_ws_upgrade(self: "ManifoldHandler") -> None:
+    """GET /ws — WebSocket upgrade + live event loop."""
+    # Only accept Upgrade: websocket requests
+    upgrade = self.headers.get("Upgrade", "").lower()
+    if upgrade != "websocket":
+        _send_error(self, 400, "WebSocket upgrade required")
+        return
+    key = self.headers.get("Sec-WebSocket-Key", "")
+    if not key:
+        _send_error(self, 400, "Sec-WebSocket-Key missing")
+        return
+    # Compute accept hash
+    magic = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
+    accept = _base64.b64encode(
+        _hashlib_ws.sha1((key + magic).encode()).digest()
+    ).decode()
+    # Send 101 Switching Protocols
+    self.send_response(101)
+    self.send_header("Upgrade", "websocket")
+    self.send_header("Connection", "Upgrade")
+    self.send_header("Sec-WebSocket-Accept", accept)
+    self.end_headers()
+    self.wfile.flush()
+
+    conn = self.connection
+    conn.settimeout(1.0)
+
+    last_agent_push = 0.0
+    last_stats_push = 0.0
+
+    def _agents_payload() -> bytes:
+        agents = _AGENT_REGISTRY.all_agents()
+        data = {
+            "type": "agent_update",
+            "agents": [
+                {
+                    "id": a.agent_id,
+                    "status": a.status,
+                    "task": a.notes or "active",
+                    "risk": round(1.0 - a.health_score(), 4),
+                    "health": round(a.health_score(), 4),
+                    "tx": float(a.task_count % 16),
+                    "tz": float(a.error_count % 16),
+                }
+                for a in agents
+            ],
+        }
+        return json.dumps(data).encode()
+
+    def _stats_payload() -> bytes:
+        summary = _AGENT_REGISTRY.summary()
+        plans = _TASK_ROUTER.all_plans()
+        data = {
+            "type": "world_stats",
+            "agents_active": summary.get("active", 0),
+            "tasks_running": sum(1 for p in plans if not p.executable and p.blocked_count == 0),
+            "governance_events_today": _REFUSAL_COUNT,
+            "system_health": round(summary.get("avg_health", 1.0), 4),
+        }
+        return json.dumps(data).encode()
+
+    try:
+        while True:
+            now = time.time()
+            # Send agent update every 5 s
+            if now - last_agent_push >= 5.0:
+                _ws_send_frame(conn, _agents_payload())
+                last_agent_push = now
+            # Send world stats every 30 s
+            if now - last_stats_push >= 30.0:
+                _ws_send_frame(conn, _stats_payload())
+                last_stats_push = now
+            # Non-blocking read (timeout=1s)
+            try:
+                frame = _ws_read_frame(conn)
+                if frame is None:
+                    break  # client disconnected
+            except OSError:
+                pass  # timeout, continue
+    except OSError:
+        pass
+    finally:
+        try:
+            conn.close()
+        except OSError:
+            pass
+
+
+ManifoldHandler._handle_get_world = _handle_get_world  # type: ignore[attr-defined]
+ManifoldHandler._handle_get_world_manifest = _handle_get_world_manifest  # type: ignore[attr-defined]
+ManifoldHandler._handle_ws_upgrade = _handle_ws_upgrade  # type: ignore[attr-defined]
 
 
 ManifoldHandler._handle_get_agents = _handle_get_agents  # type: ignore[attr-defined]

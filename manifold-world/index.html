@@ -1,0 +1,1224 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#0a0c14">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="description" content="MANIFOLD World — AI governance visualised as an isometric game">
+<link rel="manifest" href="/world/manifest.json">
+<title>MANIFOLD World</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;height:100%;overflow:hidden;background:#0a0c14;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}
+canvas{display:block;touch-action:none}
+#hud-tl{position:fixed;top:12px;left:14px;z-index:50;pointer-events:none}
+#hud-tl .logo{color:#7F77DD;font-size:13px;font-weight:700;letter-spacing:.06em}
+#hud-tl .ver{color:#444;font-size:10px;margin-top:1px}
+#hud-tr{position:fixed;top:12px;right:14px;z-index:50;display:flex;align-items:center;gap:10px}
+.counter{color:#888;font-size:11px;display:flex;align-items:center;gap:4px}
+.counter span{color:#ccc;font-weight:600}
+#alert-dot{width:8px;height:8px;border-radius:50%;background:#A32D2D;display:none;animation:pulse-red 1s infinite}
+@keyframes pulse-red{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.4;transform:scale(1.5)}}
+#world-health{position:fixed;top:8px;left:50%;transform:translateX(-50%);z-index:50;display:flex;align-items:center;gap:6px}
+#world-health .label{color:#555;font-size:10px}
+#wh-bar{width:120px;height:4px;background:#1a1a2e;border-radius:2px;overflow:hidden}
+#wh-fill{height:100%;background:#4ade80;border-radius:2px;transition:width .5s,background .5s}
+#minimap{position:fixed;bottom:14px;right:14px;z-index:50;cursor:pointer}
+#minimap canvas{border:0.5px solid rgba(127,119,221,.3);border-radius:4px}
+#panel{position:fixed;bottom:0;left:0;right:0;z-index:80;background:#0b0d1e;border-top:0.5px solid rgba(127,119,221,.3);padding:16px;transform:translateY(100%);transition:transform .25s ease;max-height:60vh;overflow-y:auto}
+#panel.open{transform:translateY(0)}
+.panel-close{float:right;color:#555;font-size:18px;cursor:pointer;padding:0 4px}
+.panel-title{color:#ccc;font-size:14px;font-weight:600;margin-bottom:10px}
+.badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:10px;margin-left:6px;vertical-align:middle}
+.badge-active{background:rgba(74,222,128,.15);color:#4ade80}
+.badge-busy{background:rgba(251,191,36,.15);color:#fbbf24}
+.badge-idle{background:rgba(156,163,175,.1);color:#9ca3af}
+.badge-paused{background:rgba(163,60,60,.15);color:#A32D2D}
+.bar-row{display:flex;align-items:center;gap:8px;margin:6px 0}
+.bar-label{color:#666;font-size:11px;width:60px}
+.bar-bg{flex:1;height:5px;background:#1a1a2e;border-radius:3px;overflow:hidden}
+.bar-fill{height:100%;border-radius:3px;transition:width .4s}
+.bar-val{color:#888;font-size:11px;width:32px;text-align:right}
+.panel-detail{color:#666;font-size:11px;margin-top:4px}
+.panel-btns{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
+.btn-sm{padding:7px 14px;border-radius:7px;font-size:12px;cursor:pointer;border:0.5px solid rgba(127,119,221,.4);background:rgba(127,119,221,.08);color:#AFA9EC}
+.btn-sm.danger{border-color:rgba(163,60,60,.4);background:rgba(163,60,60,.08);color:#e57373}
+#legend{position:fixed;bottom:14px;left:14px;z-index:50;pointer-events:none}
+#legend .row{display:flex;align-items:center;gap:5px;margin:2px 0}
+#legend .dot{width:8px;height:8px;border-radius:50%}
+#legend .lbl{color:#444;font-size:10px}
+/* task overlay */
+#task-overlay{display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.65);z-index:200;align-items:center;justify-content:center}
+#task-overlay .box{background:#0f1020;border:0.5px solid rgba(127,119,221,.5);border-radius:12px;padding:20px;width:min(340px,90vw)}
+#task-overlay .box-title{color:#888;font-size:11px;margin-bottom:4px}
+#task-domain{color:#7F77DD;text-transform:uppercase}
+#task-input{width:100%;background:#070810;border:0.5px solid rgba(127,119,221,.3);border-radius:8px;color:#ccc;padding:10px;font-size:13px;resize:none;box-sizing:border-box;margin-bottom:12px;font-family:inherit}
+.stakes-row{display:flex;align-items:center;gap:10px;margin-bottom:12px}
+.stakes-row span{color:#666;font-size:12px;white-space:nowrap}
+#task-stakes{flex:1}
+#stakes-val{color:#ccc;font-size:12px;min-width:28px}
+.overlay-btns{display:flex;gap:8px}
+.overlay-btns button{flex:1;padding:10px;border-radius:8px;cursor:pointer;font-size:13px;font-family:inherit}
+#task-cancel{background:none;border:0.5px solid rgba(255,255,255,.12);color:#666}
+#task-submit{background:rgba(127,119,221,.15);border:0.5px solid rgba(127,119,221,.5);color:#AFA9EC;font-weight:500}
+/* setup overlay */
+#setup-overlay{display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.75);z-index:300;align-items:center;justify-content:center}
+#setup-overlay .box{background:#0f1020;border:0.5px solid rgba(127,119,221,.5);border-radius:14px;padding:24px;width:min(380px,92vw)}
+#setup-overlay h2{color:#AFA9EC;font-size:15px;margin-bottom:8px}
+#setup-overlay p{color:#555;font-size:12px;margin-bottom:16px;line-height:1.6}
+#setup-overlay input{width:100%;background:#070810;border:0.5px solid rgba(127,119,221,.3);border-radius:8px;color:#ccc;padding:9px 12px;font-size:13px;box-sizing:border-box;margin-bottom:10px;font-family:inherit}
+#setup-overlay input::placeholder{color:#333}
+.setup-btns{display:flex;gap:8px;margin-top:4px}
+#setup-skip{flex:1;padding:9px;border-radius:8px;background:none;border:0.5px solid rgba(255,255,255,.1);color:#555;cursor:pointer;font-family:inherit}
+#setup-save{flex:2;padding:9px;border-radius:8px;background:rgba(127,119,221,.15);border:0.5px solid rgba(127,119,221,.5);color:#AFA9EC;cursor:pointer;font-weight:500;font-family:inherit}
+</style>
+</head>
+<body>
+
+<!-- HUD Top-Left -->
+<div id="hud-tl">
+  <div class="logo">◈ MANIFOLD</div>
+  <div class="ver">v1.5.6 • World</div>
+</div>
+
+<!-- HUD Top-Right -->
+<div id="hud-tr">
+  <div class="counter">🔑 Tokens <span id="cnt-tokens">—</span></div>
+  <div class="counter">⚡ Tasks <span id="cnt-tasks">0</span></div>
+  <div id="alert-dot" title="High-risk event blocked"></div>
+</div>
+
+<!-- World Health Bar -->
+<div id="world-health">
+  <span class="label">World Health</span>
+  <div id="wh-bar"><div id="wh-fill" style="width:90%"></div></div>
+</div>
+
+<!-- Legend -->
+<div id="legend">
+  <div class="row"><div class="dot" style="background:#BA7517"></div><div class="lbl">Finance</div></div>
+  <div class="row"><div class="dot" style="background:#185FA5"></div><div class="lbl">DevOps</div></div>
+  <div class="row"><div class="dot" style="background:#0F6E56"></div><div class="lbl">Healthcare</div></div>
+  <div class="row"><div class="dot" style="background:#534AB7"></div><div class="lbl">Legal</div></div>
+  <div class="row"><div class="dot" style="background:#7F77DD"></div><div class="lbl">MANIFOLD</div></div>
+</div>
+
+<!-- Mini-map -->
+<div id="minimap"><canvas id="mm" width="80" height="80"></canvas></div>
+
+<!-- Bottom Panel -->
+<div id="panel">
+  <span class="panel-close" onclick="closePanel()">✕</span>
+  <div id="panel-content"></div>
+</div>
+
+<!-- Task Overlay -->
+<div id="task-overlay">
+  <div class="box">
+    <div class="box-title">DEPLOY TASK — <span id="task-domain">—</span></div>
+    <textarea id="task-input" rows="3" placeholder="Describe the task..."></textarea>
+    <div class="stakes-row">
+      <span>Stakes</span>
+      <input type="range" id="task-stakes" min="0.1" max="0.95" step="0.05" value="0.5">
+      <span id="stakes-val">50%</span>
+    </div>
+    <div class="overlay-btns">
+      <button id="task-cancel">Cancel</button>
+      <button id="task-submit">Deploy</button>
+    </div>
+  </div>
+</div>
+
+<!-- Setup Overlay -->
+<div id="setup-overlay">
+  <div class="box">
+    <h2>Connect to MANIFOLD</h2>
+    <p>Enter your API key and server URL to stream live agent data. Without them, the world runs in demo mode with simulated agents.</p>
+    <input id="setup-url" type="text" placeholder="Server URL (e.g. https://your-server.com)">
+    <input id="setup-key" type="text" placeholder="MANIFOLD API Key">
+    <div class="setup-btns">
+      <button id="setup-skip">Demo mode</button>
+      <button id="setup-save">Connect</button>
+    </div>
+  </div>
+</div>
+
+<canvas id="world"></canvas>
+
+<script>
+'use strict';
+// ============================================================
+// CONSTANTS
+// ============================================================
+const GRID = 16;
+const BASE_TW = 72, BASE_TH = 36;
+const ZONE_DEFS = {
+  finance:    {minI:0,  maxI:6,  minJ:0,  maxJ:6,  tile:'#1e1000', accent:'#BA7517'},
+  devops:     {minI:9,  maxI:15, minJ:0,  maxJ:6,  tile:'#00111e', accent:'#185FA5'},
+  healthcare: {minI:0,  maxI:6,  minJ:9,  maxJ:15, tile:'#001510', accent:'#0F6E56'},
+  legal:      {minI:9,  maxI:15, minJ:9,  maxJ:15, tile:'#0d0a1e', accent:'#534AB7'},
+  manifold:   {minI:6,  maxI:9,  minJ:6,  maxJ:9,  tile:'#12103a', accent:'#7F77DD'},
+  neutral:    {tile:'#0f0f0f', accent:'#333333'},
+};
+
+// ============================================================
+// STATE
+// ============================================================
+let zoom = 1.0;
+let OX = 0, OY = 0;
+let isDragging = false, dragStartX = 0, dragStartY = 0, dragOX = 0, dragOY = 0;
+let selectedAgent = null, selectedType = null;
+let defenceFlash = 0; // timestamp when defence flash started
+let lowHealthTimer = 0; // seconds world health has been < 0.5
+let worldHealthAlert = false;
+let t = 0; // animation time
+
+// Resource nodes fill level per domain (0-100)
+const RESOURCES = {finance:45, devops:60, healthcare:30, legal:80, manifold:50};
+const RESOURCE_POS = {finance:[3,3], devops:[12,3], healthcare:[3,12], legal:[12,12], manifold:[8,8]};
+
+// Task pillars: [{ti, tj, taskId, domain, progress (0-1)}]
+const TASK_PILLARS = [];
+
+// Governance beams: [{agent, permitted, alpha, x, y}]
+const GOV_BEAMS = [];
+
+// TREE positions (avoiding roads at ti=7-8 or tj=7-8)
+const TREES = [
+  [1,1],[4,2],[2,5],[5,1],[1,4],
+  [10,1],[14,3],[11,5],[13,1],[14,1],
+  [1,10],[3,14],[5,12],[1,14],[2,11],
+  [10,10],[14,12],[11,14],[13,10],[15,14],
+  [4,4],[11,4],[4,11],[11,11],
+];
+
+// Defence sensor corners
+const SENSORS = [[0,0],[15,0],[0,15],[15,15]];
+
+// ============================================================
+// AGENTS
+// ============================================================
+const AGENTS = [
+  {id:'finance-bot',  name:'Finance',     domain:'finance',    home:[2,2],   status:'active', task:'Invoice processing',   risk:0.42, _health:0.88, color:'#BA7517', phase:0.0},
+  {id:'ops-agent',    name:'Ops Agent',   domain:'devops',     home:[13,2],  status:'active', task:'Pipeline monitoring',  risk:0.38, _health:0.92, color:'#185FA5', phase:1.1},
+  {id:'health-bot',   name:'Health Bot',  domain:'healthcare', home:[2,13],  status:'busy',   task:'Triage review',        risk:0.67, _health:0.75, color:'#0F6E56', phase:2.2},
+  {id:'legal-eye',    name:'Legal Eye',   domain:'legal',      home:[13,13], status:'idle',   task:'Awaiting task',        risk:0.22, _health:0.95, color:'#534AB7', phase:3.3},
+  {id:'risk-scout',   name:'Risk Scout',  domain:'general',    home:[8,8],   status:'busy',   task:'Anomaly scan',         risk:0.81, _health:0.58, color:'#854F0B', phase:4.4},
+  {id:'trade-watch',  name:'Trade Watch', domain:'trading',    home:[11,11], status:'paused', task:'PAUSED — high risk',   risk:0.93, _health:0.32, color:'#A32D2D', phase:5.5},
+];
+
+AGENTS.forEach(a => {
+  a.tx = a.home[0]; a.tz = a.home[1]; // current float position
+  a._tx = a.home[0]; a._tz = a.home[1]; // target
+  a._ttx = null; a._ttz = null; // server-pushed target
+  a._govPulse = 0; a._govPermitted = true;
+  a._moveTimer = 2 + Math.random() * 3;
+  a._level = healthToLevel(a._health);
+});
+
+function healthToLevel(h) {
+  if (h > 0.9) return 5;
+  if (h > 0.75) return 4;
+  if (h > 0.6) return 3;
+  if (h > 0.4) return 2;
+  return 1;
+}
+
+// ============================================================
+// CANVAS SETUP
+// ============================================================
+const canvas = document.getElementById('world');
+const ctx = canvas.getContext('2d');
+
+function resizeCanvas() {
+  canvas.width  = window.innerWidth;
+  canvas.height = window.innerHeight;
+  OX = canvas.width  / 2;
+  OY = canvas.height * 0.18;
+}
+resizeCanvas();
+window.addEventListener('resize', resizeCanvas);
+
+// ============================================================
+// COORDINATE HELPERS
+// ============================================================
+function tileToScreen(ti, tj) {
+  const TW = BASE_TW * zoom, TH = BASE_TH * zoom;
+  return {
+    x: OX + (ti - tj) * (TW / 2),
+    y: OY + (ti + tj) * (TH / 2),
+  };
+}
+
+function screenToTile(sx, sy) {
+  const TW = BASE_TW * zoom, TH = BASE_TH * zoom;
+  const dx = sx - OX, dy = sy - OY;
+  const ti = (dx / (TW / 2) + dy / (TH / 2)) / 2;
+  const tj = (dy / (TH / 2) - dx / (TW / 2)) / 2;
+  return {ti: Math.round(ti), tj: Math.round(tj)};
+}
+
+function getZone(ti, tj) {
+  for (const [name, z] of Object.entries(ZONE_DEFS)) {
+    if (name === 'neutral') continue;
+    if (ti >= z.minI && ti <= z.maxI && tj >= z.minJ && tj <= z.maxJ) return name;
+  }
+  return 'neutral';
+}
+
+function isRoad(ti, tj) {
+  return (ti === 7 || ti === 8 || tj === 7 || tj === 8);
+}
+
+// ============================================================
+// DRAWING HELPERS
+// ============================================================
+function drawTileDiamond(ctx, cx, cy, tw, th, fill, stroke) {
+  ctx.beginPath();
+  ctx.moveTo(cx,        cy - th/2);
+  ctx.lineTo(cx + tw/2, cy);
+  ctx.lineTo(cx,        cy + th/2);
+  ctx.lineTo(cx - tw/2, cy);
+  ctx.closePath();
+  if (fill)   { ctx.fillStyle = fill; ctx.fill(); }
+  if (stroke) { ctx.strokeStyle = stroke; ctx.lineWidth = 0.5; ctx.stroke(); }
+}
+
+function drawIsoBox(ctx, cx, cy, w, h, depth, topColor, leftColor, rightColor) {
+  const hw = w / 2, hd = depth / 2;
+  // top face
+  ctx.beginPath();
+  ctx.moveTo(cx,      cy - h);
+  ctx.lineTo(cx + hw, cy - h + hd);
+  ctx.lineTo(cx,      cy - h + depth);
+  ctx.lineTo(cx - hw, cy - h + hd);
+  ctx.closePath();
+  ctx.fillStyle = topColor; ctx.fill();
+  // left face
+  ctx.beginPath();
+  ctx.moveTo(cx - hw, cy - h + hd);
+  ctx.lineTo(cx,      cy - h + depth);
+  ctx.lineTo(cx,      cy + depth);
+  ctx.lineTo(cx - hw, cy + hd);
+  ctx.closePath();
+  ctx.fillStyle = leftColor; ctx.fill();
+  // right face
+  ctx.beginPath();
+  ctx.moveTo(cx + hw, cy - h + hd);
+  ctx.lineTo(cx,      cy - h + depth);
+  ctx.lineTo(cx,      cy + depth);
+  ctx.lineTo(cx + hw, cy + hd);
+  ctx.closePath();
+  ctx.fillStyle = rightColor; ctx.fill();
+}
+
+function hexToRgb(hex, a=1) {
+  const r = parseInt(hex.slice(1,3),16);
+  const g = parseInt(hex.slice(3,5),16);
+  const b = parseInt(hex.slice(5,7),16);
+  return `rgba(${r},${g},${b},${a})`;
+}
+
+function darken(hex, factor=0.6) {
+  const r = Math.floor(parseInt(hex.slice(1,3),16)*factor);
+  const g = Math.floor(parseInt(hex.slice(3,5),16)*factor);
+  const b = Math.floor(parseInt(hex.slice(5,7),16)*factor);
+  return `rgb(${r},${g},${b})`;
+}
+
+// ============================================================
+// SORTED RENDER LIST
+// ============================================================
+function buildRenderList() {
+  // Collect all objects to render, sorted by painter depth (ti+tj)
+  const items = [];
+  for (let ti = 0; ti < GRID; ti++) {
+    for (let tj = 0; tj < GRID; tj++) {
+      items.push({type:'tile', ti, tj, depth: ti + tj});
+    }
+  }
+  TREES.forEach((pos, idx) => {
+    items.push({type:'tree', ti:pos[0], tj:pos[1], idx, depth:pos[0]+pos[1]+0.1});
+  });
+  // Houses
+  const HOUSES = [
+    {ti:2,  tj:2,  zone:'finance'},
+    {ti:13, tj:2,  zone:'devops'},
+    {ti:2,  tj:13, zone:'healthcare'},
+    {ti:13, tj:13, zone:'legal'},
+  ];
+  HOUSES.forEach(h => items.push({type:'house', ...h, depth:h.ti+h.tj+0.2}));
+  // Resource nodes
+  Object.entries(RESOURCE_POS).forEach(([zone, [ti,tj]]) => {
+    items.push({type:'resource', ti, tj, zone, depth:ti+tj+0.3});
+  });
+  // Memory crystals
+  const CRYSTALS = [[4,1],[12,4],[1,12],[14,14],[8,3],[3,8]];
+  CRYSTALS.forEach((pos, idx) => {
+    items.push({type:'crystal', ti:pos[0], tj:pos[1], idx, depth:pos[0]+pos[1]+0.15});
+  });
+  // Defence sensors
+  SENSORS.forEach((pos, idx) => {
+    items.push({type:'sensor', ti:pos[0], tj:pos[1], idx, depth:pos[0]+pos[1]+0.2});
+  });
+  // MANIFOLD tower
+  items.push({type:'tower', ti:7, tj:7, depth:14.5});
+  // Task pillars
+  TASK_PILLARS.forEach(p => items.push({type:'pillar', ...p, depth:p.ti+p.tj+0.4}));
+  // Agents
+  AGENTS.forEach(a => {
+    items.push({type:'agent', agent:a, depth:a.tx+a.tz+0.5});
+  });
+  items.sort((a,b) => a.depth - b.depth);
+  return items;
+}
+
+// ============================================================
+// RENDER FUNCTIONS
+// ============================================================
+function drawTile(ti, tj) {
+  const {x, y} = tileToScreen(ti, tj);
+  const TW = BASE_TW*zoom, TH = BASE_TH*zoom;
+  const zone = getZone(ti, tj);
+  let fill = ZONE_DEFS[zone]?.tile || '#0f0f0f';
+  if (isRoad(ti, tj)) fill = '#111111';
+  const accent = ZONE_DEFS[zone]?.accent;
+  let strokeColor = null;
+  if (!isRoad(ti,tj) && accent) strokeColor = hexToRgb(accent, 0.1);
+  drawTileDiamond(ctx, x, y, TW, TH, fill, strokeColor);
+}
+
+function drawTree(ti, tj, idx) {
+  const {x, y} = tileToScreen(ti, tj);
+  const zone = getZone(ti, tj);
+  const accent = ZONE_DEFS[zone]?.accent || '#4a7a4a';
+  const sway = Math.sin(t * 0.8 + idx * 1.3) * 2 * zoom;
+  const TH = BASE_TH * zoom;
+  // trunk
+  ctx.fillStyle = '#4a3520';
+  ctx.fillRect(x - 2*zoom, y - 8*zoom + sway, 4*zoom, 8*zoom);
+  // canopy diamond
+  ctx.beginPath();
+  ctx.moveTo(x + sway,           y - 18*zoom + sway);
+  ctx.lineTo(x + 10*zoom + sway, y - 10*zoom + sway);
+  ctx.lineTo(x + sway,           y - 4*zoom + sway);
+  ctx.lineTo(x - 10*zoom + sway, y - 10*zoom + sway);
+  ctx.closePath();
+  ctx.fillStyle = hexToRgb(accent, 0.7);
+  ctx.fill();
+}
+
+function drawHouse(ti, tj, zone) {
+  const {x, y} = tileToScreen(ti, tj);
+  const z = ZONE_DEFS[zone];
+  const accent = z?.accent || '#888888';
+  const w = 28*zoom, h1 = 14*zoom, h2 = 10*zoom, depth = 7*zoom;
+  // Base level
+  drawIsoBox(ctx, x, y, w, h1+h2, depth, accent, darken(accent,0.5), darken(accent,0.35));
+  // Upper level — narrower
+  drawIsoBox(ctx, x, y - h1 - depth, w*0.7, h2, depth*0.7, accent, darken(accent,0.55), darken(accent,0.4));
+  // Door
+  ctx.fillStyle = 'rgba(0,0,0,.4)';
+  ctx.fillRect(x - 4*zoom, y - h2 + depth/2, 8*zoom, h2*0.8);
+}
+
+function drawCrystal(ti, tj, idx) {
+  const {x, y} = tileToScreen(ti, tj);
+  const zone = getZone(ti, tj);
+  const accent = ZONE_DEFS[zone]?.accent || '#7F77DD';
+  const pulse = 0.4 + 0.4 * Math.sin(t * 1.5 + idx);
+  const sz = 8 * zoom;
+  ctx.beginPath();
+  ctx.moveTo(x,      y - sz*1.5);
+  ctx.lineTo(x + sz, y);
+  ctx.lineTo(x,      y + sz*0.8);
+  ctx.lineTo(x - sz, y);
+  ctx.closePath();
+  ctx.fillStyle = hexToRgb(accent, pulse);
+  ctx.fill();
+  ctx.strokeStyle = hexToRgb(accent, pulse + 0.2);
+  ctx.lineWidth = 0.5;
+  ctx.stroke();
+}
+
+function drawResource(ti, tj, zone) {
+  const {x, y} = tileToScreen(ti, tj);
+  const accent = ZONE_DEFS[zone]?.accent || '#888';
+  const level = RESOURCES[zone] || 0;
+  const full = level >= 99;
+  const r = 12 * zoom;
+  const pulse = full ? (0.7 + 0.3 * Math.sin(t * 3)) : 0.5;
+  // dome base
+  ctx.beginPath();
+  ctx.ellipse(x, y, r, r * 0.5, 0, Math.PI, 0);
+  ctx.closePath();
+  ctx.fillStyle = hexToRgb(accent, 0.15);
+  ctx.fill();
+  ctx.strokeStyle = hexToRgb(accent, 0.4);
+  ctx.lineWidth = 0.5;
+  ctx.stroke();
+  // fill arc
+  const fillArc = Math.PI * (1 - level / 100);
+  ctx.beginPath();
+  ctx.ellipse(x, y, r * 0.85, r * 0.4, 0, Math.PI, fillArc, true);
+  ctx.fillStyle = hexToRgb(accent, pulse);
+  ctx.fill();
+  // label
+  ctx.fillStyle = full ? accent : '#555';
+  ctx.font = `${Math.max(8, 9*zoom)}px monospace`;
+  ctx.textAlign = 'center';
+  ctx.fillText(full ? '!' : `${Math.floor(level)}`, x, y - r * 0.6);
+  ctx.textAlign = 'left';
+}
+
+function drawSensor(ti, tj, idx) {
+  const {x, y} = tileToScreen(ti, tj);
+  const isFlash = (Date.now() - defenceFlash) < 1500;
+  const color = isFlash ? '#ff2222' : '#333';
+  const alpha = isFlash ? (0.6 + 0.4 * Math.sin(t * 10)) : 0.4;
+  // base box
+  ctx.fillStyle = hexToRgb(color, alpha * 0.5);
+  ctx.fillRect(x - 4*zoom, y - 4*zoom, 8*zoom, 4*zoom);
+  // vertical antenna
+  ctx.beginPath();
+  ctx.moveTo(x, y - 4*zoom);
+  ctx.lineTo(x, y - 14*zoom);
+  ctx.strokeStyle = hexToRgb(color, alpha);
+  ctx.lineWidth = 1.5 * zoom;
+  ctx.stroke();
+  // dish diamond
+  const dz = 4 * zoom;
+  ctx.beginPath();
+  ctx.moveTo(x,      y - 18*zoom);
+  ctx.lineTo(x + dz, y - 14*zoom);
+  ctx.lineTo(x,      y - 10*zoom);
+  ctx.lineTo(x - dz, y - 14*zoom);
+  ctx.closePath();
+  ctx.fillStyle = hexToRgb(color, alpha);
+  ctx.fill();
+}
+
+function drawTower() {
+  const {x, y} = tileToScreen(7.5, 7.5);
+  // Level 1 - base platform (2x2)
+  const w1 = 48*zoom, d1 = 12*zoom;
+  drawIsoBox(ctx, x, y, w1, 10*zoom, d1, '#2a2460', '#1a1540', '#1d1845');
+  // Level 2 - main body
+  const w2 = 34*zoom, d2 = 10*zoom, y2 = y - 10*zoom - d1/2;
+  drawIsoBox(ctx, x, y2, w2, 30*zoom, d2, '#534AB7', darken('#534AB7',0.55), darken('#534AB7',0.4));
+  // Level 3 - upper spire
+  const w3 = 20*zoom, d3 = 6*zoom, y3 = y2 - 30*zoom - d2/2;
+  drawIsoBox(ctx, x, y3, w3, 20*zoom, d3, '#7F77DD', darken('#7F77DD',0.55), darken('#7F77DD',0.4));
+  // Level 4 - orb
+  const orbY = y3 - 20*zoom - d3/2;
+  const orbR = 8 * zoom;
+  const orbPulse = 0.7 + 0.3 * Math.sin(t * 2);
+  ctx.beginPath();
+  ctx.arc(x, orbY, orbR, 0, Math.PI * 2);
+  ctx.fillStyle = hexToRgb('#EEEDFE', orbPulse);
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(127,119,221,.6)';
+  ctx.lineWidth = 1;
+  ctx.stroke();
+  // Governance beams from orb
+  GOV_BEAMS.forEach(beam => {
+    if (beam.alpha <= 0) return;
+    const agPos = tileToScreen(beam.agent.tx, beam.agent.tz);
+    ctx.beginPath();
+    ctx.moveTo(x, orbY);
+    ctx.lineTo(agPos.x, agPos.y - 10*zoom);
+    ctx.setLineDash([4*zoom, 4*zoom]);
+    ctx.strokeStyle = beam.permitted
+      ? `rgba(74,222,128,${beam.alpha})`
+      : `rgba(255,50,50,${beam.alpha})`;
+    ctx.lineWidth = 1.5 * zoom;
+    ctx.stroke();
+    ctx.setLineDash([]);
+  });
+}
+
+function drawPillar(pillar) {
+  const {x, y} = tileToScreen(pillar.ti, pillar.tj);
+  const zone = pillar.domain || 'neutral';
+  const accent = ZONE_DEFS[zone]?.accent || '#7F77DD';
+  const h = (20 * (1 - pillar.progress)) * zoom;
+  const w = 4 * zoom;
+  ctx.fillStyle = hexToRgb(accent, 0.8 + 0.2 * Math.sin(t * 4));
+  ctx.fillRect(x - w/2, y - h, w, h);
+  // glow top
+  ctx.beginPath();
+  ctx.arc(x, y - h, w * 0.8, 0, Math.PI * 2);
+  ctx.fillStyle = hexToRgb(accent, 0.9);
+  ctx.fill();
+}
+
+function drawAgent(a) {
+  const {x, y} = tileToScreen(a.tx, a.tz);
+  const bob = Math.sin(t * 3 + a.phase) * 3 * zoom;
+  const ay = y + bob;
+  const isPaused = a.status === 'paused';
+  const statusColor = {
+    active: '#4ade80', busy: '#fbbf24', idle: '#9ca3af', paused: '#A32D2D'
+  }[a.status] || '#888';
+  // shadow
+  ctx.beginPath();
+  ctx.ellipse(x, y + 2*zoom, 8*zoom, 3*zoom, 0, 0, Math.PI*2);
+  ctx.fillStyle = 'rgba(0,0,0,.35)';
+  ctx.fill();
+  // body box
+  const bw = 10*zoom, bh = 12*zoom, bd = 4*zoom;
+  drawIsoBox(ctx, x, ay, bw, bh, bd, a.color, darken(a.color, 0.55), darken(a.color, 0.4));
+  // head
+  ctx.beginPath();
+  ctx.arc(x, ay - bh - bd/2 - 5*zoom, 5*zoom, 0, Math.PI*2);
+  ctx.fillStyle = a.color;
+  ctx.fill();
+  // governance glow
+  if (a._govPulse > 0) {
+    const glowColor = a._govPermitted ? '#4ade80' : '#ff2222';
+    ctx.beginPath();
+    ctx.arc(x, ay - bh/2, 16*zoom, 0, Math.PI*2);
+    ctx.strokeStyle = hexToRgb(glowColor, a._govPulse * 0.6);
+    ctx.lineWidth = 2 * zoom;
+    ctx.stroke();
+  }
+  // name tag
+  const nameY = ay - bh - bd/2 - 16*zoom;
+  ctx.fillStyle = 'rgba(0,0,0,.7)';
+  const tw = 5.5 * a.name.length * zoom * 0.8;
+  ctx.fillRect(x - tw/2 - 3*zoom, nameY - 8*zoom, tw + 6*zoom, 10*zoom);
+  ctx.fillStyle = '#ccc';
+  ctx.font = `${Math.max(7, 9*zoom)}px sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.fillText(a.name, x, nameY);
+  // risk indicator dot
+  const riskColor = a.risk > 0.7 ? '#ff4444' : a.risk > 0.4 ? '#fbbf24' : '#4ade80';
+  ctx.beginPath();
+  ctx.arc(x + 8*zoom, ay - bh - bd/2 - 2*zoom, 3*zoom, 0, Math.PI*2);
+  ctx.fillStyle = riskColor;
+  ctx.fill();
+  // paused X
+  if (isPaused) {
+    const px = x, py2 = ay - bh - bd/2 - 20*zoom;
+    ctx.strokeStyle = '#ff4444';
+    ctx.lineWidth = 2 * zoom;
+    const s = 4 * zoom;
+    ctx.beginPath(); ctx.moveTo(px-s, py2-s); ctx.lineTo(px+s, py2+s); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(px+s, py2-s); ctx.lineTo(px-s, py2+s); ctx.stroke();
+  }
+  // level stars
+  const lvl = a._level;
+  const starColor = lvl >= 5 ? '#fbbf24' : lvl >= 4 ? '#d1d5db' : lvl >= 3 ? '#b45309' : '#888';
+  ctx.fillStyle = starColor;
+  ctx.font = `${Math.max(6, 7*zoom)}px sans-serif`;
+  ctx.fillText('★'.repeat(Math.max(1, Math.min(lvl, 5))), x - (lvl * 3.5 * zoom), ay - bh - bd/2 - 28*zoom);
+  ctx.textAlign = 'left';
+}
+
+// ============================================================
+// MAIN RENDER LOOP
+// ============================================================
+function render() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  // Dark background
+  ctx.fillStyle = '#0a0c14';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  const items = buildRenderList();
+  items.forEach(item => {
+    switch (item.type) {
+      case 'tile':    drawTile(item.ti, item.tj); break;
+      case 'tree':    drawTree(item.ti, item.tj, item.idx); break;
+      case 'house':   drawHouse(item.ti, item.tj, item.zone); break;
+      case 'crystal': drawCrystal(item.ti, item.tj, item.idx); break;
+      case 'resource':drawResource(item.ti, item.tj, item.zone); break;
+      case 'sensor':  drawSensor(item.ti, item.tj, item.idx); break;
+      case 'tower':   drawTower(); break;
+      case 'pillar':  drawPillar(item); break;
+      case 'agent':   drawAgent(item.agent); break;
+    }
+  });
+
+  // Draw mini-map
+  drawMinimap();
+}
+
+// ============================================================
+// MINI-MAP
+// ============================================================
+function drawMinimap() {
+  const mm = document.getElementById('mm');
+  const mc = mm.getContext('2d');
+  mc.clearRect(0, 0, 80, 80);
+  mc.fillStyle = '#080a14';
+  mc.fillRect(0, 0, 80, 80);
+  const ts = 80 / GRID;
+  for (let ti = 0; ti < GRID; ti++) {
+    for (let tj = 0; tj < GRID; tj++) {
+      const zone = getZone(ti, tj);
+      const color = ZONE_DEFS[zone]?.accent || '#222';
+      mc.fillStyle = hexToRgb(color, isRoad(ti, tj) ? 0.15 : 0.25);
+      mc.fillRect(ti * ts, tj * ts, ts, ts);
+    }
+  }
+  // Tower
+  mc.fillStyle = '#7F77DD';
+  mc.fillRect(7*ts, 7*ts, ts*2, ts*2);
+  // Agents
+  AGENTS.forEach(a => {
+    mc.beginPath();
+    mc.arc(a.tx * ts + ts/2, a.tz * ts + ts/2, 2, 0, Math.PI*2);
+    mc.fillStyle = a.color;
+    mc.fill();
+  });
+  // Task pillars
+  TASK_PILLARS.forEach(p => {
+    mc.fillStyle = '#ffff44';
+    mc.fillRect(p.ti*ts, p.tj*ts, ts, ts);
+  });
+  // Viewport indicator
+  const vpTi = (OX - canvas.width/2) / (-BASE_TW * zoom) + GRID/2;
+  mc.strokeStyle = 'rgba(127,119,221,.4)';
+  mc.lineWidth = 0.5;
+  mc.strokeRect(0, 0, 80, 80);
+}
+
+// ============================================================
+// AGENT MOVEMENT / GAME LOGIC
+// ============================================================
+function updateAgents(dt) {
+  AGENTS.forEach(a => {
+    // Server-pushed position
+    if (a._ttx !== null) {
+      a._tx = a._ttx; a._tz = a._ttz;
+      a._ttx = null; a._ttz = null;
+    }
+    if (a.status === 'paused') return;
+    // Movement timer
+    a._moveTimer -= dt;
+    if (a._moveTimer <= 0 && a.status !== 'busy') {
+      a._moveTimer = 3 + Math.random() * 4;
+      const zone = ZONE_DEFS[a.domain] || ZONE_DEFS.neutral;
+      let minI = 0, maxI = 15, minJ = 0, maxJ = 15;
+      if (a.domain !== 'general' && a.domain !== 'trading') {
+        minI = zone.minI ?? 0; maxI = zone.maxI ?? 15;
+        minJ = zone.minJ ?? 0; maxJ = zone.maxJ ?? 15;
+      }
+      let ti, tj, tries = 0;
+      do {
+        ti = minI + Math.floor(Math.random() * (maxI - minI + 1));
+        tj = minJ + Math.floor(Math.random() * (maxJ - minJ + 1));
+        tries++;
+      } while (isRoad(ti,tj) && tries < 10);
+      // Level gate: low level agents can't enter high-risk zones unescorted
+      const highRisk = a.risk > 0.7 && a._level < 3;
+      if (!highRisk) { a._tx = ti; a._tz = tj; }
+    }
+    // Smooth lerp toward target
+    const spd = 0.03;
+    a.tx += (a._tx - a.tx) * spd * (dt * 60);
+    a.tz += (a._tz - a.tz) * spd * (dt * 60);
+
+    // Gov pulse decay
+    if (a._govPulse > 0) a._govPulse = Math.max(0, a._govPulse - dt * 0.6);
+  });
+
+  // Decay governance beams
+  for (let i = GOV_BEAMS.length - 1; i >= 0; i--) {
+    GOV_BEAMS[i].alpha -= 0.008;
+    if (GOV_BEAMS[i].alpha <= 0) GOV_BEAMS.splice(i, 1);
+  }
+
+  // Task pillar progress
+  for (let i = TASK_PILLARS.length - 1; i >= 0; i--) {
+    TASK_PILLARS[i].progress = Math.min(1, TASK_PILLARS[i].progress + dt * 0.03);
+    if (TASK_PILLARS[i].progress >= 1) {
+      spawnCompletion(TASK_PILLARS[i]);
+      TASK_PILLARS.splice(i, 1);
+    }
+  }
+
+  // Resource fill
+  Object.keys(RESOURCES).forEach(zone => {
+    RESOURCES[zone] = Math.min(100, RESOURCES[zone] + dt * 2);
+  });
+
+  // World health
+  const active = AGENTS.filter(a => a.status !== 'paused');
+  const avgH = active.reduce((s,a) => s + a._health, 0) / Math.max(1, active.length);
+  const fillPct = (avgH * 100).toFixed(0) + '%';
+  const fillEl = document.getElementById('wh-fill');
+  const whColor = avgH > 0.8 ? '#4ade80' : avgH > 0.5 ? '#fbbf24' : '#ef4444';
+  fillEl.style.width = fillPct;
+  fillEl.style.background = whColor;
+  if (avgH < 0.5) {
+    lowHealthTimer += dt;
+    if (lowHealthTimer > 10 && !worldHealthAlert) {
+      worldHealthAlert = true;
+      showToast('⚠ World health critical!', 4000);
+      triggerDefenceFlash();
+    }
+  } else {
+    lowHealthTimer = 0; worldHealthAlert = false;
+  }
+
+  // HUD
+  document.getElementById('cnt-tasks').textContent = TASK_PILLARS.length;
+}
+
+// Particle burst on task complete
+function spawnCompletion(pillar) {
+  const {x, y} = tileToScreen(pillar.ti, pillar.tj);
+  const zone = pillar.domain || 'neutral';
+  const accent = ZONE_DEFS[zone]?.accent || '#7F77DD';
+  // Quick 4-dot animation via requestAnimationFrame
+  const particles = [{dx:-10,dy:-8},{dx:10,dy:-8},{dx:-8,dy:8},{dx:8,dy:8}];
+  let age = 0;
+  function animate() {
+    if (age > 25) return;
+    age++;
+    particles.forEach(p => {
+      ctx.beginPath();
+      ctx.arc(x + p.dx*zoom*(age/10), y + p.dy*zoom*(age/10), 3*zoom, 0, Math.PI*2);
+      ctx.fillStyle = hexToRgb(accent, 1 - age/25);
+      ctx.fill();
+    });
+    requestAnimationFrame(animate);
+  }
+  animate();
+  showToast('✓ Task complete!');
+}
+
+// ============================================================
+// INTERACTION
+// ============================================================
+function closePanel() {
+  document.getElementById('panel').classList.remove('open');
+  selectedAgent = null; selectedType = null;
+}
+
+function handleClick(sx, sy) {
+  const {ti, tj} = screenToTile(sx, sy);
+  if (ti < 0 || ti >= GRID || tj < 0 || tj >= GRID) return;
+
+  // Check tower
+  if (ti >= 6 && ti <= 9 && tj >= 6 && tj <= 9) {
+    showTowerPanel();
+    return;
+  }
+
+  // Check agents
+  for (const a of AGENTS) {
+    const {x, y} = tileToScreen(a.tx, a.tz);
+    const dist = Math.hypot(sx - x, sy - (y - 6*zoom));
+    if (dist < 16 * zoom) {
+      showAgentPanel(a);
+      return;
+    }
+  }
+
+  // Check resource nodes
+  for (const [zone, [nti, ntj]] of Object.entries(RESOURCE_POS)) {
+    if (Math.abs(nti - ti) <= 1 && Math.abs(ntj - tj) <= 1) {
+      harvestResource(zone);
+      return;
+    }
+  }
+
+  // Check task pillars
+  for (const p of TASK_PILLARS) {
+    if (p.ti === ti && p.tj === tj) {
+      showPillarPanel(p);
+      return;
+    }
+  }
+
+  // Empty domain tile
+  const zone = getZone(ti, tj);
+  if (zone !== 'neutral' && zone !== 'manifold' && !isRoad(ti, tj)) {
+    showTaskInput(zone, ti, tj);
+  }
+}
+
+function showAgentPanel(a) {
+  selectedAgent = a; selectedType = 'agent';
+  const badgeClass = `badge-${a.status}`;
+  const riskPct = (a.risk * 100).toFixed(0);
+  const healthPct = (a._health * 100).toFixed(0);
+  const lvlStars = '★'.repeat(a._level) + '☆'.repeat(5 - a._level);
+  document.getElementById('panel-content').innerHTML = `
+    <div class="panel-title">${a.name} <span class="badge ${badgeClass}">${a.status}</span></div>
+    <div class="panel-detail">Domain: ${a.domain} &nbsp;|&nbsp; Level: ${lvlStars}</div>
+    <div class="panel-detail" style="margin-top:6px;color:#aaa">${a.task}</div>
+    <div class="bar-row" style="margin-top:10px">
+      <span class="bar-label">Risk</span>
+      <div class="bar-bg"><div class="bar-fill" style="width:${riskPct}%;background:${a.risk>0.7?'#ef4444':a.risk>0.4?'#fbbf24':'#4ade80'}"></div></div>
+      <span class="bar-val">${riskPct}%</span>
+    </div>
+    <div class="bar-row">
+      <span class="bar-label">Health</span>
+      <div class="bar-bg"><div class="bar-fill" style="width:${healthPct}%;background:#4ade80"></div></div>
+      <span class="bar-val">${healthPct}%</span>
+    </div>
+    <div class="panel-btns">
+      <button class="btn-sm" onclick="togglePause('${a.id}')">${a.status==='paused'?'Resume':'Pause'}</button>
+      <button class="btn-sm" onclick="sendGovBeam('${a.id}', true)">Permit</button>
+      <button class="btn-sm danger" onclick="sendGovBeam('${a.id}', false)">Block</button>
+    </div>`;
+  document.getElementById('panel').classList.add('open');
+}
+
+function showTowerPanel() {
+  selectedType = 'tower';
+  const activeCount = AGENTS.filter(a => a.status === 'active').length;
+  const tasksCount = TASK_PILLARS.length;
+  document.getElementById('panel-content').innerHTML = `
+    <div class="panel-title">◈ MANIFOLD Tower</div>
+    <div class="panel-detail">Active governance core — Mode 3: Active Manager</div>
+    <div class="bar-row" style="margin-top:10px">
+      <span class="bar-label">Agents</span>
+      <div class="bar-bg"><div class="bar-fill" style="width:${(activeCount/AGENTS.length*100).toFixed(0)}%;background:#7F77DD"></div></div>
+      <span class="bar-val">${activeCount}/${AGENTS.length}</span>
+    </div>
+    <div class="panel-detail" style="margin-top:8px">Tasks running: ${tasksCount}</div>
+    <div class="panel-btns">
+      <button class="btn-sm" onclick="window.open('/report','_blank')">Full Report</button>
+      <button class="btn-sm" onclick="window.open('/digest','_blank')">Digest</button>
+    </div>`;
+  document.getElementById('panel').classList.add('open');
+}
+
+function showPillarPanel(p) {
+  document.getElementById('panel-content').innerHTML = `
+    <div class="panel-title">Task Pillar</div>
+    <div class="panel-detail">Domain: ${p.domain}</div>
+    <div class="panel-detail">Task ID: ${p.taskId}</div>
+    <div class="bar-row" style="margin-top:10px">
+      <span class="bar-label">Progress</span>
+      <div class="bar-bg"><div class="bar-fill" style="width:${(p.progress*100).toFixed(0)}%;background:#7F77DD"></div></div>
+      <span class="bar-val">${(p.progress*100).toFixed(0)}%</span>
+    </div>`;
+  document.getElementById('panel').classList.add('open');
+}
+
+function harvestResource(zone) {
+  RESOURCES[zone] = 0;
+  showToast(`Harvested ${zone} resources!`);
+  // Optional: POST to /ats/signal
+  const key = localStorage.getItem('manifold_key') || '';
+  if (key) {
+    fetch('/ats/signal', {
+      method:'POST',
+      headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},
+      body:JSON.stringify({tool_id:`${zone}-resource`, outcome:'success', latency_ms:100})
+    }).catch(()=>{});
+  }
+}
+
+function togglePause(agentId) {
+  const a = AGENTS.find(x => x.id === agentId);
+  if (!a) return;
+  const action = a.status === 'paused' ? 'resume' : 'pause';
+  const key = localStorage.getItem('manifold_key') || '';
+  fetch(`/agents/${agentId}/${action}`, {
+    method:'POST',
+    headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},
+    body:'{}'
+  }).then(r => r.json()).then(d => {
+    if (d.status) { a.status = d.status; showAgentPanel(a); }
+  }).catch(() => {
+    a.status = a.status === 'paused' ? 'active' : 'paused';
+    showAgentPanel(a);
+  });
+}
+
+function sendGovBeam(agentId, permitted) {
+  const a = AGENTS.find(x => x.id === agentId);
+  if (!a) return;
+  a._govPulse = 1.0; a._govPermitted = permitted;
+  GOV_BEAMS.push({agent: a, permitted, alpha: 1.0});
+  if (!permitted) {
+    triggerDefenceFlash();
+    document.getElementById('alert-dot').style.display = 'block';
+    setTimeout(() => document.getElementById('alert-dot').style.display = 'none', 3000);
+  }
+  showToast(permitted ? `✓ ${a.name} permitted` : `✗ ${a.name} blocked`);
+  closePanel();
+}
+
+function spawnTaskPillar(ti, tj, taskId, domain) {
+  TASK_PILLARS.push({ti, tj, taskId, domain, progress:0});
+}
+
+function triggerDefenceFlash() {
+  defenceFlash = Date.now();
+}
+
+// ============================================================
+// TASK OVERLAY
+// ============================================================
+document.getElementById('task-stakes').addEventListener('input', e => {
+  document.getElementById('stakes-val').textContent = Math.round(e.target.value * 100) + '%';
+});
+document.getElementById('task-cancel').addEventListener('click', () => {
+  document.getElementById('task-overlay').style.display = 'none';
+});
+
+let _pendingTile = null;
+function showTaskInput(domain, ti, tj) {
+  _pendingTile = {ti, tj, domain};
+  document.getElementById('task-domain').textContent = domain;
+  document.getElementById('task-input').value = '';
+  document.getElementById('task-overlay').style.display = 'flex';
+}
+
+document.getElementById('task-submit').addEventListener('click', async () => {
+  const task = document.getElementById('task-input').value.trim();
+  const stakes = parseFloat(document.getElementById('task-stakes').value);
+  if (!task) return;
+  const {ti, tj, domain} = _pendingTile || {ti:8, tj:8, domain:'general'};
+  document.getElementById('task-overlay').style.display = 'none';
+  try {
+    const key = localStorage.getItem('manifold_key') || '';
+    const res = await fetch('/task', {
+      method:'POST',
+      headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},
+      body:JSON.stringify({task, stakes, domain})
+    });
+    const plan = await res.json();
+    spawnTaskPillar(ti, tj, plan.task_id || 'demo', domain);
+    showToast(`✓ Task deployed: ${plan.total_sub_tasks || 1} sub-tasks`);
+  } catch(e) {
+    // Demo mode: still spawn a pillar
+    spawnTaskPillar(ti, tj, 'demo-' + Date.now(), domain);
+    showToast('Demo: task pillar spawned');
+  }
+});
+
+// ============================================================
+// SETUP OVERLAY
+// ============================================================
+document.getElementById('setup-save').addEventListener('click', () => {
+  const url = document.getElementById('setup-url').value.trim();
+  const key = document.getElementById('setup-key').value.trim();
+  if (url) localStorage.setItem('manifold_url', url);
+  if (key) localStorage.setItem('manifold_key', key);
+  document.getElementById('setup-overlay').style.display = 'none';
+  connectWS();
+});
+document.getElementById('setup-skip').addEventListener('click', () => {
+  document.getElementById('setup-overlay').style.display = 'none';
+});
+
+function checkSetup() {
+  const key = localStorage.getItem('manifold_key');
+  if (!key) {
+    const savedUrl = localStorage.getItem('manifold_url') || '';
+    document.getElementById('setup-url').value = savedUrl;
+    document.getElementById('setup-overlay').style.display = 'flex';
+  }
+}
+
+// ============================================================
+// WEBSOCKET
+// ============================================================
+let ws = null, wsRetryTimer = null;
+
+function connectWS() {
+  const customUrl = localStorage.getItem('manifold_url');
+  const base = customUrl || window.location.origin;
+  const wsProto = base.startsWith('https') ? 'wss' : 'ws';
+  const wsHost = base.replace(/^https?:\/\//, '');
+  const wsUrl = `${wsProto}://${wsHost}/ws`;
+  try {
+    ws = new WebSocket(wsUrl);
+    ws.onopen = () => showToast('⟳ Connected to MANIFOLD');
+    ws.onmessage = evt => {
+      try {
+        const msg = JSON.parse(evt.data);
+        handleWSMessage(msg);
+      } catch(e) {}
+    };
+    ws.onclose = () => {
+      wsRetryTimer = setTimeout(connectWS, 5000);
+    };
+    ws.onerror = () => { ws.close(); };
+  } catch(e) {}
+}
+
+function handleWSMessage(msg) {
+  if (msg.type === 'agent_update') {
+    msg.agents.forEach(u => {
+      const ag = AGENTS.find(a => a.id === u.id);
+      if (ag) {
+        ag.status = u.status;
+        ag.task   = u.task;
+        ag.risk   = u.risk;
+        ag._health = u.health;
+        ag._level = healthToLevel(u.health);
+        if (u.tx !== undefined) { ag._ttx = u.tx; ag._ttz = u.tz; }
+      }
+    });
+    updateHUD();
+  }
+  if (msg.type === 'governance_event') {
+    const ag = AGENTS.find(a => a.id === msg.agent_id);
+    if (ag) {
+      ag._govPulse = 1.0;
+      ag._govPermitted = msg.permitted;
+      GOV_BEAMS.push({agent:ag, permitted:msg.permitted, alpha:1.0});
+    }
+    if (!msg.permitted) {
+      triggerDefenceFlash();
+      document.getElementById('alert-dot').style.display = 'block';
+      setTimeout(() => document.getElementById('alert-dot').style.display='none', 3000);
+    }
+    showToast(msg.permitted
+      ? `✓ Permitted: ${msg.agent_id} (${(msg.risk_score*100).toFixed(0)}%)`
+      : `✗ Blocked: ${msg.agent_id} — risk ${(msg.risk_score*100).toFixed(0)}%`);
+  }
+  if (msg.type === 'task_update') {
+    const p = TASK_PILLARS.find(x => x.taskId === msg.task_id);
+    if (p && msg.sub_tasks_total > 0) {
+      p.progress = msg.sub_tasks_done / msg.sub_tasks_total;
+    }
+  }
+  if (msg.type === 'world_stats') {
+    updateWorldStats(msg);
+  }
+}
+
+function updateHUD() {
+  const activeCount = AGENTS.filter(a => a.status === 'active').length;
+  document.getElementById('cnt-tokens').textContent = activeCount;
+}
+
+function updateWorldStats(s) {
+  document.getElementById('cnt-tasks').textContent = s.tasks_running || TASK_PILLARS.length;
+}
+
+// ============================================================
+// TOAST
+// ============================================================
+function showToast(msg, duration=2500) {
+  const t = document.createElement('div');
+  t.style.cssText = 'position:fixed;top:50px;left:50%;transform:translateX(-50%);background:rgba(10,12,20,.95);border:0.5px solid rgba(127,119,221,.5);color:#ccc;padding:6px 14px;border-radius:20px;font-size:11px;z-index:100;pointer-events:none;white-space:nowrap';
+  t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(() => { if (t.parentNode) t.remove(); }, duration);
+}
+
+// ============================================================
+// MOUSE CONTROLS
+// ============================================================
+canvas.addEventListener('mousedown', e => {
+  isDragging = true;
+  dragStartX = e.clientX; dragStartY = e.clientY;
+  dragOX = OX; dragOY = OY;
+});
+canvas.addEventListener('mousemove', e => {
+  if (isDragging) {
+    OX = dragOX + (e.clientX - dragStartX);
+    OY = dragOY + (e.clientY - dragStartY);
+  }
+});
+canvas.addEventListener('mouseup', e => {
+  const moved = Math.hypot(e.clientX - dragStartX, e.clientY - dragStartY);
+  if (moved < 5) handleClick(e.clientX, e.clientY);
+  isDragging = false;
+});
+canvas.addEventListener('wheel', e => {
+  e.preventDefault();
+  const factor = e.deltaY < 0 ? 1.1 : 0.91;
+  const prevZoom = zoom;
+  zoom = Math.max(0.4, Math.min(3.0, zoom * factor));
+  // Zoom toward cursor
+  OX = e.clientX - (e.clientX - OX) * (zoom / prevZoom);
+  OY = e.clientY - (e.clientY - OY) * (zoom / prevZoom);
+}, {passive: false});
+
+// ============================================================
+// TOUCH CONTROLS
+// ============================================================
+let touchStart = null, pinchDist = null;
+
+canvas.addEventListener('touchstart', e => {
+  e.preventDefault();
+  if (e.touches.length === 1) {
+    touchStart = {x: e.touches[0].clientX, y: e.touches[0].clientY, ox: OX, oy: OY};
+  } else if (e.touches.length === 2) {
+    pinchDist = Math.hypot(
+      e.touches[0].clientX - e.touches[1].clientX,
+      e.touches[0].clientY - e.touches[1].clientY
+    );
+    touchStart = null;
+  }
+}, {passive: false});
+
+canvas.addEventListener('touchmove', e => {
+  e.preventDefault();
+  if (e.touches.length === 1 && touchStart) {
+    OX = touchStart.ox + (e.touches[0].clientX - touchStart.x);
+    OY = touchStart.oy + (e.touches[0].clientY - touchStart.y);
+  } else if (e.touches.length === 2 && pinchDist !== null) {
+    const newDist = Math.hypot(
+      e.touches[0].clientX - e.touches[1].clientX,
+      e.touches[0].clientY - e.touches[1].clientY
+    );
+    const cx = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+    const cy = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+    const prevZoom = zoom;
+    zoom = Math.max(0.4, Math.min(3.0, zoom * (newDist / pinchDist)));
+    OX = cx - (cx - OX) * (zoom / prevZoom);
+    OY = cy - (cy - OY) * (zoom / prevZoom);
+    pinchDist = newDist;
+  }
+}, {passive: false});
+
+canvas.addEventListener('touchend', e => {
+  if (e.changedTouches.length === 1 && touchStart) {
+    const dx = e.changedTouches[0].clientX - touchStart.x;
+    const dy = e.changedTouches[0].clientY - touchStart.y;
+    if (Math.hypot(dx, dy) < 8) {
+      handleClick(e.changedTouches[0].clientX, e.changedTouches[0].clientY);
+    }
+    touchStart = null;
+  }
+  pinchDist = null;
+}, {passive: false});
+
+// Mini-map click to jump camera
+document.getElementById('mm').addEventListener('click', e => {
+  const rect = e.target.getBoundingClientRect();
+  const px = e.clientX - rect.left, py = e.clientY - rect.top;
+  const ti = (px / 80) * GRID, tj = (py / 80) * GRID;
+  const {x, y} = tileToScreen(ti, tj);
+  OX += (canvas.width/2 - x);
+  OY += (canvas.height/2 - y);
+});
+
+// ============================================================
+// MAIN LOOP
+// ============================================================
+let lastTime = 0;
+function loop(now) {
+  const dt = Math.min((now - lastTime) / 1000, 0.1);
+  lastTime = now;
+  t += dt;
+  updateAgents(dt);
+  render();
+  requestAnimationFrame(loop);
+}
+
+// ============================================================
+// INIT
+// ============================================================
+checkSetup();
+connectWS();
+updateHUD();
+requestAnimationFrame(ts => { lastTime = ts; loop(ts); });
+</script>
+</body>
+</html>

@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.5.6] — 2026-05-08
+
+### Added
+- manifold-world/ — full isometric game world (CoC+Sims style)
+  16×16 grid with domain zones, trees, agent houses, memory crystals,
+  resource nodes, defence sensors, task pillars, the MANIFOLD tower.
+  Touch controls (pan, pinch-zoom) for mobile.
+  WebSocket live connection to MANIFOLD server.
+  Task deployment by tapping domain zones.
+  Agent levelling, resource harvesting, escalation alerts.
+  Mini-map overview. PWA manifest for mobile install.
+- GET /world serves the game world from the MANIFOLD server
+- GET /world/manifest.json serves the PWA manifest
+- GET /ws WebSocket endpoint for real-time world updates
+  Sends agent_update (every 5s), world_stats (every 30s), governance events.
+- Game mechanics: resource system, agent levels, world health bar,
+  notification system, task completion animations, governance beams.
+
 ## [1.5.5] — 2026-05-08
 
 ### Added
