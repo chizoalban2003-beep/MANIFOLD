@@ -3550,7 +3550,6 @@ def _handle_post_task(self: "ManifoldHandler", body: dict) -> None:
 # ---------------------------------------------------------------------------
 
 import base64 as _base64
-import hashlib as _hashlib_ws
 import socket as _socket
 import struct as _struct
 import os as _os_world
@@ -3653,7 +3652,7 @@ def _handle_ws_upgrade(self: "ManifoldHandler") -> None:
     # Compute accept hash
     magic = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
     accept = _base64.b64encode(
-        _hashlib_ws.sha1((key + magic).encode()).digest()
+        hashlib.sha1((key + magic).encode()).digest()
     ).decode()
     # Send 101 Switching Protocols
     self.send_response(101)

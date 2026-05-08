@@ -2,7 +2,7 @@
   "name": "manifold-governance",
   "displayName": "MANIFOLD AI Governance",
   "description": "Govern every AI completion before it touches your code.",
-  "version": "1.5.4",
+  "version": "1.5.6",
   "publisher": "manifold-ai",
   "engines": { "vscode": "^1.85.0" },
   "categories": ["Other", "Machine Learning"],
