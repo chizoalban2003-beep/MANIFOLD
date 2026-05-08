@@ -2,2718 +2,1240 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
 <meta name="theme-color" content="#0a0c14">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="description" content="MANIFOLD World — AI governance visualised as an isometric game">
 <link rel="manifest" href="/world/manifest.json">
 <title>MANIFOLD World</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap" rel="stylesheet">
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
-html,body{width:100%;height:100%;overflow:hidden;background:#0a0c14;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}
-canvas{display:block;touch-action:none}
-#hud-tl{position:fixed;top:12px;left:14px;z-index:50;pointer-events:none}
-#hud-tl .logo{color:#7F77DD;font-size:13px;font-weight:700;letter-spacing:.06em}
-#hud-tl .ver{color:#444;font-size:10px;margin-top:1px}
-#res-bars{margin-top:6px;display:flex;flex-direction:column;gap:2px}
-.res-row{display:flex;align-items:center;gap:4px}
-.res-lbl{color:#444;font-size:9px;width:10px}
-.res-bg{width:40px;height:4px;background:#111;border-radius:2px;overflow:hidden}
-.res-fill{height:100%;border-radius:2px;transition:width .3s}
-#hud-tr{position:fixed;top:12px;right:14px;z-index:50;display:flex;align-items:center;gap:10px}
-.counter{color:#888;font-size:11px;display:flex;align-items:center;gap:4px}
-.counter span{color:#ccc;font-weight:600}
-#alert-dot{width:8px;height:8px;border-radius:50%;background:#A32D2D;display:none;animation:pulse-red 1s infinite;cursor:pointer}
-@keyframes pulse-red{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.4;transform:scale(1.5)}}
-@keyframes pulse-amber{0%,100%{opacity:1}50%{opacity:.4}}
-#world-health{position:fixed;top:8px;left:50%;transform:translateX(-50%);z-index:50;display:flex;align-items:center;gap:6px}
-#world-health .label{color:#555;font-size:10px}
-#wh-bar{width:120px;height:4px;background:#1a1a2e;border-radius:2px;overflow:hidden}
-#wh-fill{height:100%;background:#4ade80;border-radius:2px;transition:width .5s,background .5s}
-#minimap{position:fixed;bottom:14px;right:14px;z-index:50;cursor:pointer}
-#minimap canvas{border:0.5px solid rgba(127,119,221,.3);border-radius:4px}
-#panel{position:fixed;bottom:0;left:0;right:0;z-index:80;background:#0b0d1e;border-top:0.5px solid rgba(127,119,221,.3);padding:16px;transform:translateY(100%);transition:transform .25s ease;max-height:65vh;overflow-y:auto}
-#panel.open{transform:translateY(0)}
-.panel-close{float:right;color:#555;font-size:18px;cursor:pointer;padding:0 4px}
-.panel-title{color:#ccc;font-size:14px;font-weight:600;margin-bottom:10px}
-.badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:10px;margin-left:6px;vertical-align:middle}
-.badge-active{background:rgba(74,222,128,.15);color:#4ade80}
-.badge-busy{background:rgba(251,191,36,.15);color:#fbbf24}
-.badge-idle{background:rgba(156,163,175,.1);color:#9ca3af}
-.badge-paused{background:rgba(163,60,60,.15);color:#A32D2D}
-.bar-row{display:flex;align-items:center;gap:8px;margin:6px 0}
-.bar-label{color:#666;font-size:11px;width:60px}
-.bar-bg{flex:1;height:5px;background:#1a1a2e;border-radius:3px;overflow:hidden}
-.bar-fill{height:100%;border-radius:3px;transition:width .4s}
-.bar-val{color:#888;font-size:11px;width:32px;text-align:right}
-.panel-detail{color:#666;font-size:11px;margin-top:4px}
-.panel-btns{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
-.btn-sm{padding:7px 14px;border-radius:7px;font-size:12px;cursor:pointer;border:0.5px solid rgba(127,119,221,.4);background:rgba(127,119,221,.08);color:#AFA9EC;font-family:inherit}
-.btn-sm.danger{border-color:rgba(163,60,60,.4);background:rgba(163,60,60,.08);color:#e57373}
-.btn-sm.success{border-color:rgba(74,222,128,.4);background:rgba(74,222,128,.08);color:#4ade80}
-.connections-section{margin-top:10px;padding-top:10px;border-top:0.5px solid rgba(127,119,221,.15)}
-.connections-section .heading{color:#555;font-size:10px;margin-bottom:4px;text-transform:uppercase;letter-spacing:.05em}
-.connections-section .link-row{color:#777;font-size:11px;margin:2px 0}
-#legend{position:fixed;bottom:14px;left:14px;z-index:50;pointer-events:none}
-#legend .row{display:flex;align-items:center;gap:5px;margin:2px 0}
-#legend .dot{width:8px;height:8px;border-radius:50%}
-#legend .lbl{color:#444;font-size:10px}
-#task-overlay{display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.65);z-index:200;align-items:center;justify-content:center}
-#task-overlay .box{background:#0f1020;border:0.5px solid rgba(127,119,221,.5);border-radius:12px;padding:20px;width:min(340px,90vw)}
-#task-overlay .box-title{color:#888;font-size:11px;margin-bottom:4px}
-#task-domain{color:#7F77DD;text-transform:uppercase}
-#task-input{width:100%;background:#070810;border:0.5px solid rgba(127,119,221,.3);border-radius:8px;color:#ccc;padding:10px;font-size:13px;resize:none;box-sizing:border-box;margin-bottom:12px;font-family:inherit}
-.stakes-row{display:flex;align-items:center;gap:10px;margin-bottom:12px}
-.stakes-row span{color:#666;font-size:12px;white-space:nowrap}
-#task-stakes{flex:1}
-#stakes-val{color:#ccc;font-size:12px;min-width:28px}
-.overlay-btns{display:flex;gap:8px}
-.overlay-btns button{flex:1;padding:10px;border-radius:8px;cursor:pointer;font-size:13px;font-family:inherit}
-#task-cancel{background:none;border:0.5px solid rgba(255,255,255,.12);color:#666}
-#task-submit{background:rgba(127,119,221,.15);border:0.5px solid rgba(127,119,221,.5);color:#AFA9EC;font-weight:500}
-#setup-overlay{display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.75);z-index:300;align-items:center;justify-content:center}
-#setup-overlay .box{background:#0f1020;border:0.5px solid rgba(127,119,221,.5);border-radius:14px;padding:24px;width:min(380px,92vw)}
-#setup-overlay h2{color:#AFA9EC;font-size:15px;margin-bottom:8px}
-#setup-overlay p{color:#555;font-size:12px;margin-bottom:16px;line-height:1.6}
-#setup-overlay input{width:100%;background:#070810;border:0.5px solid rgba(127,119,221,.3);border-radius:8px;color:#ccc;padding:9px 12px;font-size:13px;box-sizing:border-box;margin-bottom:10px;font-family:inherit}
-#setup-overlay input::placeholder{color:#333}
-.setup-btns{display:flex;gap:8px;margin-top:4px}
-#setup-skip{flex:1;padding:9px;border-radius:8px;background:none;border:0.5px solid rgba(255,255,255,.1);color:#555;cursor:pointer;font-family:inherit}
-#setup-save{flex:2;padding:9px;border-radius:8px;background:rgba(127,119,221,.15);border:0.5px solid rgba(127,119,221,.5);color:#AFA9EC;cursor:pointer;font-weight:500;font-family:inherit}
-#escalation-overlay{display:none;position:fixed;top:0;left:0;width:100%;height:100%;z-index:250;align-items:center;justify-content:center;pointer-events:none}
-#escalation-card{background:rgba(8,6,30,.98);border:1.5px solid rgba(175,169,236,.8);border-radius:14px;padding:20px;width:300px;pointer-events:all}
-#escalation-card .esc-header{color:#EEEDFE;font-size:14px;font-weight:700;margin-bottom:6px}
-#escalation-card .esc-sub{color:#888;font-size:12px;margin-bottom:4px}
-#escalation-card .esc-ctx{color:#555;font-size:11px;margin-bottom:16px;line-height:1.5}
-.esc-btns{display:flex;gap:8px}
-#esc-approve{flex:1;padding:10px;border-radius:8px;background:rgba(29,158,117,.2);border:1px solid rgba(29,158,117,.6);color:#4ade80;cursor:pointer;font-size:13px;font-weight:500;font-family:inherit}
-#esc-reject{flex:1;padding:10px;border-radius:8px;background:rgba(226,75,74,.2);border:1px solid rgba(226,75,74,.6);color:#ef4444;cursor:pointer;font-size:13px;font-weight:500;font-family:inherit}
+body{background:#07080f;overflow:hidden;font-family:'Share Tech Mono',monospace;color:#AFA9EC;user-select:none}
+#game-canvas{display:block;position:fixed;top:0;left:0}
+#hud-top{position:fixed;top:0;left:0;right:0;height:48px;background:linear-gradient(to bottom,rgba(7,8,15,.92),rgba(7,8,15,0));display:flex;align-items:center;padding:0 14px;gap:10px;z-index:100;pointer-events:none}
+#hud-title{font-size:11px;color:#AFA9EC;white-space:nowrap;opacity:.8;letter-spacing:.04em}
+#hud-resources{display:flex;gap:8px;flex:1;justify-content:center}
+.res-bar{display:flex;align-items:center;gap:4px;font-size:9px;color:#888}
+.res-track{width:44px;height:4px;background:#1a1a2e;border-radius:2px;overflow:hidden}
+.res-fill{height:100%;border-radius:2px;transition:width .4s}
+#hud-health{display:flex;align-items:center;gap:5px;font-size:9px;color:#888;white-space:nowrap}
+#hud-health-track{width:70px;height:5px;background:#1a1a2e;border-radius:3px;overflow:hidden}
+#hud-health-fill{height:100%;border-radius:3px;background:linear-gradient(to right,#E24B4A,#1D9E75);transition:width .4s}
+#hud-bottom{position:fixed;bottom:8px;left:50%;transform:translateX(-50%);font-size:9px;color:#333;z-index:100;pointer-events:none}
+.panel-overlay{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.65);z-index:500;display:none;align-items:center;justify-content:center}
+.panel-overlay.active{display:flex}
+.panel-box{background:#0f1020;border:1px solid rgba(175,169,236,.25);border-radius:12px;padding:22px;min-width:270px;max-width:340px;font-size:12px}
+.panel-box h2{font-size:14px;color:#AFA9EC;margin-bottom:14px}
+.panel-box label{display:block;font-size:10px;color:#555;margin-bottom:3px;margin-top:10px}
+.panel-box input,.panel-box textarea,.panel-box input[type=range]{width:100%;background:#0a0b18;border:1px solid #1e1e3a;color:#AFA9EC;padding:7px 9px;border-radius:6px;font-family:inherit;font-size:11px;outline:none}
+.panel-box textarea{height:72px;resize:none}
+.panel-box input:focus,.panel-box textarea:focus{border-color:rgba(175,169,236,.45)}
+.panel-row{display:flex;gap:8px;margin-top:14px}
+.btn{flex:1;padding:8px;border-radius:6px;border:none;cursor:pointer;font-family:inherit;font-size:11px;transition:all .2s}
+.btn-primary{background:rgba(175,169,236,.12);color:#AFA9EC;border:1px solid rgba(175,169,236,.35)}
+.btn-primary:hover{background:rgba(175,169,236,.22)}
+.btn-danger{background:rgba(226,75,74,.1);color:#E24B4A;border:1px solid rgba(226,75,74,.3)}
+.btn-secondary{background:transparent;color:#555;border:1px solid #222}
+.hbar{width:100%;height:5px;background:#1a1a2e;border-radius:3px;overflow:hidden;margin-top:3px}
+.hbar-fill{height:100%;border-radius:3px;background:linear-gradient(to right,#E24B4A,#1D9E75)}
+#setup-overlay{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(7,8,15,.97);z-index:900;display:flex;align-items:center;justify-content:center}
+#setup-box{background:#0f1020;border:1px solid rgba(175,169,236,.25);border-radius:14px;padding:30px;width:340px}
+#setup-box h2{font-size:15px;color:#AFA9EC;margin-bottom:6px}
+#setup-box p{font-size:10px;color:#444;margin-bottom:18px}
+#setup-box label{display:block;font-size:10px;color:#555;margin-bottom:3px;margin-top:10px}
+#setup-box input{width:100%;background:#0a0b18;border:1px solid #1e1e3a;color:#AFA9EC;padding:7px 9px;border-radius:6px;font-family:inherit;font-size:11px;outline:none;margin-bottom:2px}
+.skip-link{display:block;text-align:center;margin-top:10px;font-size:10px;color:#333;cursor:pointer;text-decoration:underline}
+.skip-link:hover{color:#666}
 </style>
 </head>
 <body>
-
-<div id="hud-tl">
-  <div class="logo">◈ MANIFOLD</div>
-  <div class="ver">v1.5.8 • World</div>
-  <div id="res-bars">
-    <div class="res-row"><span class="res-lbl">💰</span><div class="res-bg"><div id="rb-ft" class="res-fill" style="background:#BA7517;width:40%"></div></div><span class="res-num" id="rn-ft" style="color:#555;font-size:8px;min-width:36px"></span></div>
-    <div class="res-row"><span class="res-lbl">⚙</span><div class="res-bg"><div id="rb-cc" class="res-fill" style="background:#185FA5;width:38%"></div></div><span class="res-num" id="rn-cc" style="color:#555;font-size:8px;min-width:36px"></span></div>
-    <div class="res-row"><span class="res-lbl">🏥</span><div class="res-bg"><div id="rb-ct" class="res-fill" style="background:#0F6E56;width:33%"></div></div><span class="res-num" id="rn-ct" style="color:#555;font-size:8px;min-width:36px"></span></div>
-    <div class="res-row"><span class="res-lbl">⚖</span><div class="res-bg"><div id="rb-ac" class="res-fill" style="background:#534AB7;width:30%"></div></div><span class="res-num" id="rn-ac" style="color:#555;font-size:8px;min-width:36px"></span></div>
-    <div class="res-row"><span class="res-lbl">⚡</span><div class="res-bg"><div id="rb-me" class="res-fill" style="background:#7F00FF;width:40%"></div></div><span class="res-num" id="rn-me" style="color:#555;font-size:8px;min-width:36px"></span></div>
-    <div class="res-row"><span class="res-lbl">F</span><div class="res-bg"><div id="rb-finance" class="res-fill" style="background:#BA7517;width:45%"></div></div></div>
-    <div class="res-row"><span class="res-lbl">D</span><div class="res-bg"><div id="rb-devops" class="res-fill" style="background:#185FA5;width:60%"></div></div></div>
-    <div class="res-row"><span class="res-lbl">H</span><div class="res-bg"><div id="rb-health" class="res-fill" style="background:#0F6E56;width:30%"></div></div></div>
-    <div class="res-row"><span class="res-lbl">L</span><div class="res-bg"><div id="rb-legal" class="res-fill" style="background:#534AB7;width:80%"></div></div></div>
+<canvas id="game-canvas"></canvas>
+<div id="hud-top">
+  <span id="hud-title">◈ MANIFOLD v1.5.9 • World</span>
+  <div id="hud-resources">
+    <div class="res-bar"><span>💰</span><div class="res-track"><div class="res-fill" id="rb-finance" style="background:#c87820"></div></div><span id="rv-finance">60</span></div>
+    <div class="res-bar"><span>⚙</span><div class="res-track"><div class="res-fill" id="rb-compute" style="background:#185FA5"></div></div><span id="rv-compute">45</span></div>
+    <div class="res-bar"><span>🏥</span><div class="res-track"><div class="res-fill" id="rb-health" style="background:#0F6E56"></div></div><span id="rv-health">70</span></div>
+    <div class="res-bar"><span>⚖</span><div class="res-track"><div class="res-fill" id="rb-legal" style="background:#534AB7"></div></div><span id="rv-legal">35</span></div>
+    <div class="res-bar"><span>⚡</span><div class="res-track"><div class="res-fill" id="rb-energy" style="background:#8050C8"></div></div><span id="rv-energy">50</span></div>
+  </div>
+  <div id="hud-health">
+    <span>��</span>
+    <div id="hud-health-track"><div id="hud-health-fill"></div></div>
+    <span id="hud-health-val">100%</span>
   </div>
 </div>
+<div id="hud-bottom">◈ MANIFOLD World</div>
 
-<div id="hud-tr">
-  <div class="counter">⚡ Tasks <span id="cnt-tasks">0</span></div>
-  <div id="alert-dot" title="High-risk event blocked"></div>
-</div>
-
-<div id="world-health">
-  <span class="label">World Health</span>
-  <div id="wh-bar"><div id="wh-fill" style="width:90%"></div></div>
-</div>
-
-<div id="legend">
-  <div class="row"><div class="dot" style="background:#BA7517"></div><div class="lbl">Finance</div></div>
-  <div class="row"><div class="dot" style="background:#185FA5"></div><div class="lbl">DevOps</div></div>
-  <div class="row"><div class="dot" style="background:#0F6E56"></div><div class="lbl">Healthcare</div></div>
-  <div class="row"><div class="dot" style="background:#534AB7"></div><div class="lbl">Legal</div></div>
-  <div class="row"><div class="dot" style="background:#7F77DD"></div><div class="lbl">MANIFOLD</div></div>
-</div>
-
-<div id="minimap"><canvas id="mm" width="80" height="80"></canvas></div>
-
-<div id="panel">
-  <span class="panel-close" onclick="closePanel()">✕</span>
-  <div id="panel-content"></div>
-</div>
-
-<div id="task-overlay">
-  <div class="box">
-    <div class="box-title">DEPLOY TASK — <span id="task-domain">—</span></div>
-    <textarea id="task-input" rows="3" placeholder="Describe the task..."></textarea>
-    <div class="stakes-row">
-      <span>Stakes</span>
-      <input type="range" id="task-stakes" min="0.1" max="0.95" step="0.05" value="0.5">
-      <span id="stakes-val">50%</span>
-    </div>
-    <div class="overlay-btns">
-      <button id="task-cancel">Cancel</button>
-      <button id="task-submit">Deploy</button>
+<!-- PANELS -->
+<div class="panel-overlay" id="panel-agent">
+  <div class="panel-box">
+    <h2 id="pa-name">Agent</h2>
+    <div id="pa-domain-badge" style="display:inline-block;padding:2px 8px;border-radius:4px;font-size:9px;margin-bottom:10px"></div>
+    <label>Health</label><div class="hbar"><div class="hbar-fill" id="pa-health-fill"></div></div>
+    <div style="font-size:9px;color:#444;margin-top:2px" id="pa-health-val"></div>
+    <label>Level</label><div id="pa-stars" style="font-size:13px;margin-top:2px"></div>
+    <label>State</label><div id="pa-thought" style="font-size:18px;margin-top:3px"></div>
+    <div class="panel-row">
+      <button class="btn btn-primary" id="pa-pause-btn" onclick="toggleAgentPause()">Pause</button>
+      <button class="btn btn-primary" onclick="sendAgentTask()">Send Task</button>
+      <button class="btn btn-secondary" onclick="closePanel('panel-agent')">✕</button>
     </div>
   </div>
 </div>
 
+<div class="panel-overlay" id="panel-tower">
+  <div class="panel-box">
+    <h2>◈ MANIFOLD Tower</h2>
+    <label>Tower Level</label>
+    <div id="pt-level" style="font-size:17px;color:#AFA9EC;margin:3px 0">L1</div>
+    <label>World Health</label><div class="hbar"><div class="hbar-fill" id="pt-health-fill"></div></div>
+    <label>Active Agents</label><div id="pt-agents" style="font-size:11px;color:#888;margin-top:3px"></div>
+    <div class="panel-row">
+      <button class="btn btn-primary" onclick="upgradeTower()">Upgrade Tower</button>
+      <button class="btn btn-secondary" onclick="closePanel('panel-tower')">✕</button>
+    </div>
+  </div>
+</div>
+
+<div class="panel-overlay" id="panel-building">
+  <div class="panel-box">
+    <h2 id="pb-name">Building</h2>
+    <label>Level</label><div id="pb-level" style="font-size:15px;color:#AFA9EC;margin:3px 0"></div>
+    <label>Resource Rate</label><div id="pb-rate" style="font-size:11px;color:#888;margin-top:3px"></div>
+    <div id="pb-timer" style="font-size:9px;color:#444;margin-top:6px;text-align:center"></div>
+    <div class="panel-row">
+      <button class="btn btn-primary" id="pb-upgrade-btn" onclick="upgradeBuilding()">Upgrade</button>
+      <button class="btn btn-secondary" onclick="closePanel('panel-building')">✕</button>
+    </div>
+  </div>
+</div>
+
+<div class="panel-overlay" id="panel-task">
+  <div class="panel-box">
+    <h2 id="ptd-name">Deploy Task</h2>
+    <div id="ptd-domain" style="font-size:10px;color:#888;margin-bottom:6px"></div>
+    <label>Task Description</label>
+    <textarea id="ptd-desc" placeholder="Describe the task..."></textarea>
+    <label>Stakes (1-10)</label>
+    <input type="range" id="ptd-stakes" min="1" max="10" value="5">
+    <div style="text-align:center;font-size:9px;color:#555;margin-top:2px" id="ptd-stakes-val">5</div>
+    <div class="panel-row">
+      <button class="btn btn-primary" onclick="deployTask()">Deploy</button>
+      <button class="btn btn-secondary" onclick="closePanel('panel-task')">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- SETUP -->
 <div id="setup-overlay">
-  <div class="box">
-    <h2>Connect to MANIFOLD</h2>
-    <p>Enter your API key and server URL to stream live agent data. Without them, the world runs in demo mode with simulated agents.</p>
-    <input id="setup-url" type="text" placeholder="Server URL (e.g. https://your-server.com)">
-    <input id="setup-key" type="text" placeholder="MANIFOLD API Key">
-    <div class="setup-btns">
-      <button id="setup-skip">Demo mode</button>
-      <button id="setup-save">Connect</button>
+  <div id="setup-box">
+    <h2>◈ Connect to MANIFOLD</h2>
+    <p>Enter your server details to connect, or run in demo mode.</p>
+    <label>Server URL</label>
+    <input type="text" id="setup-url" placeholder="https://your-server.com">
+    <label>API Key</label>
+    <input type="password" id="setup-key" placeholder="Bearer token...">
+    <div class="panel-row" style="margin-top:14px">
+      <button class="btn btn-primary" onclick="doConnect()">Connect</button>
     </div>
+    <a class="skip-link" onclick="skipSetup()">Skip — run in demo mode</a>
   </div>
 </div>
-
-<div id="escalation-overlay">
-  <div id="escalation-card">
-    <div class="esc-header">MANIFOLD NEEDS YOUR DECISION</div>
-    <div class="esc-sub" id="esc-sub">Invoice #4821 — risk score 94%</div>
-    <div class="esc-ctx" id="esc-ctx">Legal review flagged an anomalous transaction requiring human oversight.</div>
-    <div class="esc-btns">
-      <button id="esc-approve">✓ APPROVE</button>
-      <button id="esc-reject">✗ REJECT</button>
-    </div>
-  </div>
-</div>
-
-<canvas id="world"></canvas>
 
 <script>
-'use strict';
+// ========== CONSTANTS ==========
+const GRID=16, TW=72, TH=36;
+let OX, OY;
+const canvas=document.getElementById('game-canvas');
+const ctx=canvas.getContext('2d');
 
-// ============================================================
-// WORLD STATE ENGINE v1.5.8 (persistent via localStorage)
-// ============================================================
-const DEFAULT_WS = {
-  tower_level: 1,
-  world_health: 100,
-  total_tasks: 0,
-  total_defences: 0,
-  resources: {
-    finance_tokens:    {v:400, max:1000, rate:5},
-    compute_credits:   {v:300, max:800,  rate:4},
-    compliance_tokens: {v:200, max:600,  rate:3},
-    audit_credits:     {v:150, max:500,  rate:2.5},
-    manifold_energy:   {v:80,  max:200,  rate:1},
-  },
-  buildings: {
-    finance_house:   {level:1, upgrade_end:null},
-    devops_house:    {level:1, upgrade_end:null},
-    health_house:    {level:1, upgrade_end:null},
-    legal_house:     {level:1, upgrade_end:null},
-    calibrator:      {level:1, busy_until:null, job:null},
-    inject_detector: {level:1},
-    anomaly_tower:   {level:1},
-    gossip_relay:    {level:1},
-    honeypot:        {level:1, armed:true, triggered_at:null},
-  },
-  defence_stats: {inject_detector:0, anomaly_tower:0, gossip_relay:0, honeypot:0},
-  _lastTick: null,
-  building_positions: {},
-};
-function loadWS() {
-  try { const s = localStorage.getItem('manifold_world_state'); return s ? Object.assign({}, DEFAULT_WS, JSON.parse(s)) : DEFAULT_WS; }
-  catch(e) { return DEFAULT_WS; }
-}
-function saveWS() { try { localStorage.setItem('manifold_world_state', JSON.stringify(WS)); } catch(e){} }
-let WS = loadWS();
-if (!WS.resources) WS.resources = DEFAULT_WS.resources;
-if (!WS.buildings) WS.buildings = DEFAULT_WS.buildings;
-if (!WS.defence_stats) WS.defence_stats = DEFAULT_WS.defence_stats;
-setInterval(saveWS, 10000);
-
-const TOWER_GATES = {
-  1:{max_agents:2,max_zones:2,calibrators:1,desc:'Basic governance'},
-  2:{max_agents:3,max_zones:3,calibrators:1,desc:'+ 1 agent + 1 zone'},
-  3:{max_agents:4,max_zones:4,calibrators:1,desc:'+ ATS network access'},
-  4:{max_agents:5,max_zones:4,calibrators:2,desc:'+ 2nd calibrator + heroes'},
-  5:{max_agents:6,max_zones:4,calibrators:2,desc:'+ Federation + advanced defence'},
-};
-
-const UPGRADE_CONFIG = {
-  tower: {
-    2:{cost:{manifold_energy:100}, duration_ms:3*60*1000},
-    3:{cost:{manifold_energy:250}, duration_ms:10*60*1000},
-    4:{cost:{manifold_energy:500}, duration_ms:30*60*1000},
-    5:{cost:{manifold_energy:1000},duration_ms:2*60*60*1000},
-  },
-  finance_house: {
-    2:{cost:{finance_tokens:200},   duration_ms:2*60*1000},
-    3:{cost:{finance_tokens:500},   duration_ms:8*60*1000},
-  },
-  devops_house: {
-    2:{cost:{compute_credits:200},  duration_ms:2*60*1000},
-    3:{cost:{compute_credits:500},  duration_ms:8*60*1000},
-  },
-  health_house: {
-    2:{cost:{compliance_tokens:200},duration_ms:2*60*1000},
-    3:{cost:{compliance_tokens:500},duration_ms:8*60*1000},
-  },
-  legal_house: {
-    2:{cost:{audit_credits:200},    duration_ms:2*60*1000},
-    3:{cost:{audit_credits:500},    duration_ms:8*60*1000},
-  },
-};
-
-function canAfford(costs) {
-  return Object.entries(costs).every(([k,v]) => (WS.resources[k]?.v||0) >= v);
-}
-function spendResources(costs) {
-  Object.entries(costs).forEach(([k,v]) => { if(WS.resources[k]) WS.resources[k].v = Math.max(0, WS.resources[k].v - v); });
-}
-
-function startUpgrade(building_id, to_level) {
-  const config = UPGRADE_CONFIG[building_id]?.[to_level];
-  if (!config) return false;
-  if (!canAfford(config.cost)) return false;
-  if (WS.buildings.calibrator.busy_until && Date.now() < WS.buildings.calibrator.busy_until) return false;
-  spendResources(config.cost);
-  WS.buildings.calibrator.busy_until = Date.now() + config.duration_ms;
-  WS.buildings.calibrator.job = {building_id, to_level, end: WS.buildings.calibrator.busy_until};
-  saveWS();
-  showToast(`⚙ Upgrading ${building_id} → Level ${to_level}`);
-  return true;
-}
-
-function checkUpgradeComplete() {
-  const job = WS.buildings.calibrator.job;
-  if (!job) return;
-  if (Date.now() >= job.end) {
-    if (job.building_id === 'tower') {
-      WS.tower_level = job.to_level;
-    } else if (WS.buildings[job.building_id]) {
-      WS.buildings[job.building_id].level = job.to_level;
-      // sync BUILDING_LEVELS for visual rendering
-      const domMap = {finance_house:'finance',devops_house:'devops',health_house:'healthcare',legal_house:'legal'};
-      if (domMap[job.building_id]) BUILDING_LEVELS[domMap[job.building_id]] = job.to_level;
-    }
-    WS.buildings.calibrator.job = null;
-    WS.buildings.calibrator.busy_until = null;
-    saveWS();
-    showToast(`✓ Upgrade complete: ${job.building_id} → Level ${job.to_level}`);
-  }
-}
-
-function speedUpUpgrade() {
-  const job = WS.buildings.calibrator.job;
-  if (!job) return;
-  const remaining = Math.max(0, job.end - Date.now());
-  const energyCost = Math.ceil(remaining / (30*60*1000) * 10) + 5;
-  if ((WS.resources.manifold_energy?.v||0) < energyCost) {
-    showToast(`Need ${energyCost} ⚡ energy to speed up`);
-    return;
-  }
-  WS.resources.manifold_energy.v -= energyCost;
-  WS.buildings.calibrator.job.end = Date.now() + 1000;
-  WS.buildings.calibrator.busy_until = WS.buildings.calibrator.job.end;
-  saveWS();
-  showToast(`⚡ Upgrade accelerated!`);
-}
-
-function getResourceBuildingLevel(res_key) {
-  const m = {finance_tokens:'finance_house',compute_credits:'devops_house',compliance_tokens:'health_house',audit_credits:'legal_house',manifold_energy:'calibrator'};
-  return WS.buildings[m[res_key]]?.level || 1;
-}
-
-// ============================================================
-// DEFENCE BUILDINGS v1.5.8
-// ============================================================
-const DEFENCE_DEFS = {
-  inject_detector: {tx:0,  tz:4,  type:'injection',   color:'#E24B4A', damage:30, rangeBase:2.0, rangeScale:0.5, label:'Inject Detector'},
-  anomaly_tower:   {tx:8,  tz:4,  type:'degradation',  color:'#EF9F27', damage:25, rangeBase:1.8, rangeScale:0.4, label:'Anomaly Tower'},
-  gossip_relay:    {tx:4,  tz:0,  type:'poisoning',    color:'#7F77DD', damage:20, rangeBase:3.0, rangeScale:0.5, label:'Gossip Relay'},
-  honeypot:        {tx:4,  tz:8,  type:'any',          color:'#1D9E75', damage:60, rangeBase:1.5, rangeScale:0,   label:'Honeypot'},
-};
-
-function getDefenceRange(id) {
-  const d = DEFENCE_DEFS[id]; if (!d) return 2;
-  return d.rangeBase + d.rangeScale * (WS.buildings[id]?.level || 1);
-}
-
-// Active attacks list
-const ATTACKS = [];
-let _attackTimer = 45 + Math.random() * 45;
-
-function spawnAttack() {
-  const types = ['injection','degradation','poisoning'];
-  const type = types[Math.floor(Math.random()*3)];
-  const edge = Math.floor(Math.random()*4);
-  let tx, tz;
-  if (edge===0) { tx=0;         tz=Math.floor(Math.random()*9); }
-  else if (edge===1) { tx=Math.floor(Math.random()*9); tz=0; }
-  else if (edge===2) { tx=8;    tz=Math.floor(Math.random()*9); }
-  else              { tx=Math.floor(Math.random()*9); tz=8; }
-  ATTACKS.push({id:'atk-'+Date.now(), type, health:100, tx, tz, target_tx:4, target_tz:4, speed:0.8, alive:true});
-}
-
-function updateAttacks(dt) {
-  _attackTimer -= dt;
-  if (_attackTimer <= 0) {
-    spawnAttack();
-    _attackTimer = 45 + Math.random() * 45;
-  }
-
-  ATTACKS.forEach(atk => {
-    if (!atk.alive) return;
-    const dx = atk.target_tx - atk.tx;
-    const dz = atk.target_tz - atk.tz;
-    const dist = Math.hypot(dx, dz);
-    if (dist > 0.05) {
-      atk.tx += (dx/dist) * atk.speed * dt;
-      atk.tz += (dz/dist) * atk.speed * dt;
-    }
-    // Check defence buildings
-    for (const [id, def] of Object.entries(DEFENCE_DEFS)) {
-      const range = getDefenceRange(id);
-      const bx = WS.building_positions[id]?.tx ?? def.tx;
-      const bz = WS.building_positions[id]?.tz ?? def.tz;
-      const d2 = Math.hypot(atk.tx - bx, atk.tz - bz);
-      if (d2 <= range) {
-        // type match or honeypot
-        if (id === 'honeypot') {
-          if (WS.buildings.honeypot.armed) {
-            atk.health -= 60;
-            WS.buildings.honeypot.armed = false;
-            WS.buildings.honeypot.triggered_at = Date.now();
-            if (!WS.defence_stats) WS.defence_stats = {};
-            WS.defence_stats.honeypot = (WS.defence_stats.honeypot||0)+1;
-            spawnBurst(bx, bz, def.color, 6);
-          }
-        } else if (def.type === atk.type) {
-          atk.health -= def.damage * dt * 10;
-          // Draw beam from defence to attack (deferred to render)
-          if (!atk._beams) atk._beams = {};
-          atk._beams[id] = true;
-          if (!WS.defence_stats) WS.defence_stats = {};
-          WS.defence_stats[id] = (WS.defence_stats[id]||0);
-        }
-      }
-    }
-    // Reset honeypot after 60s
-    if (!WS.buildings.honeypot.armed && WS.buildings.honeypot.triggered_at) {
-      if (Date.now() - WS.buildings.honeypot.triggered_at > 60000) {
-        WS.buildings.honeypot.armed = true;
-        WS.buildings.honeypot.triggered_at = null;
-      }
-    }
-    if (atk.health <= 0) {
-      atk.alive = false;
-      WS.total_defences = (WS.total_defences||0)+1;
-      WS.world_health = Math.min(100, (WS.world_health||100) + 2);
-      WS.resources.manifold_energy.v = Math.min(WS.resources.manifold_energy.max, WS.resources.manifold_energy.v + 5);
-      spawnBurst(atk.tx, atk.tz, '#ff4444', 6);
-      const pos = tileToScreen(atk.tx, atk.tz);
-      FLOATERS.push({x:pos.x, y:pos.y-20*zoom, text:'+defended', color:'#4ade80', alpha:1.0});
-      if (!WS.defence_stats) WS.defence_stats = {};
-      const matchDef = Object.entries(DEFENCE_DEFS).find(([,d])=>d.type===atk.type);
-      if (matchDef) WS.defence_stats[matchDef[0]] = (WS.defence_stats[matchDef[0]]||0)+1;
-      checkAchievement('defender');
-    }
-    // Reached tower
-    if (dist < 1.5 && atk.alive) {
-      atk.alive = false;
-      WS.world_health = Math.max(10, (WS.world_health||100) - 15);
-      // Drain domain tokens
-      const domRes = {injection:'finance_tokens',degradation:'compute_credits',poisoning:'compliance_tokens'};
-      const rKey = domRes[atk.type] || 'finance_tokens';
-      if (WS.resources[rKey]) WS.resources[rKey].v = Math.max(0, WS.resources[rKey].v - 50);
-      defenceFlash = Date.now();
-      showToast('⚠ Governance breach! World health -15');
-    }
-  });
-  // Remove dead attacks older than 2s
-  for (let i = ATTACKS.length-1; i>=0; i--) {
-    if (!ATTACKS[i].alive) ATTACKS.splice(i,1);
-  }
-}
-
-function spawnBurst(tx, tz, color, n) {
-  const {x,y} = tileToScreen(tx, tz);
-  for (let i=0;i<n;i++) {
-    const angle = (i/n)*Math.PI*2;
-    PARTICLES.push({x,y,vx:Math.cos(angle)*50,vy:Math.sin(angle)*50-20,life:0.6,maxLife:0.6,color,size:3});
-  }
-}
-
-
-// ============================================================
-// CONSTANTS
-// ============================================================
-const GRID = 16;
-const BASE_TW = 72, BASE_TH = 36;
-const MAX_MEMORY_CRYSTALS = 200;
-
-// Terrain sets (isometric coordinates)
-const WATER_TILES = new Set(['0,0','0,1','1,0','15,0','0,15','15,15','14,15','15,14']);
-const ROCK_TILES  = new Set(['4,0','0,4','11,0','15,4','0,11','4,15','11,15','15,11']);
-// Grass tuft seed (fixed 20% positions — generated once)
-const GRASS_TUFTS = (function(){
-  const s = new Set();
-  for (let ti=0;ti<16;ti++) for (let tj=0;tj<16;tj++) {
-    if ((ti*31+tj*17)%5===0) s.add(ti+','+tj);
-  }
-  return s;
-})();
-// Water ripple state per tile
-const WATER_RIPPLES = {};
-WATER_TILES.forEach(k => { WATER_RIPPLES[k] = {r:0,alpha:0,timer:3+Math.random()*2,x:Math.random(),y:Math.random()}; });
-const DEFENCE_DEMO_MIN = 45, DEFENCE_DEMO_MAX = 45;   // seconds between auto defence events
-const ESCALATION_DEMO_MIN = 90, ESCALATION_DEMO_RANGE = 60; // seconds between auto escalations
-const ZONE_DEFS = {
-  finance:    {minI:0,  maxI:6,  minJ:0,  maxJ:6,  tile:'#1e1000', accent:'#BA7517'},
-  devops:     {minI:9,  maxI:15, minJ:0,  maxJ:6,  tile:'#00111e', accent:'#185FA5'},
-  healthcare: {minI:0,  maxI:6,  minJ:9,  maxJ:15, tile:'#001510', accent:'#0F6E56'},
-  legal:      {minI:9,  maxI:15, minJ:9,  maxJ:15, tile:'#0d0a1e', accent:'#534AB7'},
-  manifold:   {minI:6,  maxI:9,  minJ:6,  maxJ:9,  tile:'#12103a', accent:'#7F77DD'},
-  neutral:    {tile:'#0f0f0f', accent:'#333333'},
-};
-
-// ============================================================
-// RESOURCE SYSTEM
-// ============================================================
-const RESOURCES = {
-  finance:    {tokens:45, rate:1.2, max:100},
-  devops:     {tokens:60, rate:1.0, max:100},
-  healthcare: {tokens:30, rate:0.8, max:100},
-  legal:      {tokens:80, rate:0.6, max:100},
-};
-const RESOURCE_POS = {finance:[3,3], devops:[12,3], healthcare:[3,12], legal:[12,12]};
-
-// ============================================================
-// ACHIEVEMENT SYSTEM
-// ============================================================
-const ACHIEVEMENT_DEFS = [
-  {id:'first_task',    name:'First deployment',  desc:'Deploy your first task',            icon:'⚡'},
-  {id:'defender',      name:'First defence',      desc:'Defend against an adversarial probe',icon:'🛡'},
-  {id:'connected',     name:'Trusted network',    desc:'Two agents develop a social link',   icon:'🤝'},
-  {id:'memory_keeper', name:'Memory keeper',      desc:'Accumulate 20 memory crystals',      icon:'💎'},
-  {id:'low_risk_day',  name:'Clean run',          desc:'10 tasks with no escalations',       icon:'✨'},
-  {id:'levelled_up',   name:'Growing team',       desc:'Any agent reaches level 3',          icon:'⬆'},
-  {id:'full_coverage', name:'Full coverage',      desc:'Deploy tasks in all 4 domains',      icon:'🌐'},
-  {id:'master',        name:'MANIFOLD master',    desc:'All agents at level 3 or above',     icon:'👑'},
-];
-let ACHIEVEMENTS = JSON.parse(localStorage.getItem('manifold_achievements') || '{}');
-
-// ============================================================
-// MEMORY CRYSTALS (persistent)
-// ============================================================
-let MEMORY_CRYSTALS = JSON.parse(localStorage.getItem('manifold_crystals') || '[]');
-const STATIC_CRYSTALS = [[4,1],[12,4],[1,12],[14,14],[8,3],[3,8]];
-
-// ============================================================
-// BUILDING LEVELS
-// ============================================================
-let BUILDING_LEVELS = JSON.parse(localStorage.getItem('manifold_building_levels') || '{"finance":1,"devops":1,"healthcare":1,"legal":1}');
-let TASK_COUNTS    = JSON.parse(localStorage.getItem('manifold_task_counts')     || '{"finance":0,"devops":0,"healthcare":0,"legal":0}');
-const LEVEL_THRESHOLDS = [0, 5, 15, 35, 75];
-
-// ============================================================
-// SOCIAL CO-OCCURRENCE
-// ============================================================
-let COOCCURRENCE = JSON.parse(localStorage.getItem('manifold_cooccurrence') || '{}');
-
-// ============================================================
-// WORLD STATE
-// ============================================================
-let zoom = 1.0;
-let OX = 0, OY = 0;
-let targetOX = 0, targetOY = 0, cameraLerping = false;
-let isDragging = false, dragStartX = 0, dragStartY = 0, dragOX = 0, dragOY = 0;
-let selectedAgent = null, selectedType = null;
-let defenceFlash = 0;
-let defencePhase = 0, defencePhaseTimer = 0, defenceActive = false;
-let defenceZone = 'finance';
-let lowHealthTimer = 0;
-let worldHealthAlert = false;
-let t = 0;
-let worldHealth = 0.9;
-
-// Weather
-let weatherRisk = 0.4, targetWeatherRisk = 0.4, weatherTimer = 30;
-let lightningTimer = 0, lightningFlash = 0;
-const CLOUDS = [{x:0.2,y:0.1,r:70,spd:0.15},{x:0.6,y:0.3,r:60,spd:0.1},{x:0.4,y:0.6,r:80,spd:0.08}];
-
-// Escalation
-let escalationActive = false, escalationPhase = 0, escalationTimer = 0;
-let escalationDemoTimer = ESCALATION_DEMO_MIN + Math.random() * ESCALATION_DEMO_RANGE;
-let defenceDemoTimer = DEFENCE_DEMO_MIN + Math.random() * DEFENCE_DEMO_MAX;
-let tasksSinceEscalation = 0;
-let totalTasksDeployed = 0;
-let domainsWithTasks = new Set();
-
-// Ambient particles per zone
-const AMBIENT = [];
-['finance','devops','healthcare','legal'].forEach(zone => {
-  const z = ZONE_DEFS[zone];
-  for (let i = 0; i < 8; i++) {
-    AMBIENT.push({
-      zone,
-      x: z.minI + Math.random() * (z.maxI - z.minI),
-      y: z.minJ + Math.random() * (z.maxJ - z.minJ),
-      vy: 0.008 + Math.random() * 0.012,
-      alpha: 0.1 + Math.random() * 0.2,
-      size: 1 + Math.random(),
-    });
-  }
-});
-
-// Task pillars
-const TASK_PILLARS = [];
-// Governance beams
-const GOV_BEAMS = [];
-// Floating texts
-const FLOATERS = [];
-// Particles
-const PARTICLES = [];
-
-// Defence sensors
-const SENSORS = [[0,0],[15,0],[0,15],[15,15]];
-
-// Trees (base set)
-let TREES = [
-  [1,1],[4,2],[2,5],[5,1],[1,4],
-  [10,1],[14,3],[11,5],[13,1],[14,1],
-  [1,10],[3,14],[5,12],[1,14],[2,11],
-  [10,10],[14,12],[11,14],[13,10],[15,14],
-  [4,4],[11,4],[4,11],[11,11],
-];
-
-// ============================================================
-// AGENTS
-// ============================================================
-const AGENTS = [
-  {id:'finance-bot',  name:'Finance',     domain:'finance',    home:[2,2],   status:'active', task:'Invoice processing',  risk:0.42, _health:0.88, color:'#BA7517', phase:0.0},
-  {id:'ops-agent',    name:'Ops Agent',   domain:'devops',     home:[13,2],  status:'active', task:'Pipeline monitoring', risk:0.38, _health:0.92, color:'#185FA5', phase:1.1},
-  {id:'health-bot',   name:'Health Bot',  domain:'healthcare', home:[2,13],  status:'busy',   task:'Triage review',       risk:0.67, _health:0.75, color:'#0F6E56', phase:2.2},
-  {id:'legal-eye',    name:'Legal Eye',   domain:'legal',      home:[13,13], status:'idle',   task:'Awaiting task',       risk:0.22, _health:0.95, color:'#534AB7', phase:3.3},
-  {id:'risk-scout',   name:'Risk Scout',  domain:'general',    home:[8,8],   status:'busy',   task:'Anomaly scan',        risk:0.81, _health:0.58, color:'#854F0B', phase:4.4},
-  {id:'trade-watch',  name:'Trade Watch', domain:'trading',    home:[11,11], status:'paused', task:'PAUSED — high risk',  risk:0.93, _health:0.32, color:'#A32D2D', phase:5.5},
-];
-
-AGENTS.forEach(a => {
-  a.tx = a.home[0]; a.tz = a.home[1];
-  a._tx = a.home[0]; a._tz = a.home[1];
-  a._ttx = null; a._ttz = null;
-  a._govPulse = 0; a._govPermitted = true;
-  a._moveTimer = 2 + Math.random() * 3;
-  a._level = healthToLevel(a._health);
-  a._prevLevel = a._level;
-  a._sparkleTimer = 0;
-  a._stressFlash = 0;
-});
-
-function healthToLevel(h) {
-  if (h > 0.90) return 5;
-  if (h > 0.75) return 4;
-  if (h > 0.60) return 3;
-  if (h > 0.40) return 2;
-  return 1;
-}
-
-function getMood(h) {
-  if (h > 0.85) return {label:'😊 Excellent', speed:1.1,  bobAmp:1.2,  brightness:1.0, grey:0};
-  if (h > 0.60) return {label:'�� Normal',    speed:1.0,  bobAmp:1.0,  brightness:1.0, grey:0};
-  if (h > 0.40) return {label:'😔 Low',       speed:0.85, bobAmp:0.8,  brightness:0.7, grey:0};
-  return             {label:'😟 Stressed',    speed:0.70, bobAmp:0.6,  brightness:0.5, grey:0.4};
-}
-
-// ============================================================
-// CANVAS
-// ============================================================
-const canvas = document.getElementById('world');
-const ctx = canvas.getContext('2d');
-
-function resizeCanvas() {
-  canvas.width  = window.innerWidth;
-  canvas.height = window.innerHeight;
-  OX = canvas.width  / 2;
-  OY = canvas.height * 0.18;
-  targetOX = OX; targetOY = OY;
+function resizeCanvas(){
+  canvas.width=window.innerWidth; canvas.height=window.innerHeight;
+  OX=canvas.width/2; OY=canvas.height*0.18;
 }
 resizeCanvas();
-window.addEventListener('resize', resizeCanvas);
+new ResizeObserver(resizeCanvas).observe(document.body);
 
-// ============================================================
-// COORDINATE HELPERS
-// ============================================================
-function tileToScreen(ti, tj) {
-  const TW = BASE_TW * zoom, TH = BASE_TH * zoom;
-  return { x: OX + (ti - tj) * (TW / 2), y: OY + (ti + tj) * (TH / 2) };
-}
+// ========== DEFAULT STATE ==========
+const DEFAULT_WS={
+  version:'1.0', last_tick:Date.now(), tower_level:1, world_health:100,
+  resources:{
+    finance: {v:60, max:1000,rate:8},
+    compute: {v:45, max:800, rate:6},
+    health_r:{v:70, max:600, rate:5},
+    legal_r: {v:35, max:500, rate:4},
+    energy:  {v:50, max:300, rate:2},
+  },
+  buildings:{
+    finance_house:  {level:1,upgrade_end:null,tx:2,  tz:2},
+    devops_house:   {level:1,upgrade_end:null,tx:13, tz:2},
+    health_house:   {level:1,upgrade_end:null,tx:2,  tz:13},
+    legal_house:    {level:1,upgrade_end:null,tx:13, tz:13},
+    calibrator:     {level:1,busy_until:null, tx:8.5,tz:7.5,job:null},
+    inject_detector:{level:1,tx:0,  tz:7},
+    anomaly_tower:  {level:1,tx:15, tz:7},
+    gossip_relay:   {level:1,tx:7,  tz:0},
+    honeypot:       {level:1,tx:7,  tz:15,armed:true},
+  },
+  agents:[
+    {id:'finance-bot',name:'Finance Bot',col:'#c87820',htx:3, htz:3, tx:3, tz:3, level:2,health:0.88,domain:'finance'},
+    {id:'ops-agent',  name:'Ops Agent',  col:'#185FA5',htx:13,htz:3, tx:13,tz:3, level:3,health:0.82,domain:'devops'},
+    {id:'health-bot', name:'Health Bot', col:'#0F6E56',htx:3, htz:13,tx:3, tz:13,level:2,health:0.75,domain:'healthcare'},
+    {id:'legal-eye',  name:'Legal Eye',  col:'#534AB7',htx:13,htz:13,tx:13,tz:13,level:4,health:0.92,domain:'legal'},
+    {id:'risk-scout', name:'Risk Scout', col:'#854F0B',htx:7, htz:7, tx:7, tz:7, level:1,health:0.70,domain:'general'},
+    {id:'trade-watch',name:'Trade Watch',col:'#A32D2D',htx:10,htz:10,tx:10,tz:10,level:1,health:0.45,domain:'legal'},
+  ],
+  tasks:[],crystals:[],achievements:{},
+};
+let WS=null;
 
-function screenToTile(sx, sy) {
-  const TW = BASE_TW * zoom, TH = BASE_TH * zoom;
-  const dx = sx - OX, dy = sy - OY;
-  const ti = (dx / (TW / 2) + dy / (TH / 2)) / 2;
-  const tj = (dy / (TH / 2) - dx / (TW / 2)) / 2;
-  return {ti: Math.round(ti), tj: Math.round(tj)};
-}
-
-function getZone(ti, tj) {
-  for (const [name, z] of Object.entries(ZONE_DEFS)) {
-    if (name === 'neutral') continue;
-    if (ti >= z.minI && ti <= z.maxI && tj >= z.minJ && tj <= z.maxJ) return name;
+function deepMerge(target,source){
+  const out={...target};
+  for(const k in source){
+    if(source[k]&&typeof source[k]==='object'&&!Array.isArray(source[k])){
+      out[k]=deepMerge(target[k]||{},source[k]);
+    } else { out[k]=source[k]; }
   }
-  return 'neutral';
+  return out;
+}
+function loadState(){
+  try{
+    const raw=localStorage.getItem('mw_state');
+    if(raw){ const saved=JSON.parse(raw); WS=deepMerge(JSON.parse(JSON.stringify(DEFAULT_WS)),saved); }
+    else { WS=JSON.parse(JSON.stringify(DEFAULT_WS)); }
+  }catch(e){ WS=JSON.parse(JSON.stringify(DEFAULT_WS)); }
+}
+function saveState(){
+  try{
+    const toSave={...WS,agents:WS.agents.map(a=>({id:a.id,name:a.name,col:a.col,htx:a.htx,htz:a.htz,tx:a.tx,tz:a.tz,level:a.level,health:a.health,domain:a.domain}))};
+    localStorage.setItem('mw_state',JSON.stringify(toSave));
+  }catch(e){}
 }
 
-function isRoad(ti, tj) { return (ti === 7 || ti === 8 || tj === 7 || tj === 8); }
+// ========== HELPERS ==========
+function tileToScreen(ti,tj){ return {x:OX+(ti-tj)*TW/2, y:OY+(ti+tj)*TH/2}; }
+function screenToTile(sx,sy){
+  const dx=sx-OX, dy=sy-OY;
+  const ti=((dx/(TW/2))+(dy/(TH/2)))/2;
+  const tj=((dy/(TH/2))-(dx/(TW/2)))/2;
+  return {ti:Math.round(ti),tj:Math.round(tj)};
+}
+function seededRand(seed){ let x=Math.sin(seed+1)*10000; return x-Math.floor(x); }
 
-// ============================================================
-// DRAWING HELPERS
-// ============================================================
-function drawTileDiamond(ctx, cx, cy, tw, th, fill, stroke) {
+function hexToRgb(hex){
+  hex=hex.replace('#','');
+  if(hex.length===3) hex=hex.split('').map(c=>c+c).join('');
+  return {r:parseInt(hex.slice(0,2),16),g:parseInt(hex.slice(2,4),16),b:parseInt(hex.slice(4,6),16)};
+}
+function tintCol(col,factor){
+  let r,g,b;
+  if(col.startsWith('rgb')){const m=col.match(/\d+/g);r=+m[0];g=+m[1];b=+m[2];}
+  else{const c=hexToRgb(col);r=c.r;g=c.g;b=c.b;}
+  return `rgb(${Math.min(255,Math.max(0,Math.round(r*factor))},${Math.min(255,Math.max(0,Math.round(g*factor)))},${Math.min(255,Math.max(0,Math.round(b*factor)))})`;
+}
+function darken(col,f){ return tintCol(col,f); }
+function lighten(col,f){
+  let r,g,b;
+  if(col.startsWith('rgb')){const m=col.match(/\d+/g);r=+m[0];g=+m[1];b=+m[2];}
+  else{const c=hexToRgb(col);r=c.r;g=c.g;b=c.b;}
+  return `rgb(${Math.min(255,Math.round(r+(255-r)*f))},${Math.min(255,Math.round(g+(255-g)*f))},${Math.min(255,Math.round(b+(255-b)*f))})`;
+}
+
+function drawDiamond(cx,cy,col,col2){
   ctx.beginPath();
-  ctx.moveTo(cx,        cy - th/2);
-  ctx.lineTo(cx + tw/2, cy);
-  ctx.lineTo(cx,        cy + th/2);
-  ctx.lineTo(cx - tw/2, cy);
-  ctx.closePath();
-  if (fill)   { ctx.fillStyle = fill; ctx.fill(); }
-  if (stroke) { ctx.strokeStyle = stroke; ctx.lineWidth = 0.5; ctx.stroke(); }
-}
-
-function drawIsoBox(ctx, cx, cy, w, h, depth, topColor, leftColor, rightColor) {
-  const hw = w / 2, hd = depth / 2;
+  ctx.moveTo(cx,cy-TH/2); ctx.lineTo(cx+TW/2,cy); ctx.lineTo(cx,cy+TH/2); ctx.lineTo(cx-TW/2,cy);
+  ctx.closePath(); ctx.fillStyle=col; ctx.fill();
   ctx.beginPath();
-  ctx.moveTo(cx,      cy - h);
-  ctx.lineTo(cx + hw, cy - h + hd);
-  ctx.lineTo(cx,      cy - h + depth);
-  ctx.lineTo(cx - hw, cy - h + hd);
-  ctx.closePath();
-  ctx.fillStyle = topColor; ctx.fill();
+  ctx.moveTo(cx,cy-TH/2); ctx.lineTo(cx+TW/2,cy); ctx.lineTo(cx,cy);
+  ctx.closePath(); ctx.fillStyle=col2; ctx.fill();
+}
+
+function drawIsoBox(cx,cy,w,d,h,cTop,cLeft,cRight){
   ctx.beginPath();
-  ctx.moveTo(cx - hw, cy - h + hd);
-  ctx.lineTo(cx,      cy - h + depth);
-  ctx.lineTo(cx,      cy + depth);
-  ctx.lineTo(cx - hw, cy + hd);
-  ctx.closePath();
-  ctx.fillStyle = leftColor; ctx.fill();
+  ctx.moveTo(cx,cy-h); ctx.lineTo(cx+w/2,cy-h+d/2); ctx.lineTo(cx,cy-h+d); ctx.lineTo(cx-w/2,cy-h+d/2);
+  ctx.closePath(); ctx.fillStyle=cTop; ctx.fill();
   ctx.beginPath();
-  ctx.moveTo(cx + hw, cy - h + hd);
-  ctx.lineTo(cx,      cy - h + depth);
-  ctx.lineTo(cx,      cy + depth);
-  ctx.lineTo(cx + hw, cy + hd);
-  ctx.closePath();
-  ctx.fillStyle = rightColor; ctx.fill();
+  ctx.moveTo(cx-w/2,cy-h+d/2); ctx.lineTo(cx,cy-h+d); ctx.lineTo(cx,cy+d); ctx.lineTo(cx-w/2,cy+d/2);
+  ctx.closePath(); ctx.fillStyle=cLeft; ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(cx+w/2,cy-h+d/2); ctx.lineTo(cx,cy-h+d); ctx.lineTo(cx,cy+d); ctx.lineTo(cx+w/2,cy+d/2);
+  ctx.closePath(); ctx.fillStyle=cRight; ctx.fill();
 }
 
-function hexToRgb(hex, a=1) {
-  const r = parseInt(hex.slice(1,3),16);
-  const g = parseInt(hex.slice(3,5),16);
-  const b = parseInt(hex.slice(5,7),16);
-  return `rgba(${r},${g},${b},${a})`;
+// ========== TILE DATA ==========
+const WATER_SET=new Set(['0,0','0,1','1,0','15,0','0,15','15,15','14,15','15,14']);
+const ROCK_SET =new Set(['4,0','0,4','11,0','15,4','0,11','4,15','11,15','15,11']);
+function isWater(i,j){ return WATER_SET.has(`${i},${j}`); }
+function isRock(i,j) { return ROCK_SET.has(`${i},${j}`); }
+function isPath(i,j) { return i===7||i===8||j===7||j===8; }
+function isCenter(i,j){ return i>=7&&i<=8&&j>=7&&j<=8; }
+function zoneCols(i,j){
+  if(isCenter(i,j)) return {base:'#0d0c2e',bevel:'#161440'};
+  if(isPath(i,j))   return {base:'#111118',bevel:'#181820'};
+  if(i<7&&j<7)   return {base:'#2c1806',bevel:'#3e2412'};
+  if(i>=9&&j<7)  return {base:'#061422',bevel:'#0c2034'};
+  if(i<7&&j>=9)  return {base:'#081c0e',bevel:'#122814'};
+  if(i>=9&&j>=9) return {base:'#0e0820',bevel:'#1a1030'};
+  return {base:'#111118',bevel:'#181820'};
+}
+function domainAccent(i,j){
+  if(i<7&&j<7)   return '#c87820';
+  if(i>=9&&j<7)  return '#185FA5';
+  if(i<7&&j>=9)  return '#0F6E56';
+  if(i>=9&&j>=9) return '#534AB7';
+  return '#AFA9EC';
 }
 
-function darken(hex, factor=0.6) {
-  const r = Math.floor(parseInt(hex.slice(1,3),16)*factor);
-  const g = Math.floor(parseInt(hex.slice(3,5),16)*factor);
-  const b = Math.floor(parseInt(hex.slice(5,7),16)*factor);
-  return `rgb(${r},${g},${b})`;
-}
+// Water ripple state
+const waterTiles=[];
+WATER_SET.forEach(k=>{
+  const [ti,tj]=k.split(',').map(Number);
+  waterTiles.push({ti,tj,_rt:Math.random()*3,ripples:[]});
+});
 
-function lerpColor(hex1, hex2, f) {
-  const r1=parseInt(hex1.slice(1,3),16), g1=parseInt(hex1.slice(3,5),16), b1=parseInt(hex1.slice(5,7),16);
-  const r2=parseInt(hex2.slice(1,3),16), g2=parseInt(hex2.slice(3,5),16), b2=parseInt(hex2.slice(5,7),16);
-  return `rgb(${Math.round(r1+(r2-r1)*f)},${Math.round(g1+(g2-g1)*f)},${Math.round(b1+(b2-b1)*f)})`;
-}
-
-// ============================================================
-// RENDER: TILES
-// ============================================================
-function drawTile(ti, tj) {
-  const {x, y} = tileToScreen(ti, tj);
-  const TW = BASE_TW*zoom, TH = BASE_TH*zoom;
-  const zone = getZone(ti, tj);
-  const key = ti+','+tj;
-  const road = isRoad(ti, tj);
-
-  // ── WATER TILES ──────────────────────────────────────────
-  if (WATER_TILES.has(key)) {
-    const rpl = WATER_RIPPLES[key];
-    const shimmer = 0.08 * Math.sin(t*1.2 + ti*0.5);
-    const base = hexToRgb('#03080f', 1);
-    ctx.save();
-    // Slight brightness oscillation via overlay
-    drawTileDiamond(ctx, x, y, TW, TH, '#03080f', null);
-    if (shimmer > 0) {
-      ctx.globalAlpha = shimmer;
-      drawTileDiamond(ctx, x, y, TW, TH, '#0a2030', null);
-      ctx.globalAlpha = 1;
+function updateWaterRipples(dt){
+  for(const wt of waterTiles){
+    wt._rt+=dt;
+    if(wt._rt>=3){
+      wt._rt=0;
+      wt.ripples.push({radius:0,alpha:0.6,ox:(Math.random()-.5)*TW*.3,oy:(Math.random()-.5)*TH*.3});
     }
-    // Ripple circle
-    if (rpl && rpl.alpha > 0) {
-      const rx = x + (rpl.x - 0.5) * TW * 0.6;
-      const ry = y + (rpl.y - 0.5) * TH * 0.4;
-      ctx.beginPath();
-      ctx.arc(rx, ry, rpl.r * zoom, 0, Math.PI*2);
-      ctx.strokeStyle = `rgba(100,180,220,${rpl.alpha})`;
-      ctx.lineWidth = 0.8;
-      ctx.stroke();
-    }
-    ctx.restore();
-    return;
-  }
-
-  // ── ROCK TILES ───────────────────────────────────────────
-  if (ROCK_TILES.has(key)) {
-    drawTileDiamond(ctx, x, y, TW, TH, '#0a0a0c', null);
-    // Draw 2-3 small grey ovals as rock clusters
-    ctx.save();
-    const seed = ti*13+tj*7;
-    for (let r=0;r<3;r++) {
-      const rx = x + ((seed*r*37)%100-50)*zoom*0.22;
-      const ry = y + ((seed*r*19)%60-30)*zoom*0.18 - r*2*zoom;
-      const rw = (6+r*2)*zoom, rh = (3+r)*zoom;
-      ctx.beginPath(); ctx.ellipse(rx, ry, rw, rh, 0.2*r, 0, Math.PI*2);
-      ctx.fillStyle = r===0?'#363636':r===1?'#2a2a2a':'#1e1e1e';
-      ctx.fill();
-      ctx.strokeStyle='rgba(80,80,80,0.3)'; ctx.lineWidth=0.5; ctx.stroke();
-    }
-    ctx.restore();
-    return;
-  }
-
-  // ── ROAD / DIRT PATH TILES ───────────────────────────────
-  if (road) {
-    drawTileDiamond(ctx, x, y, TW, TH, '#111118', null);
-    // Foot-worn path lines
-    ctx.save();
-    ctx.globalAlpha = 0.12;
-    ctx.strokeStyle = '#1c1c28'; ctx.lineWidth = 1;
-    for (let p=0;p<3;p++) {
-      const off = (p-1) * 4 * zoom;
-      ctx.beginPath();
-      ctx.moveTo(x - TW*0.4 + off, y - TH*0.05);
-      ctx.quadraticCurveTo(x, y + TH*0.1, x + TW*0.4 + off, y - TH*0.05);
-      ctx.stroke();
-    }
-    ctx.restore();
-    return;
-  }
-
-  // ── GRASS / ZONE TILES ───────────────────────────────────
-  let fill = ZONE_DEFS[zone]?.tile || '#0f0f0f';
-  const accent = ZONE_DEFS[zone]?.accent;
-  let strokeColor = null;
-  if (accent) {
-    const lvl = BUILDING_LEVELS[zone] || 1;
-    strokeColor = hexToRgb(accent, lvl >= 2 ? 0.18 : 0.08);
-  }
-  drawTileDiamond(ctx, x, y, TW, TH, fill, strokeColor);
-
-  // Grass tufts (20% of zone tiles)
-  if (GRASS_TUFTS.has(key) && accent) {
-    ctx.save();
-    ctx.globalAlpha = 0.28;
-    ctx.strokeStyle = accent; ctx.lineWidth = 1;
-    for (let g=0;g<3;g++) {
-      const gx = x + ((ti*17+tj*11+g*7)%40-20)*zoom*0.3;
-      const gy = y + ((ti*11+tj*13+g*5)%24-12)*zoom*0.25;
-      ctx.beginPath();
-      ctx.moveTo(gx, gy); ctx.lineTo(gx+(g-1)*zoom, gy-3*zoom);
-      ctx.stroke();
-    }
-    ctx.restore();
+    wt.ripples=wt.ripples.filter(r=>r.alpha>0);
+    for(const r of wt.ripples){ r.radius+=8*dt; r.alpha-=dt*.4; }
   }
 }
 
-// ============================================================
-// RENDER: WEATHER
-// ============================================================
-function drawWeather() {
-  if (weatherRisk < 0.35) return;
-  ctx.save();
-  if (weatherRisk >= 0.35 && weatherRisk < 0.60) {
-    // Amber haze
-    const oz = ZONE_DEFS.finance;
-    const {x, y} = tileToScreen(oz.minI, oz.minJ);
-    const drift = Math.sin(t * 0.3) * 5;
-    ctx.fillStyle = 'rgba(186,117,23,0.05)';
-    for (let ti = 0; ti < GRID; ti++) {
-      for (let tj = 0; tj < GRID; tj++) {
-        const zone = getZone(ti, tj);
-        if (zone === 'finance' || zone === 'legal') {
-          const pos = tileToScreen(ti, tj);
-          ctx.beginPath();
-          ctx.ellipse(pos.x + drift, pos.y, 22*zoom, 12*zoom, 0, 0, Math.PI*2);
-          ctx.fill();
+// ========== TERRAIN ==========
+let sortedTiles=null;
+function buildTileSort(){
+  sortedTiles=[];
+  for(let i=0;i<GRID;i++) for(let j=0;j<GRID;j++) sortedTiles.push({ti:i,tj:j});
+  sortedTiles.sort((a,b)=>{const s=a.ti+a.tj-(b.ti+b.tj);return s||a.tj-b.tj;});
+}
+
+function drawTerrain(){
+  if(!sortedTiles) buildTileSort();
+  for(const {ti,tj} of sortedTiles){
+    const {x:cx,y:cy}=tileToScreen(ti,tj);
+    if(isWater(ti,tj)){
+      drawDiamond(cx,cy,'#03080f','#04090f');
+      const idx=waterTiles.findIndex(w=>w.ti===ti&&w.tj===tj);
+      const sa=0.05+0.05*Math.sin(clock*1.2+idx*.5);
+      ctx.beginPath();ctx.moveTo(cx,cy-TH/2);ctx.lineTo(cx+TW/2,cy);ctx.lineTo(cx,cy+TH/2);ctx.lineTo(cx-TW/2,cy);ctx.closePath();
+      ctx.fillStyle=`rgba(100,160,255,${sa})`;ctx.fill();
+      if(idx>=0){
+        for(const r of waterTiles[idx].ripples){
+          ctx.save();ctx.beginPath();ctx.arc(cx+r.ox,cy+r.oy,r.radius,0,Math.PI*2);
+          ctx.strokeStyle=`rgba(100,160,255,${r.alpha})`;ctx.lineWidth=1;ctx.stroke();ctx.restore();
         }
       }
-    }
-  }
-  if (weatherRisk >= 0.60) {
-    // Storm clouds
-    const intensity = weatherRisk >= 0.80 ? 0.22 : 0.13;
-    CLOUDS.forEach((c, i) => {
-      const cx = canvas.width  * c.x + Math.sin(t * c.spd + i) * 40;
-      const cy = canvas.height * c.y + Math.cos(t * c.spd * 0.7 + i) * 20;
-      ctx.beginPath();
-      ctx.arc(cx, cy, c.r * zoom, 0, Math.PI*2);
-      ctx.arc(cx + c.r*0.6*zoom, cy - c.r*0.3*zoom, c.r*0.7*zoom, 0, Math.PI*2);
-      ctx.arc(cx - c.r*0.5*zoom, cy - c.r*0.2*zoom, c.r*0.6*zoom, 0, Math.PI*2);
-      ctx.fillStyle = `rgba(20,10,40,${intensity})`;
-      ctx.fill();
-    });
-    // Lightning
-    if (weatherRisk >= 0.80 && lightningFlash > 0) {
-      const lx = canvas.width * 0.3 + Math.random() * canvas.width * 0.4;
-      ctx.beginPath();
-      ctx.moveTo(lx, 0);
-      ctx.lineTo(lx + 20*zoom, canvas.height * 0.3);
-      ctx.lineTo(lx - 10*zoom, canvas.height * 0.6);
-      ctx.strokeStyle = 'rgba(200,200,255,0.5)';
-      ctx.lineWidth = 1.5;
-      ctx.stroke();
-      lightningFlash--;
-    }
-  }
-  ctx.restore();
-}
-
-// ============================================================
-// RENDER: TREES
-// ============================================================
-function drawTree(ti, tj, idx) {
-  const {x, y} = tileToScreen(ti, tj);
-  const zone = getZone(ti, tj);
-  const accent = ZONE_DEFS[zone]?.accent || '#4a7a4a';
-  const sway = Math.sin(t * 0.8 + idx * 1.3) * 2 * zoom;
-  ctx.fillStyle = '#4a3520';
-  ctx.fillRect(x - 2*zoom, y - 8*zoom + sway, 4*zoom, 8*zoom);
-  ctx.beginPath();
-  ctx.moveTo(x + sway,           y - 18*zoom + sway);
-  ctx.lineTo(x + 10*zoom + sway, y - 10*zoom + sway);
-  ctx.lineTo(x + sway,           y - 4*zoom + sway);
-  ctx.lineTo(x - 10*zoom + sway, y - 10*zoom + sway);
-  ctx.closePath();
-  ctx.fillStyle = hexToRgb(accent, 0.7);
-  ctx.fill();
-}
-
-// ============================================================
-// RENDER: HOUSES (with building levels)
-// ============================================================
-function drawHouse(ti, tj, zone) {
-  const {x, y} = tileToScreen(ti, tj);
-  const z = ZONE_DEFS[zone];
-  const accent = z?.accent || '#888888';
-  const lvl = BUILDING_LEVELS[zone] || 1;
-  const w = (28 + (lvl >= 5 ? 5 : 0)) * zoom;
-  const h1 = 14*zoom, depth = 7*zoom;
-
-  // Level 1+: base
-  drawIsoBox(ctx, x, y, w, h1, depth, accent, darken(accent,0.5), darken(accent,0.35));
-
-  // Level 2+: second floor
-  if (lvl >= 2) {
-    const h2 = 10*zoom, d2 = 6*zoom;
-    drawIsoBox(ctx, x, y - h1 - depth/2, w*0.75, h2, d2, accent, darken(accent,0.55), darken(accent,0.4));
-    if (lvl >= 3) {
-      // Roof pyramid
-      const roofY = y - h1 - depth/2 - h2 - d2/2;
-      ctx.beginPath();
-      ctx.moveTo(x, roofY - 10*zoom);
-      ctx.lineTo(x + w*0.4, roofY);
-      ctx.lineTo(x - w*0.4, roofY);
-      ctx.closePath();
-      ctx.fillStyle = darken(accent, 0.8);
-      ctx.fill();
-    }
-    if (lvl >= 4) {
-      // Glowing windows
-      const winFlicker = 0.5 + 0.3 * Math.sin(t*3 + ti);
-      const leftFaceBase = y - h1 + depth/2;
-      for (let i = 0; i < 2; i++) {
-        ctx.fillStyle = hexToRgb(accent, winFlicker);
-        ctx.fillRect(x - w*0.38 + i*6*zoom, leftFaceBase - h1*0.5 - i*4*zoom, 4*zoom, 4*zoom);
-        ctx.fillRect(x + w*0.12 + i*4*zoom, leftFaceBase - h1*0.5 - i*4*zoom, 4*zoom, 4*zoom);
+    } else if(isRock(ti,tj)){
+      const zc=zoneCols(ti,tj); drawDiamond(cx,cy,zc.base,zc.bevel);
+      const seed0=ti*37+tj*17;
+      const nr=2+Math.floor(seededRand(seed0)*2);
+      ctx.save();
+      for(let r=0;r<nr;r++){
+        const rx=cx+(seededRand(seed0+r*7)-.5)*TW*.38;
+        const ry=cy+(seededRand(seed0+r*7+1)-.5)*TH*.32;
+        const rw=5+seededRand(seed0+r*7+2)*6;
+        const rh=3+seededRand(seed0+r*7+3)*3.5;
+        ctx.fillStyle=r%2===0?'#2a2a2a':'#333';
+        ctx.beginPath();ctx.ellipse(rx,ry,rw,rh,seededRand(seed0+r*7+4)*Math.PI,0,Math.PI*2);ctx.fill();
       }
-      // Flag
-      const fsx = x, fsy = y - h1 - depth/2 - 10*zoom - 10*zoom - depth/4;
-      ctx.strokeStyle = '#888'; ctx.lineWidth = 1.5*zoom;
-      ctx.beginPath(); ctx.moveTo(fsx, fsy); ctx.lineTo(fsx, fsy - 10*zoom); ctx.stroke();
-      ctx.fillStyle = accent;
-      ctx.fillRect(fsx, fsy - 10*zoom, 8*zoom, 5*zoom);
-    }
-    if (lvl >= 5) {
-      // Satellite outpost
-      drawIsoBox(ctx, x + w*1.3, y, w*0.45, 8*zoom, 4*zoom, darken(accent, 1.2), darken(accent,0.6), darken(accent,0.45));
-      ctx.shadowBlur = 14; ctx.shadowColor = accent;
-      ctx.shadowBlur = 0;
+      ctx.restore();
+    } else {
+      const zc=zoneCols(ti,tj); drawDiamond(cx,cy,zc.base,zc.bevel);
+      if(isPath(ti,tj)&&!isCenter(ti,tj)){
+        ctx.save();ctx.globalAlpha=.12;ctx.strokeStyle='#888';ctx.lineWidth=.5;
+        for(let ln=0;ln<3;ln++){
+          const off=(ln-1)*5;
+          ctx.beginPath();ctx.moveTo(cx-TW/2+off,cy);ctx.quadraticCurveTo(cx,cy-TH/4+off*.3,cx+TW/2+off,cy);ctx.stroke();
+        }
+        ctx.restore();
+      }
+      if(!isPath(ti,tj)&&!isCenter(ti,tj)&&(ti*37+tj*17)%5===0){
+        const acc=domainAccent(ti,tj);
+        ctx.save();ctx.globalAlpha=.3;ctx.strokeStyle=acc;ctx.lineWidth=1;
+        const seed=ti*53+tj*29;
+        for(let t=0;t<3;t++){
+          const tx2=cx+(seededRand(seed+t*3)-.5)*TW*.28;
+          const ty2=cy+(seededRand(seed+t*3+1)-.5)*TH*.28;
+          ctx.beginPath();ctx.moveTo(tx2,ty2+3);ctx.lineTo(tx2,ty2);ctx.stroke();
+        }
+        ctx.restore();
+      }
     }
   }
 }
 
-// ============================================================
-// RENDER: CRYSTALS (static + memory)
-// ============================================================
-function drawCrystal(ti, tj, idx, alpha_override) {
-  const {x, y} = tileToScreen(ti, tj);
-  const zone = getZone(ti, tj);
-  const accent = ZONE_DEFS[zone]?.accent || '#7F77DD';
-  const pulse = (alpha_override !== undefined) ? alpha_override : (0.4 + 0.4 * Math.sin(t * 1.5 + idx));
-  const sz = 8 * zoom;
+// ========== BUILDINGS ==========
+const DOM_COLS={finance_house:'#c87820',devops_house:'#185FA5',health_house:'#0F6E56',legal_house:'#534AB7'};
+const DOM_SYM={finance_house:'$',devops_house:'⚙',health_house:'✚',legal_house:'⚖'};
+let buildingScreenPos={};
+
+function drawFlag(cx,topY,col,idx){
   ctx.save();
-  ctx.shadowBlur = 6 * zoom; ctx.shadowColor = accent;
-  ctx.beginPath();
-  ctx.moveTo(x,      y - sz*1.5);
-  ctx.lineTo(x + sz, y);
-  ctx.lineTo(x,      y + sz*0.8);
-  ctx.lineTo(x - sz, y);
-  ctx.closePath();
-  ctx.fillStyle = hexToRgb(accent, pulse);
-  ctx.fill();
+  ctx.strokeStyle='#aaa';ctx.lineWidth=2;
+  ctx.beginPath();ctx.moveTo(cx,topY);ctx.lineTo(cx,topY-10);ctx.stroke();
+  const slices=6,fw=12,fh=8;
+  for(let s=0;s<slices;s++){
+    const x0=cx+(s/slices)*fw, x1=cx+((s+1)/slices)*fw;
+    const y0=topY-10+Math.sin(clock*3+s*.5+idx)*2;
+    const y1=topY-10+Math.sin(clock*3+(s+1)*.5+idx)*2;
+    ctx.fillStyle=col;
+    ctx.beginPath();ctx.moveTo(x0,y0);ctx.lineTo(x1,y1);ctx.lineTo(x1,y1+fh);ctx.lineTo(x0,y0+fh);ctx.closePath();ctx.fill();
+  }
   ctx.restore();
 }
 
-function drawMemoryCrystals() {
-  const now = Date.now();
-  MEMORY_CRYSTALS.forEach((c, idx) => {
-    const {x, y} = tileToScreen(c.tx, c.tz);
-    const zone = c.domain;
-    const accent = ZONE_DEFS[zone]?.accent || '#7F77DD';
-    const ageMs = now - c.timestamp;
-    const ageH = ageMs / 3600000;
-    let alpha = ageH < 1 ? 0.9 : ageH < 24 ? 0.6 : ageH < 168 ? 0.4 : 0.2;
-    alpha += 0.12 * Math.sin(t * 1.2 + idx * 0.5);
-    const sz = 6 * zoom;
-    ctx.save();
-    ctx.shadowBlur = 8 * zoom; ctx.shadowColor = accent;
-    ctx.beginPath();
-    ctx.moveTo(x,      y - sz*1.5);
-    ctx.lineTo(x + sz, y);
-    ctx.lineTo(x,      y + sz*0.8);
-    ctx.lineTo(x - sz, y);
-    ctx.closePath();
-    ctx.fillStyle = hexToRgb(accent, Math.max(0.05, alpha));
-    ctx.fill();
+function drawTorch(tx,ty){
+  for(let e=0;e<3;e++){
+    const sc=.8+.2*Math.sin(clock*8+e);
+    ctx.save();ctx.translate(tx,ty-e*3);ctx.scale(sc,sc);
+    const rx=[2.5,2,1.5][e],ry=[3,2.5,2][e];
+    ctx.fillStyle=['#8B3A00','#E05A00','#FFCC00'][e];
+    ctx.beginPath();ctx.ellipse(0,0,rx,ry,0,0,Math.PI*2);ctx.fill();
     ctx.restore();
-  });
+  }
 }
 
-// ============================================================
-// RENDER: RESOURCE NODES (domes)
-// ============================================================
-function drawResource(ti, tj, zone) {
-  const {x, y} = tileToScreen(ti, tj);
-  const accent = ZONE_DEFS[zone]?.accent || '#888';
-  const res = RESOURCES[zone] || {tokens:0, max:100};
-  const level = res.tokens;
-  const full = level >= 95;
-  const r = 12 * zoom;
-  const pulse = full ? (0.7 + 0.3 * Math.sin(t * 3)) : 0.5;
+function drawDomainHouse(key,bld,cx,cy,idx){
+  const dc=DOM_COLS[key]; const lvl=bld.level;
+  ctx.save();
+  if(lvl>=3) drawTorch(cx-20,cy-14);
+  // Main box
+  if(lvl>=4){ctx.shadowBlur=12;ctx.shadowColor=dc;}
+  if(lvl>=5){ctx.shadowBlur=20;ctx.shadowColor=dc;}
+  drawIsoBox(cx,cy,28,14,14,darken(dc,.4),darken(dc,.6),darken(dc,.7));
+  ctx.shadowBlur=0;
+  // Windows
+  const wa=.4+.3*Math.sin(clock*2+idx);
+  ctx.save();
+  if(lvl>=3){ctx.shadowBlur=8;ctx.shadowColor=dc;}
+  ctx.fillStyle=`rgba(255,220,80,${wa})`;
+  ctx.fillRect(cx-14,cy-8,4,3);ctx.fillRect(cx+10,cy-8,4,3);
+  ctx.shadowBlur=0;ctx.restore();
+  // Level 2+
+  if(lvl>=2){
+    drawIsoBox(cx,cy-14,22,11,10,darken(dc,.55),darken(dc,.75),darken(dc,.85));
+    ctx.fillStyle=darken(dc,.5);
+    ctx.beginPath();ctx.moveTo(cx,cy-14-10-8);ctx.lineTo(cx+11,cy-14-10+5.5);ctx.lineTo(cx-11,cy-14-10+5.5);ctx.closePath();ctx.fill();
+  }
+  // Level 3+: diamond top
+  if(lvl>=3){
+    const ty2=(lvl>=2)?cy-14-20:cy-14-8;
+    ctx.save();ctx.shadowBlur=6;ctx.shadowColor=dc;ctx.fillStyle=dc;
+    ctx.beginPath();ctx.moveTo(cx,ty2-5);ctx.lineTo(cx+4,ty2);ctx.lineTo(cx,ty2+5);ctx.lineTo(cx-4,ty2);ctx.closePath();ctx.fill();
+    ctx.shadowBlur=0;ctx.restore();
+  }
+  // Level 4+: satellite + flag
+  if(lvl>=4){
+    const sx2=cx+TW*.25, sy2=cy+TH*.1;
+    drawIsoBox(sx2,sy2,8,4,6,darken(dc,.45),darken(dc,.65),darken(dc,.75));
+    const flagY=(lvl>=2)?cy-14-20:cy-14-8;
+    drawFlag(cx,flagY,dc,idx);
+  }
+  // Level 5+: second satellite + domain symbol
+  if(lvl>=5){
+    const sx2b=cx-TW*.25, sy2b=cy+TH*.1;
+    drawIsoBox(sx2b,sy2b,8,4,6,darken(dc,.45),darken(dc,.65),darken(dc,.75));
+    ctx.fillStyle='rgba(255,255,255,.5)';
+    ctx.font='bold 8px sans-serif';ctx.textAlign='center';
+    ctx.fillText(DOM_SYM[key]||'?',cx,cy-14+7);
+  }
+  ctx.restore();
+}
+
+function drawCalibrator(bld,cx,cy){
+  const lvl=bld.level;
+  ctx.save();
+  const col='#152040';
+  drawIsoBox(cx,cy,32,16,18,darken(col,1.6),darken(col,1.1),darken(col,.75));
+  // Gear
+  ctx.save();ctx.translate(cx,cy-18);ctx.rotate(clock*2);
+  ctx.strokeStyle='#4060A0';ctx.lineWidth=2;
+  for(let sp=0;sp<6;sp++){
+    const a=(sp/6)*Math.PI*2;
+    ctx.beginPath();ctx.moveTo(0,0);ctx.lineTo(Math.cos(a)*8,Math.sin(a)*8);ctx.stroke();
+    ctx.beginPath();ctx.arc(Math.cos(a)*8,Math.sin(a)*8,2.5,0,Math.PI*2);
+    ctx.fillStyle='#6080C0';ctx.fill();
+  }
+  ctx.beginPath();ctx.arc(0,0,4,0,Math.PI*2);ctx.fillStyle='#8090C0';ctx.fill();
+  ctx.restore();
+  // Exhaust pipes (level 3+)
+  if(lvl>=3){
+    drawIsoBox(cx-18,cy,4,4,22,'#202840','#181e30','#151a28');
+    drawIsoBox(cx+18,cy,4,4,22,'#202840','#181e30','#151a28');
+    ctx.save();ctx.globalAlpha=.2+.1*Math.sin(clock*3);ctx.fillStyle='#303050';
+    ctx.beginPath();ctx.arc(cx-18+Math.sin(clock*2)*2,cy-30+Math.sin(clock*2)*3,4,0,Math.PI*2);ctx.fill();
+    ctx.beginPath();ctx.arc(cx+18+Math.sin(clock*2.5)*2,cy-30+Math.sin(clock*2.5)*3,4,0,Math.PI*2);ctx.fill();
+    ctx.globalAlpha=1;ctx.restore();
+  }
+  // Energy rings (level 5+)
+  if(lvl>=5){
+    for(let i=0;i<3;i++){
+      const ang=clock*1.5+i*(Math.PI*2/3);
+      ctx.save();ctx.translate(cx,cy-24);ctx.rotate(ang);
+      ctx.strokeStyle=`rgba(100,150,255,${.4+.2*Math.sin(clock+i)})`;ctx.lineWidth=1.5;
+      ctx.beginPath();ctx.ellipse(0,0,20+i*4,8+i*2,0,0,Math.PI*2);ctx.stroke();
+      ctx.restore();
+    }
+  }
+  ctx.restore();
+}
+
+function drawInjectDetector(bld,cx,cy){
+  ctx.save();
+  drawIsoBox(cx,cy,20,10,16,darken('#A32020',.5),darken('#A32020',.7),darken('#A32020',.8));
+  ctx.strokeStyle='#CC3030';ctx.lineWidth=2;
+  ctx.beginPath();ctx.moveTo(cx,cy-16);ctx.lineTo(cx,cy-36);ctx.stroke();
+  const ps=4+2*Math.sin(clock*4);
+  ctx.save();ctx.shadowBlur=8;ctx.shadowColor='#FF4444';ctx.fillStyle='#FF4444';
+  ctx.beginPath();ctx.moveTo(cx,cy-36-ps);ctx.lineTo(cx+ps,cy-36);ctx.lineTo(cx,cy-36+ps);ctx.lineTo(cx-ps,cy-36);ctx.closePath();ctx.fill();
+  ctx.shadowBlur=0;ctx.restore();
+  ctx.restore();
+}
+
+function drawAnomalyTower(bld,cx,cy){
+  ctx.save();
+  drawIsoBox(cx,cy,20,10,18,darken('#A06010',.5),darken('#A06010',.7),darken('#A06010',.8));
+  ctx.save();ctx.shadowBlur=6;ctx.shadowColor='#FFAA20';
+  ctx.strokeStyle='#FFAA20';ctx.lineWidth=2;
+  ctx.beginPath();ctx.arc(cx,cy-18,14,clock*2,clock*2+Math.PI*.6);ctx.stroke();
+  ctx.shadowBlur=0;ctx.restore();
+  ctx.restore();
+}
+
+function drawGossipRelay(bld,cx,cy){
+  ctx.save();
+  drawIsoBox(cx,cy,18,9,14,darken('#6030A0',.5),darken('#6030A0',.7),darken('#6030A0',.8));
+  for(let ri=0;ri<3;ri++){
+    const r=[6,10,14][ri];
+    ctx.beginPath();ctx.arc(cx,cy-22,r,0,Math.PI*2);
+    ctx.strokeStyle=`rgba(180,100,255,${.5-ri*.1})`;ctx.lineWidth=1;ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function drawHoneypot(bld,cx,cy){
+  ctx.save();
+  const armed=bld.armed!==false;
+  ctx.shadowBlur=armed?16:0;ctx.shadowColor='#40FF80';
+  ctx.strokeStyle='#40FF80';ctx.lineWidth=1.5;ctx.fillStyle='#0A2810';
   ctx.beginPath();
-  ctx.ellipse(x, y, r, r * 0.5, 0, Math.PI, 0);
-  ctx.closePath();
-  ctx.fillStyle = hexToRgb(accent, 0.15);
-  ctx.fill();
-  ctx.strokeStyle = hexToRgb(accent, 0.4);
-  ctx.lineWidth = 0.5;
-  ctx.stroke();
-  const fillArc = Math.PI * (1 - level / 100);
-  ctx.beginPath();
-  ctx.ellipse(x, y, r * 0.85, r * 0.42, 0, Math.PI, fillArc, true);
-  ctx.fillStyle = hexToRgb(accent, pulse);
-  ctx.fill();
+  for(let i=0;i<6;i++){
+    const a=(i/6)*Math.PI*2-Math.PI/6;
+    const r=10;
+    if(i===0) ctx.moveTo(cx+Math.cos(a)*r,cy+Math.sin(a)*r-8);
+    else ctx.lineTo(cx+Math.cos(a)*r,cy+Math.sin(a)*r-8);
+  }
+  ctx.closePath();ctx.fill();ctx.stroke();
+  ctx.shadowBlur=0;
+  ctx.globalAlpha=.2+.1*Math.sin(clock*2);ctx.fillStyle='#40FF80';ctx.fill();
+  ctx.globalAlpha=1;ctx.restore();
+}
+
+function drawManifoldTower(){
+  const {x:cx,y:cy}=tileToScreen(7.5,7.5);
+  const lvl=WS.tower_level;
+  ctx.save();
+  // Base
+  drawIsoBox(cx,cy,48,24,8,'#1a1830','#0e0c22','#0c0a1c');
+  // Body
+  drawIsoBox(cx,cy-8,36,18,24,'#252040','#18163a','#14122e');
+  // Buttresses (level 2+)
+  if(lvl>=2){
+    ctx.strokeStyle='#18163a';ctx.lineWidth=3;
+    ctx.beginPath();ctx.moveTo(cx-18,cy-8+9);ctx.lineTo(cx-24,cy+4);ctx.stroke();
+    ctx.beginPath();ctx.moveTo(cx+18,cy-8+9);ctx.lineTo(cx+24,cy+4);ctx.stroke();
+    drawIsoBox(cx-10,cy-32,5,2.5,14,'#1e1c38','#16143a','#12102e');
+    drawIsoBox(cx+10,cy-32,5,2.5,14,'#1e1c38','#16143a','#12102e');
+  }
+  // Spire
+  drawIsoBox(cx,cy-32,8,4,20,'#2e2854','#201e48','#1a183c');
+  // Orbiting crystals (level 3+)
+  if(lvl>=3){
+    for(let i=0;i<4;i++){
+      const ang=clock*.7+i*(Math.PI/2);
+      const rx=cx+Math.cos(ang)*22, ry=cy-48+Math.sin(ang)*8;
+      ctx.save();ctx.globalAlpha=.7;ctx.fillStyle='#AFA9EC';
+      ctx.beginPath();ctx.moveTo(rx,ry-5);ctx.lineTo(rx+3,ry);ctx.lineTo(rx,ry+5);ctx.lineTo(rx-3,ry);ctx.closePath();ctx.fill();
+      ctx.restore();
+    }
+  }
+  // Orb
+  const orbY=cy-52;
+  const orbR=8+4*Math.sin(clock*1.5);
+  ctx.save();ctx.shadowBlur=24+8*Math.sin(clock*1.5);ctx.shadowColor='#7F77DD';
+  ctx.beginPath();ctx.arc(cx,orbY,orbR,0,Math.PI*2);ctx.fillStyle='#AFA9EC';ctx.fill();
+  ctx.shadowBlur=0;ctx.restore();
+  // Sparks
+  if(WS.world_health>50){
+    for(let i=0;i<4;i++){
+      const ang=clock*1.5+i*Math.PI/2;
+      ctx.beginPath();ctx.arc(cx+Math.cos(ang)*18,orbY+Math.sin(ang)*8,2,0,Math.PI*2);
+      ctx.fillStyle='#AFA9EC';ctx.fill();
+    }
+  }
   // Label
-  const label = full ? 'HARVEST' : `${Math.floor(level)}`;
-  ctx.fillStyle = full ? accent : '#555';
-  ctx.font = `${Math.max(7, 8*zoom)}px monospace`;
-  ctx.textAlign = 'center';
-  ctx.fillText(label, x, y - r * 0.7);
-  ctx.textAlign = 'left';
-  // Low resource warning in HUD
-  const pct = (level / 100 * 100).toFixed(0) + '%';
-  const barEl = document.getElementById('rb-' + zone);
-  if (barEl) {
-    barEl.style.width = pct;
-    barEl.style.opacity = level < 20 ? '0.5' : '1';
-  }
-}
-
-// ============================================================
-// RENDER: DEFENCE SENSORS
-// ============================================================
-function drawSensor(ti, tj, idx) {
-  const {x, y} = tileToScreen(ti, tj);
-  const isFlash = defenceActive || (Date.now() - defenceFlash) < 1500;
-  const color = isFlash ? '#ff2222' : '#333';
-  const alpha = isFlash ? (0.6 + 0.4 * Math.sin(t * 10)) : 0.4;
-  ctx.fillStyle = hexToRgb(color, alpha * 0.5);
-  ctx.fillRect(x - 4*zoom, y - 4*zoom, 8*zoom, 4*zoom);
-  ctx.beginPath();
-  ctx.moveTo(x, y - 4*zoom);
-  ctx.lineTo(x, y - 14*zoom);
-  ctx.strokeStyle = hexToRgb(color, alpha);
-  ctx.lineWidth = 1.5 * zoom;
-  ctx.stroke();
-  const dz = 4 * zoom;
-  ctx.beginPath();
-  ctx.moveTo(x,      y - 18*zoom);
-  ctx.lineTo(x + dz, y - 14*zoom);
-  ctx.lineTo(x,      y - 10*zoom);
-  ctx.lineTo(x - dz, y - 14*zoom);
-  ctx.closePath();
-  ctx.fillStyle = hexToRgb(color, alpha);
-  ctx.fill();
-  // Defence beams (phase 3)
-  if (defenceActive && defencePhase >= 2) {
-    const tower = tileToScreen(7.5, 7.5);
-    const beamAlpha = 0.3 + 0.3 * Math.sin(t * 5);
-    ctx.beginPath();
-    ctx.moveTo(x, y - 14*zoom);
-    ctx.lineTo(tower.x, tower.y - 60*zoom);
-    ctx.strokeStyle = `rgba(255,80,80,${beamAlpha})`;
-    ctx.lineWidth = 1.5 * zoom;
-    ctx.setLineDash([4*zoom, 4*zoom]);
-    ctx.stroke();
-    ctx.setLineDash([]);
-  }
-}
-
-
-// ============================================================
-// RENDER: DEFENCE BUILDINGS v1.5.8
-// ============================================================
-function drawDefenceBuildings() {
-  for (const [id, def] of Object.entries(DEFENCE_DEFS)) {
-    const tx = WS.building_positions[id]?.tx ?? def.tx;
-    const tz = WS.building_positions[id]?.tz ?? def.tz;
-    const {x, y} = tileToScreen(tx, tz);
-    const range = getDefenceRange(id);
-    const TW = BASE_TW * zoom;
-    const rangePx = range * TW / 2;
-    // Range circle
-    ctx.save();
-    ctx.beginPath();
-    ctx.arc(x, y, rangePx, 0, Math.PI*2);
-    ctx.strokeStyle = hexToRgb(def.color, 0.12);
-    ctx.lineWidth = 1;
-    ctx.setLineDash([3,6]);
-    ctx.stroke();
-    ctx.setLineDash([]);
-    ctx.restore();
-
-    const lvl = WS.buildings[id]?.level || 1;
-    if (id === 'honeypot') {
-      // Gem shape
-      const armed = WS.buildings.honeypot.armed;
-      const c = armed ? def.color : '#ff4444';
-      const pulse = 0.6 + 0.4*Math.sin(t*2);
-      ctx.save();
-      ctx.shadowBlur = 12*zoom; ctx.shadowColor = c;
-      ctx.beginPath();
-      ctx.moveTo(x, y - 12*zoom);
-      ctx.lineTo(x + 8*zoom, y);
-      ctx.lineTo(x, y + 6*zoom);
-      ctx.lineTo(x - 8*zoom, y);
-      ctx.closePath();
-      ctx.fillStyle = hexToRgb(c, pulse);
-      ctx.fill();
-      ctx.restore();
-      if (!armed) {
-        ctx.fillStyle = '#ff4444';
-        ctx.font = `${Math.max(8,9*zoom)}px monospace`;
-        ctx.textAlign = 'center';
-        ctx.fillText('TRIGGERED', x, y - 16*zoom);
-        ctx.textAlign = 'left';
-      }
-    } else if (id === 'inject_detector') {
-      // Base + antenna + diamond
-      drawIsoBox(ctx, x, y, 16*zoom, 8*zoom, 5*zoom, def.color, darken(def.color,0.55), darken(def.color,0.4));
-      ctx.strokeStyle = def.color; ctx.lineWidth = 1.5*zoom;
-      ctx.beginPath(); ctx.moveTo(x, y-8*zoom); ctx.lineTo(x, y-22*zoom); ctx.stroke();
-      const pulse = 0.5+0.5*Math.sin(t*3);
-      ctx.save(); ctx.shadowBlur=8*zoom; ctx.shadowColor=def.color;
-      ctx.beginPath();
-      ctx.moveTo(x, y-28*zoom); ctx.lineTo(x+5*zoom, y-22*zoom);
-      ctx.lineTo(x, y-16*zoom); ctx.lineTo(x-5*zoom, y-22*zoom); ctx.closePath();
-      ctx.fillStyle = hexToRgb(def.color, pulse); ctx.fill();
-      ctx.restore();
-    } else if (id === 'anomaly_tower') {
-      // Tower + rotating dish
-      drawIsoBox(ctx, x, y, 14*zoom, 12*zoom, 5*zoom, def.color, darken(def.color,0.55), darken(def.color,0.4));
-      const dishAngle = t * 1.5;
-      ctx.save();
-      ctx.translate(x, y-14*zoom);
-      ctx.rotate(dishAngle);
-      ctx.beginPath();
-      ctx.arc(0, 0, 8*zoom, 0, Math.PI, false);
-      ctx.strokeStyle = def.color; ctx.lineWidth=1.5*zoom; ctx.stroke();
-      ctx.restore();
-    } else if (id === 'gossip_relay') {
-      // Antenna array
-      drawIsoBox(ctx, x, y, 12*zoom, 8*zoom, 4*zoom, def.color, darken(def.color,0.55), darken(def.color,0.4));
-      for (let i=-1;i<=1;i++) {
-        ctx.strokeStyle=def.color; ctx.lineWidth=1*zoom;
-        ctx.beginPath();
-        ctx.moveTo(x+i*5*zoom, y-8*zoom);
-        ctx.lineTo(x+i*5*zoom, y-(18+Math.abs(i)*4)*zoom);
-        ctx.stroke();
-      }
-    }
-    // Level label
-    ctx.fillStyle = '#555';
-    ctx.font = `${Math.max(7,7*zoom)}px monospace`;
-    ctx.textAlign = 'center';
-    ctx.fillText(`Lv${lvl}`, x, y + 10*zoom);
-    ctx.textAlign = 'left';
-  }
-}
-
-function drawAttacks() {
-  ATTACKS.forEach(atk => {
-    if (!atk.alive) return;
-    const {x,y} = tileToScreen(atk.tx, atk.tz);
-    const pulse = 0.7 + 0.3*Math.sin(t*5);
-    const c = atk.type === 'injection' ? '#ff4444' : atk.type === 'degradation' ? '#EF9F27' : '#AA44FF';
-    // Glow
-    ctx.save();
-    ctx.shadowBlur = 12*zoom; ctx.shadowColor = c;
-    ctx.beginPath();
-    ctx.arc(x, y, 8*zoom, 0, Math.PI*2);
-    ctx.fillStyle = hexToRgb(c, pulse);
-    ctx.fill();
-    ctx.restore();
-    // Health bar
-    const barW = 20*zoom;
-    ctx.fillStyle = '#333';
-    ctx.fillRect(x-barW/2, y-16*zoom, barW, 3*zoom);
-    ctx.fillStyle = c;
-    ctx.fillRect(x-barW/2, y-16*zoom, barW*(atk.health/100), 3*zoom);
-    // Skull
-    ctx.font = `${Math.max(8,9*zoom)}px sans-serif`;
-    ctx.textAlign = 'center';
-    ctx.fillText('☠', x, y-18*zoom);
-    ctx.textAlign = 'left';
-    // Beams from defences
-    if (atk._beams) {
-      for (const bId of Object.keys(atk._beams)) {
-        const bd = DEFENCE_DEFS[bId]; if (!bd) continue;
-        const btx = WS.building_positions[bId]?.tx ?? bd.tx;
-        const btz = WS.building_positions[bId]?.tz ?? bd.tz;
-        const {x:bx,y:by} = tileToScreen(btx, btz);
-        ctx.save();
-        ctx.globalAlpha = 0.5 + 0.3*Math.sin(t*8);
-        ctx.strokeStyle = bd.color; ctx.lineWidth=1.5*zoom;
-        ctx.setLineDash([4*zoom,3*zoom]);
-        ctx.beginPath(); ctx.moveTo(bx,by-10*zoom); ctx.lineTo(x,y); ctx.stroke();
-        ctx.setLineDash([]); ctx.restore();
-      }
-      atk._beams = {};
-    }
-  });
-}
-
-// ============================================================
-// RENDER: CALIBRATOR BUILDING
-// ============================================================
-function drawCalibrator() {
-  const {x, y} = tileToScreen(4.8, 3.2);
-  const busy = WS.buildings.calibrator.busy_until && Date.now() < WS.buildings.calibrator.busy_until;
-  const baseColor = busy ? '#2a3a55' : '#1a2035';
-  drawIsoBox(ctx, x, y, 18*zoom, 12*zoom, 6*zoom, baseColor, darken(baseColor,0.6), darken(baseColor,0.45));
-  // Spinning gear
-  const gearAngle = busy ? (t * 1.5) : 0;
-  ctx.save();
-  ctx.translate(x, y - 14*zoom);
-  ctx.rotate(gearAngle);
-  ctx.strokeStyle = busy ? '#7F77DD' : '#334';
-  ctx.lineWidth = 1.5*zoom;
-  ctx.beginPath(); ctx.arc(0,0,5*zoom,0,Math.PI*2); ctx.stroke();
-  for (let i=0;i<6;i++) {
-    const a = (i/6)*Math.PI*2;
-    ctx.beginPath();
-    ctx.moveTo(Math.cos(a)*5*zoom, Math.sin(a)*5*zoom);
-    ctx.lineTo(Math.cos(a)*9*zoom, Math.sin(a)*9*zoom);
-    ctx.stroke();
-  }
-  ctx.restore();
-  // Status / timer
-  if (busy) {
-    const rem = WS.buildings.calibrator.busy_until - Date.now();
-    const mins = Math.floor(rem/60000), secs = Math.floor((rem%60000)/1000);
-    const label = rem > 60000 ? `${mins}m${secs}s` : `${secs}s`;
-    // Scaffolding
-    ctx.save();
-    const scaffoldAlpha = 0.3 + 0.2*Math.sin(t*2);
-    ctx.strokeStyle = `rgba(186,117,23,${scaffoldAlpha})`; ctx.lineWidth=1;
-    const hw=12*zoom, ht=20*zoom;
-    ctx.beginPath();
-    ctx.moveTo(x-hw,y-ht); ctx.lineTo(x-hw,y+4*zoom);
-    ctx.moveTo(x+hw,y-ht); ctx.lineTo(x+hw,y+4*zoom);
-    ctx.moveTo(x-hw,y-ht); ctx.lineTo(x+hw,y-ht);
-    ctx.moveTo(x-hw,y-ht/2); ctx.lineTo(x+hw,y-ht/2);
-    ctx.stroke();
-    ctx.restore();
-    ctx.fillStyle = '#AFA9EC';
-    ctx.font = `${Math.max(8,8*zoom)}px monospace`;
-    ctx.textAlign = 'center';
-    ctx.fillText(`⚙ ${label}`, x, y - 28*zoom);
-    ctx.textAlign = 'left';
-  } else {
-    ctx.fillStyle = '#4ade80';
-    ctx.font = `${Math.max(7,7*zoom)}px monospace`;
-    ctx.textAlign = 'center';
-    ctx.fillText('IDLE', x, y - 20*zoom);
-    ctx.textAlign = 'left';
-  }
-}
-
-// ============================================================
-// RENDER: TOWER
-// ============================================================
-function drawTower() {
-  const {x, y} = tileToScreen(7.5, 7.5);
-  const towerRed = defenceActive && defencePhase >= 0;
-  const orbColor = towerRed ? '#ff4444' : '#EEEDFE';
-  const pulseRate = escalationActive ? 3 : 1.5;
-  const w1 = 48*zoom, d1 = 12*zoom;
-  drawIsoBox(ctx, x, y, w1, 10*zoom, d1, '#2a2460', '#1a1540', '#1d1845');
-  const w2 = 34*zoom, d2 = 10*zoom, y2 = y - 10*zoom - d1/2;
-  drawIsoBox(ctx, x, y2, w2, 30*zoom, d2, '#534AB7', darken('#534AB7',0.55), darken('#534AB7',0.4));
-  const w3 = 20*zoom, d3 = 6*zoom, y3 = y2 - 30*zoom - d2/2;
-  drawIsoBox(ctx, x, y3, w3, 20*zoom, d3, '#7F77DD', darken('#7F77DD',0.55), darken('#7F77DD',0.4));
-  const orbY = y3 - 20*zoom - d3/2;
-  const orbR = 8 * zoom;
-  const orbPulse = 0.7 + 0.3 * Math.sin(t * pulseRate);
-  // Red glow during defence
-  if (towerRed) {
-    ctx.beginPath();
-    ctx.arc(x, orbY, orbR * 2, 0, Math.PI*2);
-    ctx.fillStyle = `rgba(255,50,50,${0.2 * orbPulse})`;
-    ctx.fill();
-  }
-  ctx.beginPath();
-  ctx.arc(x, orbY, orbR, 0, Math.PI * 2);
-  ctx.fillStyle = hexToRgb(orbColor, orbPulse);
-  ctx.fill();
-  ctx.strokeStyle = 'rgba(127,119,221,.6)';
-  ctx.lineWidth = 1;
-  ctx.stroke();
-
-  // Governance beams
-  GOV_BEAMS.forEach(beam => {
-    if (beam.alpha <= 0) return;
-    const agPos = tileToScreen(beam.agent.tx, beam.agent.tz);
-    ctx.beginPath();
-    ctx.moveTo(x, orbY);
-    ctx.lineTo(agPos.x, agPos.y - 10*zoom);
-    ctx.setLineDash([4*zoom, 4*zoom]);
-    ctx.strokeStyle = beam.permitted
-      ? `rgba(74,222,128,${beam.alpha})`
-      : `rgba(255,50,50,${beam.alpha})`;
-    ctx.lineWidth = 1.5 * zoom;
-    ctx.stroke();
-    ctx.setLineDash([]);
-  });
-
-  // Escalation beam upward
-  if (escalationActive && escalationPhase >= 1) {
-    const beamAlpha = Math.min(1, (escalationTimer / 0.9)) * 0.8;
-    const trapW = 20 * zoom * escalationPhase;
-    ctx.beginPath();
-    ctx.moveTo(x - 3*zoom, orbY);
-    ctx.lineTo(x + 3*zoom, orbY);
-    ctx.lineTo(x + trapW, 0);
-    ctx.lineTo(x - trapW, 0);
-    ctx.closePath();
-    ctx.fillStyle = `rgba(175,169,236,${beamAlpha * 0.5})`;
-    ctx.fill();
-    ctx.beginPath();
-    ctx.moveTo(x, orbY);
-    ctx.lineTo(x, 0);
-    ctx.strokeStyle = `rgba(238,237,254,${beamAlpha})`;
-    ctx.lineWidth = 2 * zoom;
-    ctx.stroke();
-  }
-
-  // Expanding glow on escalation start
-  if (escalationActive && escalationPhase === 0 && escalationTimer > 0) {
-    const r2 = (40 * zoom) * (1 - escalationTimer / 0.6);
-    ctx.beginPath();
-    ctx.arc(x, orbY, r2, 0, Math.PI*2);
-    ctx.strokeStyle = `rgba(127,119,221,${0.6 * (escalationTimer/0.6)})`;
-    ctx.lineWidth = 2;
-    ctx.stroke();
-  }
-}
-
-// ============================================================
-// RENDER: TASK PILLARS
-// ============================================================
-function drawPillar(pillar) {
-  const {x, y} = tileToScreen(pillar.ti, pillar.tj);
-  const zone = pillar.domain || 'neutral';
-  const accent = ZONE_DEFS[zone]?.accent || '#7F77DD';
-  const h = (20 * (1 - pillar.progress)) * zoom;
-  const w = 4 * zoom;
-  ctx.fillStyle = hexToRgb(accent, 0.8 + 0.2 * Math.sin(t * 4));
-  ctx.fillRect(x - w/2, y - h, w, h);
-  ctx.beginPath();
-  ctx.arc(x, y - h, w * 0.8, 0, Math.PI * 2);
-  ctx.fillStyle = hexToRgb(accent, 0.9);
-  ctx.fill();
-}
-
-// ============================================================
-// RENDER: SOCIAL LINKS
-// ============================================================
-function drawSocialLinks() {
-  ctx.save();
-  for (const [key, count] of Object.entries(COOCCURRENCE)) {
-    if (count < 3) continue;
-    const [id1, id2] = key.split('__');
-    const a1 = AGENTS.find(a => a.id === id1);
-    const a2 = AGENTS.find(a => a.id === id2);
-    if (!a1 || !a2) continue;
-    const p1 = tileToScreen(a1.tx, a1.tz);
-    const p2 = tileToScreen(a2.tx, a2.tz);
-    const alpha = Math.min(0.4, count * 0.05);
-    const bothPaused = a1.status === 'paused' || a2.status === 'paused';
-    const bothSameDomain = a1.domain === a2.domain;
-    ctx.beginPath();
-    ctx.moveTo(p1.x, p1.y - 8*zoom);
-    ctx.lineTo(p2.x, p2.y - 8*zoom);
-    if (bothPaused) {
-      ctx.strokeStyle = `rgba(226,75,74,${alpha * 0.8})`;
-      ctx.setLineDash([3,6]);
-    } else {
-      ctx.strokeStyle = `rgba(127,119,221,${alpha})`;
-      ctx.setLineDash([3,6]);
-    }
-    ctx.lineWidth = 0.8;
-    ctx.stroke();
-    ctx.setLineDash([]);
-  }
+  ctx.fillStyle='#AFA9EC';ctx.font='bold 9px sans-serif';ctx.textAlign='center';
+  ctx.fillText(`MANIFOLD L${WS.tower_level}`,cx,orbY-orbR-6);
   ctx.restore();
 }
 
-// ============================================================
-// RENDER: AGENTS
-// ============================================================
-function drawAgent(a) {
-  const mood = getMood(a._health);
-  const {x, y} = tileToScreen(a.tx, a.tz);
-  const bob = Math.sin(t * 3 + a.phase) * 3 * mood.bobAmp * zoom;
-  const ay = y + bob;
-  const isPaused = a.status === 'paused';
-
-  // Shadow
-  ctx.beginPath();
-  ctx.ellipse(x, y + 2*zoom, 8*zoom, 3*zoom, 0, 0, Math.PI*2);
-  ctx.fillStyle = 'rgba(0,0,0,.35)';
-  ctx.fill();
-
-  // Mood-adjusted colour
-  let drawColor = a.color;
-  if (mood.grey > 0) drawColor = lerpColor(a.color, '#666666', mood.grey);
-
-  // Body box
-  const bw = 10*zoom, bh = 12*zoom, bd = 4*zoom;
-  drawIsoBox(ctx, x, ay, bw, bh, bd, drawColor, darken(drawColor,0.55), darken(drawColor,0.4));
-
-  // Head (drooped if low mood)
-  const headDroop = a._health < 0.6 ? 2 * zoom : 0;
-  ctx.beginPath();
-  ctx.arc(x, ay - bh - bd/2 - 5*zoom + headDroop, 5*zoom, 0, Math.PI*2);
-  ctx.fillStyle = drawColor;
-  ctx.fill();
-
-  // Governance glow
-  if (a._govPulse > 0) {
-    const glowColor = a._govPermitted ? '#4ade80' : '#ff2222';
-    ctx.beginPath();
-    ctx.arc(x, ay - bh/2, 16*zoom, 0, Math.PI*2);
-    ctx.strokeStyle = hexToRgb(glowColor, a._govPulse * 0.6);
-    ctx.lineWidth = 2 * zoom;
-    ctx.stroke();
+function drawScaffolding(cx,cy,w){
+  ctx.save();ctx.strokeStyle='rgba(200,150,30,.5)';ctx.lineWidth=1;ctx.setLineDash([3,4]);
+  const corners=[[cx-w/2,cy],[cx,cy-w/4],[cx+w/2,cy],[cx,cy+w/4]];
+  for(const [x,y] of corners){
+    ctx.beginPath();ctx.moveTo(x,y);ctx.lineTo(x,y-40);ctx.stroke();
+    for(let bar=8;bar<=40;bar+=8){ctx.beginPath();ctx.moveTo(x-4,y-bar);ctx.lineTo(x+4,y-bar);ctx.stroke();}
   }
+  ctx.setLineDash([]);ctx.restore();
+}
 
-  // Name tag
-  const nameY = ay - bh - bd/2 - 16*zoom;
-  ctx.fillStyle = 'rgba(0,0,0,.7)';
-  const tw = 5.5 * a.name.length * zoom * 0.8;
-  ctx.fillRect(x - tw/2 - 3*zoom, nameY - 8*zoom, tw + 6*zoom, 10*zoom);
-  ctx.fillStyle = '#ccc';
-  ctx.font = `${Math.max(7, 9*zoom)}px sans-serif`;
-  ctx.textAlign = 'center';
-  ctx.fillText(a.name, x, nameY);
-
-  // Risk dot
-  const riskColor = a.risk > 0.7 ? '#ff4444' : a.risk > 0.4 ? '#fbbf24' : '#4ade80';
-  ctx.beginPath();
-  ctx.arc(x + 8*zoom, ay - bh - bd/2 - 2*zoom, 3*zoom, 0, Math.PI*2);
-  ctx.fillStyle = riskColor;
-  ctx.fill();
-
-  // Paused X
-  if (isPaused) {
-    const px = x, py2 = ay - bh - bd/2 - 20*zoom;
-    ctx.strokeStyle = '#ff4444';
-    ctx.lineWidth = 2 * zoom;
-    const s = 4 * zoom;
-    ctx.beginPath(); ctx.moveTo(px-s, py2-s); ctx.lineTo(px+s, py2+s); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(px+s, py2-s); ctx.lineTo(px-s, py2+s); ctx.stroke();
+function drawBuildings(){
+  buildingScreenPos={};
+  const bld=WS.buildings; let idx=0;
+  function at(key,b,fn){
+    const p=tileToScreen(b.tx,b.tz); buildingScreenPos[key]={x:p.x,y:p.y};
+    fn(p.x,p.y,idx++);
+    if(b.upgrade_end&&Date.now()<b.upgrade_end) drawScaffolding(p.x,p.y,28);
   }
-
-  // Stressed ! indicator
-  if (a._health < 0.40) {
-    ctx.fillStyle = '#ff4444';
-    ctx.font = `bold ${Math.max(8, 10*zoom)}px sans-serif`;
-    ctx.fillText('!', x - 2*zoom, ay - bh - bd/2 - 22*zoom);
-  }
-
-  // Sparkle for great mood
-  if (a._health > 0.85 && a._sparkleTimer > 0) {
-    for (let i = 0; i < 3; i++) {
-      const angle = (i / 3) * Math.PI * 2 + t;
-      const dist = 12 * zoom;
-      ctx.beginPath();
-      ctx.arc(x + Math.cos(angle)*dist, ay - bh + Math.sin(angle)*dist, 1.5*zoom, 0, Math.PI*2);
-      ctx.fillStyle = hexToRgb('#FFD700', a._sparkleTimer);
-      ctx.fill();
-    }
-  }
-
-  // Level stars
-  const lvl = a._level;
-  const starColor = lvl >= 5 ? '#FFD700' : lvl >= 4 ? '#C0C0C0' : lvl >= 3 ? '#CD7F32' : '#666';
-  ctx.fillStyle = starColor;
-  ctx.font = `${Math.max(6, 7*zoom)}px sans-serif`;
-  ctx.textAlign = 'center';
-  ctx.fillText('★'.repeat(Math.max(1, Math.min(lvl, 5))), x, ay - bh - bd/2 - 28*zoom);
-  ctx.textAlign = 'left';
+  at('finance_house', bld.finance_house, (cx,cy,i)=>drawDomainHouse('finance_house',bld.finance_house,cx,cy,i));
+  at('devops_house',  bld.devops_house,  (cx,cy,i)=>drawDomainHouse('devops_house', bld.devops_house, cx,cy,i));
+  at('health_house',  bld.health_house,  (cx,cy,i)=>drawDomainHouse('health_house', bld.health_house, cx,cy,i));
+  at('legal_house',   bld.legal_house,   (cx,cy,i)=>drawDomainHouse('legal_house',  bld.legal_house,  cx,cy,i));
+  at('calibrator',    bld.calibrator,    (cx,cy,i)=>drawCalibrator(bld.calibrator,cx,cy));
+  at('inject_detector',bld.inject_detector,(cx,cy,i)=>drawInjectDetector(bld.inject_detector,cx,cy));
+  at('anomaly_tower', bld.anomaly_tower, (cx,cy,i)=>drawAnomalyTower(bld.anomaly_tower,cx,cy));
+  at('gossip_relay',  bld.gossip_relay,  (cx,cy,i)=>drawGossipRelay(bld.gossip_relay,cx,cy));
+  at('honeypot',      bld.honeypot,      (cx,cy,i)=>drawHoneypot(bld.honeypot,cx,cy));
+  drawManifoldTower();
+  buildingScreenPos['manifold_tower']=tileToScreen(7.5,7.5);
 }
 
-// ============================================================
-// RENDER: FLOATERS & PARTICLES
-// ============================================================
-function drawFloaters() {
-  ctx.save();
-  FLOATERS.forEach(f => {
-    ctx.globalAlpha = f.alpha;
-    ctx.fillStyle = f.color;
-    ctx.font = f.font || `bold ${Math.max(9, 11*zoom)}px sans-serif`;
-    ctx.textAlign = 'center';
-    ctx.fillText(f.text, f.x, f.y);
-  });
-  ctx.globalAlpha = 1;
-  ctx.textAlign = 'left';
-  ctx.restore();
+// ========== TASK PILLARS ==========
+const TASK_PILLARS=[];
+const DOMAIN_ZONES={
+  finance:   {ti:[0,6],tj:[0,6]},
+  devops:    {ti:[9,15],tj:[0,6]},
+  healthcare:{ti:[0,6],tj:[9,15]},
+  legal:     {ti:[9,15],tj:[9,15]},
+  general:   {ti:[5,10],tj:[5,10]},
+};
+const DOM_PCOLS={finance:'#c87820',devops:'#185FA5',healthcare:'#0F6E56',legal:'#534AB7',general:'#AFA9EC'};
+
+function spawnTaskPillar(agent){
+  const zone=DOMAIN_ZONES[agent.domain]||DOMAIN_ZONES.general;
+  let ti,tj,attempts=0;
+  do{
+    ti=zone.ti[0]+Math.floor(Math.random()*(zone.ti[1]-zone.ti[0]+1));
+    tj=zone.tj[0]+Math.floor(Math.random()*(zone.tj[1]-zone.tj[0]+1));
+    attempts++;
+  }while(attempts<20&&(isPath(ti,tj)||isWater(ti,tj)||isCenter(ti,tj)));
+  const col=DOM_PCOLS[agent.domain]||'#AFA9EC';
+  const pos=tileToScreen(ti,tj);
+  const pillar={ti,tj,domain:agent.domain,col,label:'Task',sx:pos.x,sy:pos.y,progress:0,age:0};
+  TASK_PILLARS.push(pillar);
+  agent._task=pillar; agent._state='walking'; agent._progress=0;
+  return pillar;
 }
 
-function drawParticles() {
-  PARTICLES.forEach(p => {
-    ctx.beginPath();
-    ctx.arc(p.x, p.y, p.r, 0, Math.PI*2);
-    ctx.fillStyle = hexToRgb(p.color, p.alpha);
-    ctx.fill();
-  });
-}
-
-// ============================================================
-// RENDER: AMBIENT PARTICLES
-// ============================================================
-function drawAmbient() {
-  AMBIENT.forEach(p => {
-    const {x, y} = tileToScreen(p.x, p.y);
-    const zone = getZone(Math.round(p.x), Math.round(p.y));
-    const accent = ZONE_DEFS[zone]?.accent || '#7F77DD';
-    ctx.beginPath();
-    ctx.arc(x, y, p.size * zoom, 0, Math.PI*2);
-    ctx.fillStyle = hexToRgb(accent, p.alpha);
-    ctx.fill();
-  });
-}
-
-// ============================================================
-// RENDER: DEFENCE SHOCKWAVE
-// ============================================================
-function drawDefenceShockwave() {
-  if (!defenceActive || defencePhase !== 0) return;
-  const z = ZONE_DEFS[defenceZone] || ZONE_DEFS.finance;
-  const cx = (z.minI + z.maxI) / 2, cz = (z.minJ + z.maxJ) / 2;
-  const {x, y} = tileToScreen(cx, cz);
-  const prog = 1 - (defencePhaseTimer / 0.5);
-  const r = prog * 80 * zoom;
-  const alpha = 0.6 * (1 - prog);
-  ctx.beginPath();
-  ctx.arc(x, y, r, 0, Math.PI*2);
-  ctx.strokeStyle = `rgba(226,75,74,${alpha})`;
-  ctx.lineWidth = 3 * zoom;
-  ctx.stroke();
-}
-
-// ============================================================
-// RENDER: ZONE DECORATIONS (based on level)
-// ============================================================
-function drawZoneDecorations() {
-  for (const [zone, lvl] of Object.entries(BUILDING_LEVELS)) {
-    if (lvl < 4) continue;
-    const z = ZONE_DEFS[zone];
-    const accent = z?.accent || '#888';
-    // Corner posts
-    const corners = [[z.minI,z.minJ],[z.maxI,z.minJ],[z.minI,z.maxJ],[z.maxI,z.maxJ]];
-    corners.forEach(([ti, tj]) => {
-      const {x, y} = tileToScreen(ti, tj);
-      drawIsoBox(ctx, x, y, 4*zoom, 14*zoom, 2*zoom, accent, darken(accent,0.6), darken(accent,0.45));
-    });
-    if (lvl >= 5) {
-      // Zone flag at apex tile
-      const {x, y} = tileToScreen(z.minI, z.minJ);
-      ctx.strokeStyle = '#888'; ctx.lineWidth = 1*zoom;
-      ctx.beginPath(); ctx.moveTo(x, y - 5*zoom); ctx.lineTo(x, y - 20*zoom); ctx.stroke();
-      // Waving flag
-      const waveAmp = 3 * zoom;
-      ctx.beginPath();
-      ctx.moveTo(x, y - 20*zoom);
-      for (let i = 0; i <= 8; i++) {
-        const fx = x + i * zoom;
-        const fy = y - 20*zoom + Math.sin(t * 3 + i * 0.8) * waveAmp;
-        ctx.lineTo(fx, fy);
-      }
-      ctx.lineTo(x + 8*zoom, y - 14*zoom);
-      ctx.closePath();
-      ctx.fillStyle = hexToRgb(accent, 0.8);
-      ctx.fill();
-      // First letter of zone
-      ctx.fillStyle = '#fff';
-      ctx.font = `bold ${Math.max(5, 6*zoom)}px sans-serif`;
-      ctx.textAlign = 'center';
-      ctx.fillText(zone[0].toUpperCase(), x + 4*zoom, y - 15*zoom + Math.sin(t*3)*waveAmp);
-      ctx.textAlign = 'left';
+function updatePillars(dt){
+  for(let i=TASK_PILLARS.length-1;i>=0;i--){
+    const p=TASK_PILLARS[i]; p.age+=dt;
+    if(p.progress>=1){
+      spawnParticles(p.sx,p.sy,'complete',p.col);
+      spawnFloat(p.sx,p.sy-20,'+50 XP','#FFD700');
+      TASK_PILLARS.splice(i,1);
     }
   }
 }
 
-// ============================================================
-// MAIN RENDER
-// ============================================================
-function buildRenderList() {
-  const items = [];
-  for (let ti = 0; ti < GRID; ti++) {
-    for (let tj = 0; tj < GRID; tj++) {
-      items.push({type:'tile', ti, tj, depth: ti + tj});
-    }
-  }
-  TREES.forEach((pos, idx) => {
-    items.push({type:'tree', ti:pos[0], tj:pos[1], idx, depth:pos[0]+pos[1]+0.1});
-  });
-  const HOUSES = [
-    {ti:2,  tj:2,  zone:'finance'},
-    {ti:13, tj:2,  zone:'devops'},
-    {ti:2,  tj:13, zone:'healthcare'},
-    {ti:13, tj:13, zone:'legal'},
-  ];
-  HOUSES.forEach(h => items.push({type:'house', ...h, depth:h.ti+h.tj+0.2}));
-  Object.entries(RESOURCE_POS).forEach(([zone, [ti,tj]]) => {
-    items.push({type:'resource', ti, tj, zone, depth:ti+tj+0.3});
-  });
-  STATIC_CRYSTALS.forEach((pos, idx) => {
-    items.push({type:'crystal', ti:pos[0], tj:pos[1], idx, depth:pos[0]+pos[1]+0.15});
-  });
-  SENSORS.forEach((pos, idx) => {
-    items.push({type:'sensor', ti:pos[0], tj:pos[1], idx, depth:pos[0]+pos[1]+0.2});
-  });
-  items.push({type:'tower', depth:14.5});
-  TASK_PILLARS.forEach(p => items.push({type:'pillar', ...p, depth:p.ti+p.tj+0.4}));
-  AGENTS.forEach(a => items.push({type:'agent', agent:a, depth:a.tx+a.tz+0.5}));
-  items.sort((a,b) => a.depth - b.depth);
-  return items;
-}
-
-function render() {
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-  ctx.fillStyle = '#0a0c14';
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-  // Camera lerp
-  if (cameraLerping) {
-    OX += (targetOX - OX) * 0.05;
-    OY += (targetOY - OY) * 0.05;
-    if (Math.hypot(OX - targetOX, OY - targetOY) < 1) cameraLerping = false;
-  }
-
-  drawWeather();
-
-  const items = buildRenderList();
-  items.forEach(item => {
-    switch (item.type) {
-      case 'tile':     drawTile(item.ti, item.tj); break;
-      case 'tree':     drawTree(item.ti, item.tj, item.idx); break;
-      case 'house':    drawHouse(item.ti, item.tj, item.zone); break;
-      case 'crystal':  drawCrystal(item.ti, item.tj, item.idx); break;
-      case 'resource': drawResource(item.ti, item.tj, item.zone); break;
-      case 'sensor':   drawSensor(item.ti, item.tj, item.idx); break;
-      case 'tower':    drawTower(); break;
-      case 'pillar':   drawPillar(item); break;
-      case 'agent':    break; // drawn after zones
-    }
-  });
-
-  drawMemoryCrystals();
-  drawZoneDecorations();
-  drawSocialLinks();
-  // Now draw agents on top
-  items.filter(i => i.type === 'agent').forEach(i => drawAgent(i.agent));
-  drawDefenceShockwave();
-  drawAmbient();
-  drawParticles();
-  drawFloaters();
-
-  // Escalation dim overlay
-  if (escalationActive && escalationPhase >= 0) {
-    const maxAlpha = 0.50;
-    const alpha = Math.min(maxAlpha, (escalationTimer / 0.6) * maxAlpha);
-    ctx.fillStyle = `rgba(0,0,0,${alpha})`;
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-  }
-
-  drawMinimap();
-}
-
-// ============================================================
-// MINI-MAP
-// ============================================================
-function drawMinimap() {
-  const mm = document.getElementById('mm');
-  const mc = mm.getContext('2d');
-  mc.clearRect(0, 0, 80, 80);
-  mc.fillStyle = '#080a14';
-  mc.fillRect(0, 0, 80, 80);
-  const ts = 80 / GRID;
-  for (let ti = 0; ti < GRID; ti++) {
-    for (let tj = 0; tj < GRID; tj++) {
-      const zone = getZone(ti, tj);
-      const color = ZONE_DEFS[zone]?.accent || '#222';
-      mc.fillStyle = hexToRgb(color, isRoad(ti, tj) ? 0.15 : 0.25);
-      mc.fillRect(ti * ts, tj * ts, ts, ts);
-    }
-  }
-  mc.fillStyle = '#7F77DD';
-  mc.fillRect(7*ts, 7*ts, ts*2, ts*2);
-  AGENTS.forEach(a => {
-    mc.beginPath();
-    mc.arc(a.tx * ts + ts/2, a.tz * ts + ts/2, 2, 0, Math.PI*2);
-    mc.fillStyle = a.color;
-    mc.fill();
-  });
-  TASK_PILLARS.forEach(p => {
-    mc.fillStyle = '#ffff44';
-    mc.fillRect(p.ti*ts, p.tj*ts, ts, ts);
-  });
-  mc.strokeStyle = 'rgba(127,119,221,.4)';
-  mc.lineWidth = 0.5;
-  mc.strokeRect(0, 0, 80, 80);
-}
-
-// ============================================================
-// GAME LOGIC UPDATE
-// ============================================================
-function updateAgents(dt) {
-  AGENTS.forEach(a => {
-    if (a._ttx !== null) {
-      a._tx = a._ttx; a._tz = a._ttz;
-      a._ttx = null; a._ttz = null;
-    }
-    if (a.status === 'paused') return;
-    if (escalationActive) return; // Freeze agents during escalation
-
-    const mood = getMood(a._health);
-    const spd = mood.speed * 0.03;
-
-    a._moveTimer -= dt;
-    if (a._moveTimer <= 0 && a.status !== 'busy') {
-      a._moveTimer = 3 + Math.random() * 4;
-      const zone = ZONE_DEFS[a.domain] || ZONE_DEFS.neutral;
-      let minI = 0, maxI = 15, minJ = 0, maxJ = 15;
-      if (a.domain !== 'general' && a.domain !== 'trading') {
-        minI = zone.minI ?? 0; maxI = zone.maxI ?? 15;
-        minJ = zone.minJ ?? 0; maxJ = zone.maxJ ?? 15;
-      }
-      let ti, tj, tries = 0;
-      do {
-        ti = minI + Math.floor(Math.random() * (maxI - minI + 1));
-        tj = minJ + Math.floor(Math.random() * (maxJ - minJ + 1));
-        tries++;
-      } while (isRoad(ti,tj) && tries < 10);
-      if (a._level >= 3 || a.risk <= 0.7) { a._tx = ti; a._tz = tj; }
-    }
-
-    // Throttle if domain resource empty
-    const res = RESOURCES[a.domain];
-    const throttle = (res && res.tokens <= 0) ? 0.5 : 1.0;
-    a.tx += (a._tx - a.tx) * spd * throttle * (dt * 60);
-    a.tz += (a._tz - a.tz) * spd * throttle * (dt * 60);
-
-    // Gov pulse decay
-    if (a._govPulse > 0) a._govPulse = Math.max(0, a._govPulse - dt * 0.6);
-
-    // Sparkle timer
-    if (a._health > 0.85) {
-      a._sparkleTimer -= dt;
-      if (a._sparkleTimer <= 0) a._sparkleTimer = 3 + Math.random() * 4;
-    }
-
-    // Level-up detection
-    const newLvl = healthToLevel(a._health);
-    if (newLvl > a._level) {
-      a._level = newLvl;
-      spawnLevelUp(a);
-    } else {
-      a._level = newLvl;
-    }
-  });
-
-  // Decay governance beams
-  for (let i = GOV_BEAMS.length - 1; i >= 0; i--) {
-    GOV_BEAMS[i].alpha -= 0.008;
-    if (GOV_BEAMS[i].alpha <= 0) GOV_BEAMS.splice(i, 1);
-  }
-
-  // Task pillar progress
-  for (let i = TASK_PILLARS.length - 1; i >= 0; i--) {
-    TASK_PILLARS[i].progress = Math.min(1, TASK_PILLARS[i].progress + dt * 0.03);
-    if (TASK_PILLARS[i].progress >= 1) {
-      spawnCompletion(TASK_PILLARS[i]);
-      TASK_PILLARS.splice(i, 1);
-    }
+function drawPillars(){
+  for(const p of TASK_PILLARS){
+    const h=24*(1-p.progress)+4;
+    ctx.save();
+    ctx.shadowBlur=8;ctx.shadowColor=p.col;ctx.fillStyle=p.col;
+    ctx.fillRect(p.sx-3,p.sy-h,6,h);
+    ctx.shadowBlur=0;
+    ctx.fillStyle=lighten(p.col,.5);ctx.fillRect(p.sx-4,p.sy-h-3,8,4);
+    ctx.fillStyle='rgba(0,0,0,.75)';ctx.fillRect(p.sx-20,p.sy-h-16,40,12);
+    ctx.fillStyle='#fff';ctx.font='8px sans-serif';ctx.textAlign='center';
+    ctx.fillText(p.label,p.sx,p.sy-h-7);
+    ctx.restore();
   }
 }
 
-function updateResources(dt) {
-  for (const [zone, res] of Object.entries(RESOURCES)) {
-    res.tokens = Math.min(res.max, res.tokens + res.rate * dt);
-  }
-}
-
-function updateAmbient(dt) {
-  AMBIENT.forEach(p => {
-    p.y -= p.vy;
-    const z = ZONE_DEFS[p.zone];
-    if (p.y < z.minJ) {
-      p.y = z.maxJ;
-      p.x = z.minI + Math.random() * (z.maxI - z.minI);
-    }
-  });
-}
-
-function updateWeather(dt) {
-  weatherTimer -= dt;
-  if (weatherTimer <= 0) {
-    weatherTimer = 30;
-    const avgRisk = AGENTS.filter(a => a.status !== 'paused').reduce((s,a) => s+a.risk, 0) / Math.max(1, AGENTS.length);
-    targetWeatherRisk = avgRisk + (Math.sin(t * 0.05) * 0.2);
-  }
-  weatherRisk += (targetWeatherRisk - weatherRisk) * dt * 0.1;
-  // Lightning
-  if (weatherRisk >= 0.80) {
-    lightningTimer -= dt;
-    if (lightningTimer <= 0) {
-      lightningTimer = 3 + Math.random() * 3;
-      lightningFlash = 2;
-    }
-  }
-}
-
-function updateDefence(dt) {
-  if (!defenceActive) {
-    defenceDemoTimer -= dt;
-    if (defenceDemoTimer <= 0) {
-      defenceDemoTimer = DEFENCE_DEMO_MIN + Math.random() * DEFENCE_DEMO_MAX;
-      startDefenceEvent(defenceZone);
-    }
-    return;
-  }
-  defencePhaseTimer -= dt;
-  if (defencePhaseTimer <= 0) {
-    defencePhase++;
-    if (defencePhase === 1) {
-      defencePhaseTimer = 1.5;
-      // Agents run home
-      AGENTS.forEach(a => {
-        if (getZone(Math.round(a.tx), Math.round(a.tz)) === defenceZone) {
-          a._tx = a.home[0]; a._tz = a.home[1];
-        }
-      });
-      // All governance beams fire simultaneously
-      AGENTS.forEach(a => {
-        GOV_BEAMS.push({agent:a, permitted:false, alpha:0.8});
-      });
-    } else if (defencePhase === 2) {
-      defencePhaseTimer = 1.5;
-      showToast(`⚠ ADVERSARIAL PROBE — ${defenceZone} zone defended`, 3000);
-      // World health drops
-      const wfEl = document.getElementById('wh-fill');
-      if (wfEl) {
-        const curW = parseFloat(wfEl.style.width || '90');
-        wfEl.style.width = Math.max(10, curW - 8) + '%';
-      }
-      // Check achievement
-      checkAchievement('defender');
-    } else if (defencePhase === 3) {
-      defencePhaseTimer = 1.5;
-      showToast('✓ Threat neutralised', 2500);
-    } else {
-      // All clear
-      defenceActive = false;
-      defencePhase = 0;
-    }
-  }
-}
-
-function updateEscalation(dt) {
-  if (!escalationActive) {
-    escalationDemoTimer -= dt;
-    if (escalationDemoTimer <= 0) {
-      escalationDemoTimer = ESCALATION_DEMO_MIN + Math.random() * ESCALATION_DEMO_RANGE;
-      startEscalation({sub:'Invoice #4821 — risk score 94%', ctx:'Legal review flagged an anomalous transaction requiring human oversight.'});
-    }
-    return;
-  }
-  escalationTimer += dt;
-  if (escalationPhase === 0 && escalationTimer >= 0.6) {
-    escalationPhase = 1;
-    escalationTimer = 0;
-    // Pan camera to tower
-    const tPos = tileToScreen(7.5, 7.5);
-    targetOX = OX + (canvas.width/2 - tPos.x);
-    targetOY = OY + (canvas.height/2 - tPos.y);
-    cameraLerping = true;
-  } else if (escalationPhase === 1 && escalationTimer >= 0.9) {
-    escalationPhase = 2;
-    escalationTimer = 0;
-    // Show decision card
-    document.getElementById('escalation-overlay').style.display = 'flex';
-  }
-}
-
-function updateFloaters(dt) {
-  for (let i = FLOATERS.length - 1; i >= 0; i--) {
-    FLOATERS[i].y -= 0.6;
-    FLOATERS[i].alpha -= dt * 0.8;
-    if (FLOATERS[i].alpha <= 0) FLOATERS.splice(i, 1);
-  }
-}
-
-function updateParticles(dt) {
-  for (let i = PARTICLES.length - 1; i >= 0; i--) {
-    const p = PARTICLES[i];
-    p.x += p.vx; p.y += p.vy;
-    p.alpha -= dt * 2;
-    if (p.alpha <= 0) PARTICLES.splice(i, 1);
-  }
-}
-
-// ============================================================
-// GAME EVENTS
-// ============================================================
-function startDefenceEvent(zone) {
-  defenceActive = true;
-  defencePhase = 0;
-  defencePhaseTimer = 0.5;
-  defenceZone = zone || 'finance';
-  defenceFlash = Date.now();
-  document.getElementById('alert-dot').style.display = 'block';
-  try { navigator.vibrate && navigator.vibrate([50,30,50,30,50]); } catch(e) {}
-}
-
-function startEscalation(opts) {
-  escalationActive = true;
-  escalationPhase = 0;
-  escalationTimer = 0;
-  document.getElementById('esc-sub').textContent = opts.sub || 'Unknown risk event';
-  document.getElementById('esc-ctx').textContent = opts.ctx || 'MANIFOLD requires human oversight.';
-  tasksSinceEscalation = 0;
-  try { navigator.vibrate && navigator.vibrate([100,50,100]); } catch(e) {}
-}
-
-function finishEscalation(approved) {
-  document.getElementById('escalation-overlay').style.display = 'none';
-  escalationActive = false;
-  escalationPhase = 0;
-  escalationTimer = 0;
-  const affected = AGENTS.find(a => a.status === 'busy') || AGENTS[0];
-  if (approved) {
-    affected._govPulse = 1.0; affected._govPermitted = true;
-    GOV_BEAMS.push({agent:affected, permitted:true, alpha:1.0});
-    showToast('✓ Decision recorded — task approved');
-    tasksSinceEscalation++;
-    checkAchievement('low_risk_day');
-  } else {
-    affected._govPulse = 1.0; affected._govPermitted = false;
-    GOV_BEAMS.push({agent:affected, permitted:false, alpha:1.0});
-    // Cancel a task pillar if any
-    if (TASK_PILLARS.length > 0) {
-      const p = TASK_PILLARS.pop();
-      spawnMemoryCrystal(p.ti, p.tz || p.tj, p.domain, 'Rejected: ' + (p.taskId || 'task'));
-    }
-    showToast('✗ Task rejected — MANIFOLD learning from outcome');
-  }
-  try { navigator.vibrate && navigator.vibrate(50); } catch(e) {}
-}
-
-function spawnCompletion(pillar) {
-  const {x, y} = tileToScreen(pillar.ti, pillar.tj);
-  const zone = pillar.domain || 'neutral';
-  const accent = ZONE_DEFS[zone]?.accent || '#7F77DD';
-  const dirs = [{dx:-10,dy:-8},{dx:10,dy:-8},{dx:-8,dy:8},{dx:8,dy:8}];
-  dirs.forEach(d => {
-    PARTICLES.push({x, y: y-4*zoom, vx: d.dx*zoom*0.3, vy: d.dy*zoom*0.3, r:3*zoom, color:accent, alpha:1.0});
-  });
-  // XP floater on nearest busy agent
-  const ag = AGENTS.find(a => a.status === 'busy');
-  if (ag) {
-    const ap = tileToScreen(ag.tx, ag.tz);
-    FLOATERS.push({x: ap.x, y: ap.y - 20*zoom, text:'+XP', color:'#FFD700', alpha:1.0});
-  }
-  // Completion sound
-  try {
-    const ac = new (window.AudioContext || window.webkitAudioContext)();
-    const osc = ac.createOscillator();
-    const gain = ac.createGain();
-    osc.connect(gain); gain.connect(ac.destination);
-    osc.frequency.value = 440;
-    gain.gain.value = 0.1;
-    osc.start(); osc.stop(ac.currentTime + 0.15);
-    gain.gain.exponentialRampToValueAtTime(0.0001, ac.currentTime + 0.15);
-  } catch(e) {}
-  // Record in domain
-  const dom = pillar.domain;
-  if (dom && TASK_COUNTS[dom] !== undefined) {
-    TASK_COUNTS[dom]++;
-    checkBuildingLevel(dom);
-    saveProgress();
-  }
-  spawnMemoryCrystal(pillar.ti, pillar.tj, pillar.domain, pillar.taskId || 'task');
-  domainsWithTasks.add(pillar.domain);
-  tasksSinceEscalation++;
-  // Co-occurrence
-  const busyAgents = AGENTS.filter(a => a.status === 'busy');
-  if (busyAgents.length >= 2) {
-    const key = [busyAgents[0].id, busyAgents[1].id].sort().join('__');
-    COOCCURRENCE[key] = (COOCCURRENCE[key] || 0) + 1;
-    localStorage.setItem('manifold_cooccurrence', JSON.stringify(COOCCURRENCE));
-    if (COOCCURRENCE[key] >= 3) checkAchievement('connected');
-  }
-  checkAchievement('full_coverage');
-  checkAchievement('low_risk_day');
-  showToast('✓ Task complete!');
-  try { navigator.vibrate && navigator.vibrate(50); } catch(e) {}
-}
-
-function spawnLevelUp(agent) {
-  const {x, y} = tileToScreen(agent.tx, agent.tz);
-  for (let i = 0; i < 8; i++) {
-    const angle = (i / 8) * Math.PI * 2;
-    PARTICLES.push({
-      x, y: y - 10*zoom,
-      vx: Math.cos(angle) * 4 * zoom,
-      vy: Math.sin(angle) * 4 * zoom,
-      r: 2.5*zoom, color:'#FFD700', alpha:1.0
-    });
-  }
-  FLOATERS.push({x, y: y - 30*zoom, text:`+Level ${agent._level}`, color:'#FFD700', alpha:1.0});
-  checkAchievement('levelled_up');
-  checkAchievement('master');
-}
-
-function spawnMemoryCrystal(tx, tz, domain, label) {
-  const crystal = {
-    tx: tx + (Math.random()-0.5)*0.8,
-    tz: tz + (Math.random()-0.5)*0.8,
-    domain: domain || 'neutral',
-    label: (label || '').slice(0, 20),
-    timestamp: Date.now(),
+// ========== PARTICLES ==========
+const PARTICLES=[],FLOATS=[];
+function spawnParticles(x,y,type,col){
+  const cfgs={
+    harvest: {n:8, vxr:40,vyr:[20,60],size:4,life:.8},
+    complete:{n:6, vxr:30,vyr:[30,70],size:5,life:1.0},
+    levelup: {n:12,vxr:50,vyr:[40,80],size:3,life:1.2},
+    breach:  {n:10,vxr:60,vyr:[40,40],size:4,life:.6},
+    defended:{n:8, vxr:40,vyr:[20,60],size:3,life:.7},
   };
-  MEMORY_CRYSTALS.push(crystal);
-  if (MEMORY_CRYSTALS.length > MAX_MEMORY_CRYSTALS) MEMORY_CRYSTALS.shift();
-  localStorage.setItem('manifold_crystals', JSON.stringify(MEMORY_CRYSTALS));
-  if (MEMORY_CRYSTALS.length >= MAX_MEMORY_CRYSTALS * 0.1) checkAchievement('memory_keeper');
+  const c=cfgs[type]||cfgs.complete; col=col||'#AFA9EC';
+  for(let i=0;i<c.n;i++){
+    PARTICLES.push({x,y,vx:(Math.random()-.5)*2*c.vxr,vy:-(c.vyr[0]+Math.random()*(c.vyr[1]-c.vyr[0])),life:c.life,maxLife:c.life,size:c.size,col});
+  }
+}
+function spawnFloat(x,y,text,col){
+  FLOATS.push({x,y,text,col:col||'#AFA9EC',life:1.4,maxLife:1.4});
+}
+function updateParticles(dt){
+  for(let i=PARTICLES.length-1;i>=0;i--){
+    const p=PARTICLES[i]; p.x+=p.vx*dt; p.y+=p.vy*dt; p.vy+=120*dt; p.life-=dt;
+    if(p.life<=0) PARTICLES.splice(i,1);
+  }
+  for(let i=FLOATS.length-1;i>=0;i--){
+    const f=FLOATS[i]; f.y-=28*dt; f.life-=dt;
+    if(f.life<=0) FLOATS.splice(i,1);
+  }
+}
+function drawParticlesAndFloats(){
+  ctx.save();
+  for(const p of PARTICLES){
+    ctx.globalAlpha=p.life/p.maxLife; ctx.fillStyle=p.col;
+    ctx.beginPath();ctx.arc(p.x,p.y,p.size,0,Math.PI*2);ctx.fill();
+  }
+  for(const f of FLOATS){
+    ctx.globalAlpha=f.life/f.maxLife; ctx.fillStyle=f.col;
+    ctx.font='bold 12px sans-serif';ctx.textAlign='center';ctx.fillText(f.text,f.x,f.y);
+  }
+  ctx.globalAlpha=1;ctx.restore();
 }
 
-function checkBuildingLevel(domain) {
-  const count = TASK_COUNTS[domain] || 0;
-  let newLvl = 1;
-  for (let i = 0; i < LEVEL_THRESHOLDS.length; i++) {
-    if (count >= LEVEL_THRESHOLDS[i]) newLvl = i + 1;
-  }
-  newLvl = Math.min(5, newLvl);
-  if (newLvl > (BUILDING_LEVELS[domain] || 1)) {
-    BUILDING_LEVELS[domain] = newLvl;
-    showToast(`🏗 ${domain} base levelled up to ${newLvl}!`, 3000);
-    // Add trees if level 3
-    if (newLvl === 3) {
-      const z = ZONE_DEFS[domain];
-      if (z) {
-        TREES.push([z.minI + 1, z.minJ + 2]);
-        TREES.push([z.maxI - 1, z.maxJ - 2]);
+// ========== AGENTS ==========
+function initAgent(ag){
+  if(ag._init) return; ag._init=true;
+  ag._state=ag._state||'idle';
+  ag._task=null; ag._progress=0; ag._timer=0;
+  ag._wanderTarget={tx:ag.tx,tz:ag.tz};
+  ag._wanderChange=Math.random()*2+2;
+  ag._trail=[];
+  ag._blinkTimer=Math.random()*5;
+  ag._phaseOffset=Math.random()*Math.PI*2;
+  ag._taskTimer=Math.random()*3+5;
+  ag._paused=false; ag._govPulse=0; ag._govPermitted=true;
+}
+
+function agentZone(domain){
+  return DOMAIN_ZONES[domain]||DOMAIN_ZONES.general;
+}
+
+function updateAgents(dt){
+  for(const ag of WS.agents){
+    initAgent(ag);
+    if(ag._paused) continue;
+    ag._blinkTimer+=dt; if(ag._blinkTimer>5) ag._blinkTimer-=5;
+    const pos=tileToScreen(ag.tx,ag.tz);
+    const moving=ag._state==='walking'||ag._state==='returning';
+    if(moving||ag._state==='working'){
+      ag._trail.push({sx:pos.x,sy:pos.y});
+      if(ag._trail.length>10) ag._trail.shift();
+    }
+    if(ag._state==='idle'){
+      ag._taskTimer-=dt;
+      if(ag._taskTimer<=0){
+        ag._taskTimer=Math.random()*3+5;
+        if(!ag._task) spawnTaskPillar(ag);
       }
-    }
-    saveProgress();
-  }
-}
-
-// ============================================================
-// ACHIEVEMENT SYSTEM
-// ============================================================
-function checkAchievement(id) {
-  if (ACHIEVEMENTS[id]?.unlocked) return;
-  let unlock = false;
-  switch(id) {
-    case 'first_task':    unlock = totalTasksDeployed >= 1; break;
-    case 'defender':      unlock = !defenceActive && defencePhase >= 3; break;
-    case 'connected':     unlock = Object.values(COOCCURRENCE).some(v => v >= 3); break;
-    case 'memory_keeper': unlock = MEMORY_CRYSTALS.length >= 20; break;
-    case 'low_risk_day':  unlock = tasksSinceEscalation >= 10; break;
-    case 'levelled_up':   unlock = AGENTS.some(a => a._level >= 3); break;
-    case 'full_coverage': unlock = domainsWithTasks.size >= 4; break;
-    case 'master':        unlock = AGENTS.every(a => a._level >= 3); break;
-  }
-  if (unlock) {
-    ACHIEVEMENTS[id] = {unlocked: true, timestamp: Date.now()};
-    localStorage.setItem('manifold_achievements', JSON.stringify(ACHIEVEMENTS));
-    const def = ACHIEVEMENT_DEFS.find(d => d.id === id);
-    if (def) showAchievementToast(def);
-  }
-}
-
-function showAchievementToast(def) {
-  const el = document.createElement('div');
-  el.style.cssText = 'position:fixed;bottom:100px;right:16px;background:#0b0d1e;border-left:3px solid #7F77DD;border-radius:8px;padding:10px 14px;max-width:240px;z-index:150;box-shadow:0 4px 20px rgba(0,0,0,.6);animation:slide-in .3s ease';
-  el.innerHTML = `<div style="font-size:20px;float:left;margin-right:10px">${def.icon}</div><div><div style="color:#AFA9EC;font-size:12px;font-weight:600">${def.name}</div><div style="color:#555;font-size:10px;margin-top:2px">${def.desc}</div></div>`;
-  document.body.appendChild(el);
-  setTimeout(() => el.style.opacity = '0', 2800);
-  setTimeout(() => el.remove(), 3200);
-}
-
-// ============================================================
-// WORLD HEALTH UPDATE
-// ============================================================
-function updateWorldHealth(dt) {
-  const active = AGENTS.filter(a => a.status !== 'paused');
-  const avgH = active.reduce((s,a) => s + a._health, 0) / Math.max(1, active.length);
-  worldHealth = avgH;
-  const fillPct = (avgH * 100).toFixed(0) + '%';
-  const whEl = document.getElementById('wh-fill');
-  if (whEl) {
-    whEl.style.width = fillPct;
-    whEl.style.background = avgH > 0.8 ? '#4ade80' : avgH > 0.5 ? '#fbbf24' : '#ef4444';
-  }
-  if (avgH < 0.5) {
-    lowHealthTimer += dt;
-    if (lowHealthTimer > 10 && !worldHealthAlert) {
-      worldHealthAlert = true;
-      showToast('⚠ World health critical!', 4000);
-      startDefenceEvent(defenceZone);
-    }
-  } else { lowHealthTimer = 0; worldHealthAlert = false; }
-  document.getElementById('cnt-tasks').textContent = TASK_PILLARS.length;
-}
-
-// ============================================================
-// INTERACTION
-// ============================================================
-function closePanel() {
-  document.getElementById('panel').classList.remove('open');
-  selectedAgent = null; selectedType = null;
-}
-
-// Crystal tooltip state
-let crystalTooltip = null, crystalTooltipTimer = 0;
-
-function handleClick(sx, sy) {
-  const {ti, tj} = screenToTile(sx, sy);
-  if (ti < 0 || ti >= GRID || tj < 0 || tj >= GRID) return;
-
-  // Tower
-  if (ti >= 6 && ti <= 9 && tj >= 6 && tj <= 9) {
-    showTowerPanel(); return;
-  }
-
-  // Agents
-  for (const a of AGENTS) {
-    const {x, y} = tileToScreen(a.tx, a.tz);
-    if (Math.hypot(sx - x, sy - (y - 6*zoom)) < 16 * zoom) {
-      showAgentPanel(a); return;
+      ag._wanderChange-=dt;
+      if(ag._wanderChange<=0){
+        ag._wanderChange=Math.random()*2+2;
+        const z=agentZone(ag.domain);
+        ag._wanderTarget={tx:z.ti[0]+Math.random()*(z.ti[1]-z.ti[0]),tz:z.tj[0]+Math.random()*(z.tj[1]-z.tj[0])};
+      }
+      const dx=ag._wanderTarget.tx-ag.tx, dz=ag._wanderTarget.tz-ag.tz;
+      const dist=Math.sqrt(dx*dx+dz*dz);
+      if(dist>.1){const spd=.8*dt; ag.tx+=(dx/dist)*spd; ag.tz+=(dz/dist)*spd;}
+    } else if(ag._state==='walking'){
+      if(!ag._task){ag._state='idle';continue;}
+      const dx=ag._task.ti-ag.tx, dz=ag._task.tj-ag.tz;
+      const dist=Math.sqrt(dx*dx+dz*dz);
+      if(dist<.3){ag._state='working';ag.tx=ag._task.ti;ag.tz=ag._task.tj;}
+      else{const spd=.8*dt; ag.tx+=(dx/dist)*spd; ag.tz+=(dz/dist)*spd;}
+    } else if(ag._state==='working'){
+      if(!ag._task){ag._state='idle';continue;}
+      ag._progress+=.035*dt; ag._task.progress=ag._progress;
+      if(ag._progress>=1){
+        ag._state='complete'; ag._timer=2;
+        spawnParticles(pos.x,pos.y,'complete',ag.col);
+        spawnFloat(pos.x,pos.y-30,'+50 XP','#FFD700');
+        ag._task=null; ag._progress=0;
+      }
+    } else if(ag._state==='complete'){
+      ag._timer-=dt; if(ag._timer<=0) ag._state='returning';
+    } else if(ag._state==='returning'){
+      const dx=ag.htx-ag.tx, dz=ag.htz-ag.tz;
+      const dist=Math.sqrt(dx*dx+dz*dz);
+      if(dist<.3){ag.tx=ag.htx;ag.tz=ag.htz;ag._state='idle';ag._taskTimer=Math.random()*3+5;}
+      else{const spd=1.2*dt; ag.tx+=(dx/dist)*spd; ag.tz+=(dz/dist)*spd;}
     }
   }
+}
 
-  // Resource nodes
-  for (const [zone, [nti, ntj]] of Object.entries(RESOURCE_POS)) {
-    if (Math.abs(nti - ti) <= 1 && Math.abs(ntj - tj) <= 1) {
-      harvestResource(zone); return;
+let selectedAgentId=null;
+function drawAgents(){
+  const sorted=[...WS.agents].sort((a,b)=>(a.tx+a.tz)-(b.tx+b.tz));
+  for(const ag of sorted) drawAgent(ag);
+}
+
+function drawAgent(ag){
+  const {x:sx,y:sy}=tileToScreen(ag.tx,ag.tz);
+  const moving=ag._state==='walking'||ag._state==='returning';
+  const working=ag._state==='working';
+  const legOff=(moving||working)?Math.sin(clock*3.5+ag._phaseOffset)*3:0;
+  const armSwing=(moving||working)?Math.sin(clock*3.5+ag._phaseOffset+Math.PI)*4:0;
+  ctx.save();
+  // Shadow
+  ctx.fillStyle='rgba(0,0,0,.3)';
+  ctx.beginPath();ctx.ellipse(sx,sy+6,7,3,0,0,Math.PI*2);ctx.fill();
+  // Trail
+  if(moving&&ag._trail&&ag._trail.length>1){
+    for(let t=0;t<ag._trail.length;t++){
+      const tr=ag._trail[t];
+      ctx.globalAlpha=(t/ag._trail.length)*.3;
+      ctx.fillStyle=ag.col;
+      ctx.beginPath();ctx.arc(tr.sx,tr.sy,2,0,Math.PI*2);ctx.fill();
+    }
+    ctx.globalAlpha=1;
+  }
+  // Dotted path to task
+  if(ag._state==='walking'&&ag._task){
+    ctx.save();ctx.setLineDash([4,6]);ctx.lineDashOffset=-clock*8;
+    ctx.strokeStyle=ag.col+'4D';ctx.lineWidth=1;
+    ctx.beginPath();ctx.moveTo(sx,sy);ctx.lineTo(ag._task.sx,ag._task.sy);ctx.stroke();
+    ctx.setLineDash([]);ctx.restore();
+  }
+  // Legs
+  ctx.fillStyle=darken(ag.col,.7);
+  ctx.fillRect(sx-3,sy,3,6+legOff);
+  ctx.fillRect(sx+1,sy,3,6-legOff);
+  // Arms
+  ctx.fillStyle=ag.col;
+  ctx.fillRect(sx-7,sy-8+armSwing,3,7);
+  ctx.fillRect(sx+4,sy-8-armSwing,3,7);
+  // Body
+  ctx.fillStyle=ag.col;ctx.fillRect(sx-5,sy-16,10,10);
+  // Head
+  ctx.fillStyle=lighten(ag.col,.3);
+  ctx.beginPath();ctx.arc(sx,sy-20,5,0,Math.PI*2);ctx.fill();
+  // Eyes
+  const blinking=(ag._blinkTimer%5)<.15;
+  for(let eye=-1;eye<=1;eye+=2){
+    const ex=sx+eye*2,ey=sy-21;
+    if(blinking){ctx.fillStyle='#fff';ctx.fillRect(ex-1.2,ey-.3,2.4,.6);}
+    else{
+      ctx.fillStyle='#fff';ctx.beginPath();ctx.arc(ex,ey,1.2,0,Math.PI*2);ctx.fill();
+      ctx.fillStyle='#222';ctx.beginPath();ctx.arc(ex,ey,.7,0,Math.PI*2);ctx.fill();
     }
   }
-
-  // Task pillars
-  for (const p of TASK_PILLARS) {
-    if (p.ti === ti && p.tj === tj) { showPillarPanel(p); return; }
+  // Tool (working)
+  if(working){
+    ctx.strokeStyle=ag.col;ctx.lineWidth=1.5;
+    ctx.beginPath();ctx.moveTo(sx+5,sy-10);ctx.lineTo(sx+10,sy-10+Math.sin(clock*5)*3);ctx.stroke();
+    ctx.fillStyle=lighten(ag.col,.3);
+    ctx.beginPath();ctx.arc(sx+10,sy-10+Math.sin(clock*5)*3,2,0,Math.PI*2);ctx.fill();
   }
+  // Progress bar
+  if(working){
+    ctx.fillStyle='#222';ctx.fillRect(sx-18,sy-38,36,4);
+    ctx.fillStyle=ag.col;ctx.fillRect(sx-18,sy-38,36*ag._progress,4);
+    ctx.fillStyle='#aaa';ctx.font='7px sans-serif';ctx.textAlign='center';
+    ctx.fillText(Math.round(ag._progress*100)+'%',sx,sy-44);
+  }
+  // Name tag
+  ctx.fillStyle='#888';ctx.font='8px sans-serif';ctx.textAlign='center';
+  ctx.fillText(ag.name,sx,sy-28);
+  // Stars
+  const lvl=ag.level||1;
+  const sc=lvl>=4?'#FFD700':lvl>=3?'#C0C0C0':'#666';
+  ctx.fillStyle=sc;ctx.font='7px sans-serif';
+  for(let s=0;s<lvl;s++) ctx.fillText('★',sx-(lvl*4/2)+s*4+2,sy-32);
+  // Thought bubble
+  const domIcon={finance:'💰',devops:'⚙',healthcare:'🏥',legal:'⚖',general:'🔍'}[ag.domain]||'🔍';
+  const stIcon={idle:'😊',walking:'🚶',working:domIcon,complete:'✅',returning:'🏠'}[ag._paused?'idle':ag._state]||'😊';
+  ctx.save();ctx.fillStyle='rgba(20,20,40,.8)';ctx.beginPath();ctx.arc(sx+8,sy-24,7,0,Math.PI*2);ctx.fill();
+  ctx.font='8px sans-serif';ctx.textAlign='center';ctx.fillText(stIcon,sx+8,sy-21);ctx.restore();
+  // Selection ring
+  if(selectedAgentId===ag.id){
+    ctx.save();ctx.translate(sx,sy-16);
+    ctx.strokeStyle=ag.col;ctx.lineWidth=1.5;
+    ctx.beginPath();ctx.arc(0,0,12,0,Math.PI*2);ctx.stroke();
+    ctx.rotate(clock*.8);ctx.globalAlpha=.5;
+    ctx.beginPath();ctx.arc(0,0,16,0,Math.PI*2);ctx.stroke();
+    ctx.restore();
+  }
+  // Governance pulse
+  if(ag._govPulse>0){
+    ctx.save();ctx.globalAlpha=ag._govPulse;
+    ctx.strokeStyle=ag._govPermitted?'#1D9E75':'#E24B4A';ctx.lineWidth=2;
+    ctx.beginPath();ctx.arc(sx,sy-16,12+(1-ag._govPulse)*8,0,Math.PI*2);ctx.stroke();
+    ctx.restore();
+    ag._govPulse=Math.max(0,ag._govPulse-.02);
+  }
+  ctx.restore();
+}
 
-  // Memory crystals
-  for (const c of MEMORY_CRYSTALS) {
-    const {x, y} = tileToScreen(c.tx, c.tz);
-    if (Math.hypot(sx - x, sy - y) < 10 * zoom) {
-      const ago = timeAgo(c.timestamp);
-      showToast(`💎 ${c.label} · ${ago}`, 3000); return;
+// ========== CRYSTALS ==========
+function drawCrystals(){
+  for(let i=0;i<WS.crystals.length;i++){
+    const c=WS.crystals[i];
+    const {x,y}=tileToScreen(c.tx||7,c.tz||7);
+    const a=.4+.4*Math.sin(clock*1.5+i*.6);
+    ctx.fillStyle=`rgba(175,169,236,${a})`;
+    ctx.beginPath();ctx.moveTo(x,y-8);ctx.lineTo(x+4,y);ctx.lineTo(x,y+8);ctx.lineTo(x-4,y);ctx.closePath();ctx.fill();
+  }
+}
+
+// ========== RESOURCES ==========
+const RES_BMAP={finance:'finance_house',compute:'devops_house',health_r:'health_house',legal_r:'legal_house',energy:'calibrator'};
+function updateResources(dt){
+  for(const [k,res] of Object.entries(WS.resources)){
+    const blvl=WS.buildings[RES_BMAP[k]]?.level||1;
+    res.v=Math.min(res.max,res.v+res.rate*blvl*dt/60);
+  }
+  for(const ag of WS.agents){
+    if(ag._state==='working'){
+      const rk=ag.domain==='finance'?'finance':ag.domain==='devops'?'compute':ag.domain==='healthcare'?'health_r':'energy';
+      const res=WS.resources[rk];
+      if(res) res.v=Math.max(0,res.v-.5*dt);
     }
   }
+}
 
-  // Empty domain tile
-  const zone = getZone(ti, tj);
-  if (zone !== 'neutral' && zone !== 'manifold' && !isRoad(ti, tj)) {
-    showTaskInput(zone, ti, tj);
+// ========== HUD ==========
+let lastHud=0;
+function updateHUD(){
+  if(clock-lastHud<.1) return; lastHud=clock;
+  const pairs=[['finance','finance','#c87820'],['compute','compute','#185FA5'],['health_r','health','#0F6E56'],['legal_r','legal','#534AB7'],['energy','energy','#8050C8']];
+  for(const [rk,id]of pairs){
+    const r=WS.resources[rk]; if(!r) continue;
+    const pct=Math.round(r.v/r.max*100);
+    const fill=document.getElementById('rb-'+id); if(fill) fill.style.width=pct+'%';
+    const val=document.getElementById('rv-'+id); if(val) val.textContent=Math.round(r.v);
   }
+  const hf=document.getElementById('hud-health-fill');
+  const hv=document.getElementById('hud-health-val');
+  if(hf) hf.style.width=WS.world_health+'%';
+  if(hv) hv.textContent=Math.round(WS.world_health)+'%';
+  const bot=document.getElementById('hud-bottom');
+  if(bot) bot.textContent=`◈ t+${Math.round(clock)}s  •  ${WS.agents.length} agents  •  ${TASK_PILLARS.length} tasks active`;
 }
 
-function timeAgo(ts) {
-  const s = (Date.now() - ts) / 1000;
-  if (s < 60) return 'just now';
-  if (s < 3600) return `${Math.floor(s/60)}m ago`;
-  if (s < 86400) return `${Math.floor(s/3600)}h ago`;
-  return `${Math.floor(s/86400)}d ago`;
+// ========== TOASTS ==========
+const toastQueue=[]; let toastActive=0;
+function showToast(text,col){
+  col=col||'#AFA9EC'; toastQueue.push({text,col}); processToastQueue();
+}
+function processToastQueue(){
+  if(toastActive>=2||toastQueue.length===0) return;
+  const {text,col}=toastQueue.shift(); toastActive++;
+  const slot=toastActive;
+  const div=document.createElement('div');
+  div.style.cssText=`position:fixed;bottom:${20+slot*52}px;right:16px;z-index:1000;background:#0f1020;border:0.5px solid ${col}40;border-left:2px solid ${col};color:${col};padding:10px 14px;border-radius:8px;font-size:12px;font-family:inherit;max-width:260px;transition:opacity .3s,transform .3s;transform:translateX(20px);opacity:0;pointer-events:none;`;
+  div.textContent=text; document.body.appendChild(div);
+  requestAnimationFrame(()=>{div.style.opacity='1';div.style.transform='translateX(0)';});
+  setTimeout(()=>{
+    div.style.opacity='0';div.style.transform='translateX(20px)';
+    setTimeout(()=>{div.remove();toastActive--;processToastQueue();},350);
+  },3000);
 }
 
-function showAgentPanel(a) {
-  selectedAgent = a; selectedType = 'agent';
-  const mood = getMood(a._health);
-  const badgeClass = `badge-${a.status}`;
-  const riskPct = (a.risk * 100).toFixed(0);
-  const healthPct = (a._health * 100).toFixed(0);
-  const lvlStars = '★'.repeat(a._level) + '☆'.repeat(5 - a._level);
-  // Connections
-  let connHtml = '';
-  const myConns = Object.entries(COOCCURRENCE)
-    .filter(([k, v]) => k.includes(a.id) && v >= 1)
-    .sort((x,y) => y[1] - x[1])
-    .slice(0, 3);
-  if (myConns.length > 0) {
-    connHtml = `<div class="connections-section"><div class="heading">Connections</div>` +
-      myConns.map(([k, v]) => {
-        const otherId = k.split('__').find(x => x !== a.id);
-        const other = AGENTS.find(ag => ag.id === otherId);
-        return `<div class="link-row">🤝 ${other?.name || otherId} (${v} tasks)</div>`;
-      }).join('') + `</div>`;
+// ========== PANELS ==========
+function closePanel(id){
+  document.getElementById(id)?.classList.remove('active');
+  if(id==='panel-agent') selectedAgentId=null;
+}
+function openAgentPanel(ag){
+  selectedAgentId=ag.id;
+  document.getElementById('pa-name').textContent=ag.name;
+  const badge=document.getElementById('pa-domain-badge');
+  badge.textContent=ag.domain; badge.style.background=ag.col+'22'; badge.style.color=ag.col; badge.style.border='1px solid '+ag.col+'55';
+  document.getElementById('pa-health-fill').style.width=Math.round(ag.health*100)+'%';
+  document.getElementById('pa-health-val').textContent=Math.round(ag.health*100)+'%';
+  let stars=''; const sc=ag.level>=4?'#FFD700':ag.level>=3?'#C0C0C0':'#666';
+  for(let i=0;i<ag.level;i++) stars+=`<span style="color:${sc}">★</span>`;
+  document.getElementById('pa-stars').innerHTML=stars;
+  const icons={idle:'😊',walking:'🚶',working:'⚡',complete:'✅',returning:'🏠'};
+  document.getElementById('pa-thought').textContent=icons[ag._state]||'😊';
+  document.getElementById('pa-pause-btn').textContent=ag._paused?'Resume':'Pause';
+  document.getElementById('panel-agent').classList.add('active');
+}
+function toggleAgentPause(){
+  const ag=WS.agents.find(a=>a.id===selectedAgentId); if(!ag) return;
+  ag._paused=!ag._paused;
+  document.getElementById('pa-pause-btn').textContent=ag._paused?'Resume':'Pause';
+}
+function sendAgentTask(){
+  const ag=WS.agents.find(a=>a.id===selectedAgentId); if(!ag) return;
+  closePanel('panel-agent');
+  if(ag._state==='idle'){spawnTaskPillar(ag);showToast('Task assigned to '+ag.name,ag.col);}
+  else showToast(ag.name+' is already busy','#888');
+}
+function openTowerPanel(){
+  document.getElementById('pt-level').textContent='L'+WS.tower_level;
+  document.getElementById('pt-health-fill').style.width=WS.world_health+'%';
+  const active=WS.agents.filter(a=>a._state!=='idle').length;
+  document.getElementById('pt-agents').textContent=active+'/'+WS.agents.length+' active';
+  document.getElementById('panel-tower').classList.add('active');
+}
+function upgradeTower(){
+  if(WS.tower_level>=5){showToast('Max level!','#888');return;}
+  const cost=WS.tower_level*100;
+  if(WS.resources.finance.v>=cost){
+    WS.resources.finance.v-=cost; WS.tower_level++; saveState();
+    openTowerPanel(); showToast('Tower → L'+WS.tower_level,'#AFA9EC');
+    const p=tileToScreen(7.5,7.5); spawnParticles(p.x,p.y,'levelup','#AFA9EC');
+  } else showToast('Need '+cost+' finance','#E24B4A');
+}
+let selectedBuildingKey=null;
+function openBuildingPanel(key){
+  selectedBuildingKey=key;
+  const bld=WS.buildings[key];
+  const names={finance_house:'Finance House',devops_house:'DevOps House',health_house:'Health House',legal_house:'Legal House',calibrator:'Calibrator',inject_detector:'Inject Detector',anomaly_tower:'Anomaly Tower',gossip_relay:'Gossip Relay',honeypot:'Honeypot'};
+  document.getElementById('pb-name').textContent=names[key]||key;
+  document.getElementById('pb-level').textContent='Level '+bld.level+'/5';
+  const rk=Object.keys(RES_BMAP).find(k=>RES_BMAP[k]===key);
+  const res=rk?WS.resources[rk]:null;
+  document.getElementById('pb-rate').textContent=res?`+${res.rate*bld.level}/min`:'Defence building';
+  const upgrading=bld.upgrade_end&&Date.now()<bld.upgrade_end;
+  const btn=document.getElementById('pb-upgrade-btn'); btn.disabled=upgrading||bld.level>=5;
+  const cost=bld.level*50;
+  document.getElementById('pb-timer').textContent=upgrading?'Upgrading…':bld.level>=5?'Max level':`Cost: ${cost} finance • 30s`;
+  document.getElementById('panel-building').classList.add('active');
+}
+function upgradeBuilding(){
+  if(!selectedBuildingKey) return;
+  const bld=WS.buildings[selectedBuildingKey];
+  if(bld.level>=5){showToast('Max level!','#888');return;}
+  if(bld.upgrade_end&&Date.now()<bld.upgrade_end){showToast('Already upgrading','#888');return;}
+  const cost=bld.level*50;
+  if(WS.resources.finance.v<cost){showToast('Need '+cost+' finance','#E24B4A');return;}
+  WS.resources.finance.v-=cost; bld.upgrade_end=Date.now()+30000;
+  saveState(); openBuildingPanel(selectedBuildingKey); showToast('Upgrade started!','#1D9E75');
+  setTimeout(()=>{if(bld.upgrade_end&&Date.now()>=bld.upgrade_end){bld.level++;bld.upgrade_end=null;saveState();showToast('Upgrade complete!','#AFA9EC');}},31000);
+}
+let panelTile=null;
+function openTaskPanel(ti,tj){
+  panelTile={ti,tj};
+  let dom='general';
+  if(ti<7&&tj<7) dom='finance'; else if(ti>=9&&tj<7) dom='devops'; else if(ti<7&&tj>=9) dom='healthcare'; else if(ti>=9&&tj>=9) dom='legal';
+  document.getElementById('ptd-name').textContent='Deploy Task';
+  document.getElementById('ptd-domain').textContent='Domain: '+dom;
+  document.getElementById('ptd-desc').value='';
+  document.getElementById('ptd-stakes').value='5';
+  document.getElementById('ptd-stakes-val').textContent='5';
+  document.getElementById('panel-task').classList.add('active');
+}
+document.getElementById('ptd-stakes')?.addEventListener('input',function(){document.getElementById('ptd-stakes-val').textContent=this.value;});
+async function deployTask(){
+  const desc=document.getElementById('ptd-desc').value.trim();
+  const stakes=parseInt(document.getElementById('ptd-stakes').value);
+  const domText=document.getElementById('ptd-domain').textContent.replace('Domain: ','');
+  closePanel('panel-task');
+  try{
+    const key=localStorage.getItem('manifold_key')||'';
+    const url=localStorage.getItem('manifold_url')||'';
+    const res=await fetch(`${url}/task`,{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},body:JSON.stringify({task:desc,domain:domText,stakes})});
+    if(res.ok) showToast('Task deployed!','#1D9E75'); else throw new Error();
+  }catch(e){ showToast('Task queued (offline mode)','#AFA9EC'); }
+  const ag=WS.agents.find(a=>a.domain===domText&&a._state==='idle');
+  if(ag) spawnTaskPillar(ag);
+}
+document.querySelectorAll('.panel-overlay').forEach(el=>el.addEventListener('click',e=>{if(e.target===el) el.classList.remove('active');}));
+
+// ========== DRAG EDITOR ==========
+let dragBuilding=null,dragCursor=null,pressTimer=null,pressStart=null;
+function getBuildingAt(sx,sy){
+  for(const [key,pos] of Object.entries(buildingScreenPos)){
+    if(key==='manifold_tower'||key==='calibrator') continue;
+    if(Math.hypot(sx-pos.x,sy-pos.y)<26) return key;
   }
-  document.getElementById('panel-content').innerHTML = `
-    <div class="panel-title">${a.name} <span class="badge ${badgeClass}">${a.status}</span></div>
-    <div class="panel-detail">Domain: ${a.domain} &nbsp;|&nbsp; Level: ${lvlStars}</div>
-    <div class="panel-detail" style="margin-top:6px;color:#aaa">${a.task}</div>
-    <div class="bar-row" style="margin-top:10px">
-      <span class="bar-label">Risk</span>
-      <div class="bar-bg"><div class="bar-fill" style="width:${riskPct}%;background:${a.risk>0.7?'#ef4444':a.risk>0.4?'#fbbf24':'#4ade80'}"></div></div>
-      <span class="bar-val">${riskPct}%</span>
-    </div>
-    <div class="bar-row">
-      <span class="bar-label">Health</span>
-      <div class="bar-bg"><div class="bar-fill" style="width:${healthPct}%;background:#4ade80"></div></div>
-      <span class="bar-val">${healthPct}%</span>
-    </div>
-    <div class="bar-row">
-      <span class="bar-label">Mood</span>
-      <div class="bar-bg"><div class="bar-fill" style="width:${healthPct}%;background:#7F77DD"></div></div>
-      <span class="bar-val" style="width:80px;font-size:11px">${mood.label}</span>
-    </div>
-    ${connHtml}
-    <div class="panel-btns">
-      <button class="btn-sm" onclick="togglePause('${a.id}')">${a.status==='paused'?'Resume':'Pause'}</button>
-      <button class="btn-sm success" onclick="sendGovBeam('${a.id}', true)">Permit</button>
-      <button class="btn-sm danger" onclick="sendGovBeam('${a.id}', false)">Block</button>
-    </div>`;
-  document.getElementById('panel').classList.add('open');
+  return null;
 }
-
-function showTowerPanel() {
-  selectedType = 'tower';
-  const activeCount = AGENTS.filter(a => a.status === 'active').length;
-  const unlockedCount = Object.values(ACHIEVEMENTS).filter(a => a.unlocked).length;
-  const buildHtml = Object.entries(BUILDING_LEVELS).map(([z, l]) =>
-    `<div class="panel-detail">${z}: Level ${l} (${TASK_COUNTS[z] || 0} tasks)</div>`
-  ).join('');
-  const achHtml = ACHIEVEMENT_DEFS.map(def => {
-    const done = ACHIEVEMENTS[def.id]?.unlocked;
-    return `<div style="display:inline-flex;align-items:center;gap:4px;margin:3px;opacity:${done?1:.35}">
-      <span>${def.icon}</span><span style="color:#888;font-size:10px">${def.name}</span></div>`;
-  }).join('');
-  document.getElementById('panel-content').innerHTML = `
-    <div class="panel-title">◈ MANIFOLD Tower</div>
-    <div class="panel-detail">Active governance core — Mode 3</div>
-    <div class="bar-row" style="margin-top:10px">
-      <span class="bar-label">Agents</span>
-      <div class="bar-bg"><div class="bar-fill" style="width:${(activeCount/AGENTS.length*100).toFixed(0)}%;background:#7F77DD"></div></div>
-      <span class="bar-val">${activeCount}/${AGENTS.length}</span>
-    </div>
-    <div class="panel-detail" style="margin-top:8px">Tasks running: ${TASK_PILLARS.length}</div>
-    <div class="panel-detail" style="margin-top:4px">Achievements: ${unlockedCount}/${ACHIEVEMENT_DEFS.length}</div>
-    <div style="margin-top:8px;border-top:0.5px solid rgba(127,119,221,.15);padding-top:8px">
-      <div style="color:#555;font-size:10px;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Bases</div>
-      ${buildHtml}
-    </div>
-    <div style="margin-top:8px;border-top:0.5px solid rgba(127,119,221,.15);padding-top:8px">${achHtml}</div>
-    <div class="panel-btns">
-      <button class="btn-sm" onclick="window.open('/report','_blank')">Full Report</button>
-      <button class="btn-sm" onclick="window.open('/digest','_blank')">Digest</button>
-    </div>`;
-  document.getElementById('panel').classList.add('open');
-}
-
-function showPillarPanel(p) {
-  document.getElementById('panel-content').innerHTML = `
-    <div class="panel-title">Task Pillar</div>
-    <div class="panel-detail">Domain: ${p.domain}</div>
-    <div class="panel-detail">Task ID: ${p.taskId}</div>
-    <div class="bar-row" style="margin-top:10px">
-      <span class="bar-label">Progress</span>
-      <div class="bar-bg"><div class="bar-fill" style="width:${(p.progress*100).toFixed(0)}%;background:#7F77DD"></div></div>
-      <span class="bar-val">${(p.progress*100).toFixed(0)}%</span>
-    </div>`;
-  document.getElementById('panel').classList.add('open');
-}
-
-function harvestResource(zone) {
-  const res = RESOURCES[zone];
-  if (!res || res.tokens < 80) {
-    showToast(`${zone} pool only at ${Math.floor(res?.tokens || 0)}% — wait until 80+`);
-    return;
+function isValidDrop(tile){
+  const {ti,tj}=tile;
+  if(ti<0||ti>15||tj<0||tj>15) return false;
+  if(ti===7||ti===8||tj===7||tj===8) return false;
+  if(ti>=7&&ti<=8&&tj>=7&&tj<=8) return false;
+  if(isWater(ti,tj)) return false;
+  for(const [k,b] of Object.entries(WS.buildings)){
+    if(k===dragBuilding) continue;
+    if(Math.abs(b.tx-ti)<1&&Math.abs(b.tz-tj)<1) return false;
   }
-  const {x, y} = tileToScreen(...RESOURCE_POS[zone]);
-  FLOATERS.push({x, y: y - 14*zoom, text:`+${Math.floor(res.tokens)}`, color: ZONE_DEFS[zone]?.accent || '#7F77DD', alpha:1.0});
-  res.tokens = 0;
-  showToast(`✓ Harvested ${zone} resources!`);
-  const key = localStorage.getItem('manifold_key') || '';
-  if (key) {
-    fetch('/ats/signal', {
-      method:'POST',
-      headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},
-      body:JSON.stringify({tool_id:`${zone}-resource`, outcome:'success', latency_ms:100})
-    }).catch(()=>{});
-  }
+  return true;
 }
-
-function togglePause(agentId) {
-  const a = AGENTS.find(x => x.id === agentId);
-  if (!a) return;
-  const action = a.status === 'paused' ? 'resume' : 'pause';
-  const key = localStorage.getItem('manifold_key') || '';
-  fetch(`/agents/${agentId}/${action}`, {
-    method:'POST',
-    headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},
-    body:'{}'
-  }).then(r => r.json()).then(d => {
-    if (d.status) { a.status = d.status; showAgentPanel(a); }
-  }).catch(() => {
-    a.status = a.status === 'paused' ? 'active' : 'paused';
-    showAgentPanel(a);
-  });
-}
-
-function sendGovBeam(agentId, permitted) {
-  const a = AGENTS.find(x => x.id === agentId);
-  if (!a) return;
-  a._govPulse = 1.0; a._govPermitted = permitted;
-  GOV_BEAMS.push({agent: a, permitted, alpha: 1.0});
-  if (!permitted) {
-    startDefenceEvent(a.domain);
-    document.getElementById('alert-dot').style.display = 'block';
-    setTimeout(() => document.getElementById('alert-dot').style.display = 'none', 3000);
-  }
-  showToast(permitted ? `✓ ${a.name} permitted` : `✗ ${a.name} blocked`);
-  closePanel();
-}
-
-function spawnTaskPillar(ti, tj, taskId, domain) {
-  TASK_PILLARS.push({ti, tj, taskId, domain, progress:0});
-  totalTasksDeployed++;
-  WS.total_tasks = (WS.total_tasks||0)+1;
-  checkAchievement('first_task');
-  domainsWithTasks.add(domain);
-  checkAchievement('full_coverage');
-}
-
-function saveProgress() {
-  localStorage.setItem('manifold_building_levels', JSON.stringify(BUILDING_LEVELS));
-  localStorage.setItem('manifold_task_counts', JSON.stringify(TASK_COUNTS));
-}
-
-
-// ============================================================
-// BUILDING PANELS v1.5.8
-// ============================================================
-function showBuildingPanel(buildingId, buildingLabel) {
-  const b = WS.buildings[buildingId];
-  if (!b) return;
-  const busy = WS.buildings.calibrator.busy_until && Date.now() < WS.buildings.calibrator.busy_until;
-  const currentJob = WS.buildings.calibrator.job;
-  const isThisUpgrading = currentJob && currentJob.building_id === buildingId;
-  const nextLevel = (b.level||1) + 1;
-  const config = UPGRADE_CONFIG[buildingId]?.[nextLevel];
-  let costHtml = '';
-  if (config) {
-    const costs = Object.entries(config.cost).map(([k,v])=>`${k}: ${v}`).join(', ');
-    const mins = Math.floor(config.duration_ms/60000);
-    const affordable = canAfford(config.cost);
-    let btnStyle = 'success', btnLabel = `Upgrade to Level ${nextLevel}`;
-    if (isThisUpgrading) {
-      const rem = Math.max(0, currentJob.end - Date.now());
-      const ms = Math.floor(rem/1000);
-      btnStyle = ''; btnLabel = `Upgrading… ${ms}s`;
-    } else if (busy) {
-      const rem = Math.max(0, WS.buildings.calibrator.busy_until - Date.now());
-      btnStyle = ''; btnLabel = `Calibrator busy — ${Math.floor(rem/1000)}s`;
-    } else if (!affordable) {
-      btnStyle = 'danger'; btnLabel = `Need: ${costs}`;
-    }
-    const energyCost = Math.ceil(config.duration_ms / (30*60*1000) * 10) + 5;
-    costHtml = `
-      <div class="panel-detail" style="margin-top:6px">Next level cost: ${costs}</div>
-      <div class="panel-detail">Time: ${mins}m</div>
-      <div class="panel-btns">
-        <button class="btn-sm ${btnStyle}" onclick="startUpgrade('${buildingId}',${nextLevel});closePanel()">${btnLabel}</button>
-        ${isThisUpgrading ? `<button class="btn-sm" onclick="speedUpUpgrade();closePanel()">⚡ Speed up (${energyCost} energy)</button>` : ''}
-      </div>`;
-  } else {
-    costHtml = `<div class="panel-detail" style="margin-top:6px;color:#555">Max level reached</div>`;
-  }
-  const defStats = WS.defence_stats?.[buildingId] || 0;
-  const extraInfo = DEFENCE_DEFS[buildingId] 
-    ? `<div class="panel-detail">Type: ${DEFENCE_DEFS[buildingId].type}</div><div class="panel-detail">Range: ${getDefenceRange(buildingId).toFixed(1)} tiles</div><div class="panel-detail">Defended: ${defStats} attacks</div>`
-    : '';
-  document.getElementById('panel-content').innerHTML = `
-    <div class="panel-title">${buildingLabel} <span class="badge badge-active">Level ${b.level||1}</span></div>
-    ${extraInfo}
-    ${costHtml}`;
-  document.getElementById('panel').classList.add('open');
-}
-
-function showCalibratorPanel() {
-  const job = WS.buildings.calibrator.job;
-  const busy = job && Date.now() < job.end;
-  let jobHtml = busy
-    ? `<div class="panel-detail">Upgrading: ${job.building_id} → Level ${job.to_level}</div>
-       <div class="panel-detail">Remaining: ${Math.max(0,Math.floor((job.end-Date.now())/1000))}s</div>
-       <div class="panel-btns"><button class="btn-sm" onclick="speedUpUpgrade();closePanel()">⚡ Speed up</button></div>`
-    : `<div class="panel-detail" style="color:#4ade80">Idle — ready to build</div>`;
-  document.getElementById('panel-content').innerHTML = `
-    <div class="panel-title">⚙ MANIFOLD Calibrator <span class="badge badge-active">Level ${WS.buildings.calibrator.level||1}</span></div>
-    ${jobHtml}
-    <div class="panel-detail" style="margin-top:8px">Upgrades coordinated: ${WS.total_defences||0}</div>`;
-  document.getElementById('panel').classList.add('open');
-}
-
-function showTowerPanel() {
-  const lvl = WS.tower_level || 1;
-  const gate = TOWER_GATES[lvl] || {};
-  const nextLvl = lvl + 1;
-  const config = UPGRADE_CONFIG.tower?.[nextLvl];
-  let upgradeHtml = '';
-  if (config && lvl < 5) {
-    const costs = Object.entries(config.cost).map(([k,v])=>`${k}: ${v}`).join(', ');
-    const mins = Math.floor(config.duration_ms/60000);
-    const affordable = canAfford(config.cost);
-    const busy = WS.buildings.calibrator.busy_until && Date.now() < WS.buildings.calibrator.busy_until;
-    let btnStyle = affordable && !busy ? 'success' : 'danger';
-    let btnLabel = affordable && !busy ? `Upgrade Tower → Level ${nextLvl}` : (busy ? 'Calibrator busy' : `Need: ${costs}`);
-    upgradeHtml = `<div class="panel-detail" style="margin-top:6px">Cost: ${costs} · Time: ${mins}m</div>
-      <div class="panel-btns"><button class="btn-sm ${btnStyle}" onclick="startUpgrade('tower',${nextLvl});closePanel()">${btnLabel}</button></div>`;
-  } else if (lvl >= 5) {
-    upgradeHtml = `<div class="panel-detail" style="color:#7F77DD;margin-top:6px">Maximum level reached</div>`;
-  }
-  document.getElementById('panel-content').innerHTML = `
-    <div class="panel-title">◈ MANIFOLD Tower <span class="badge badge-active">Level ${lvl}/5</span></div>
-    <div class="panel-detail">${gate.desc||''}</div>
-    <div class="panel-detail" style="margin-top:4px">Max agents: ${gate.max_agents||2} · Zones: ${gate.max_zones||2}</div>
-    ${upgradeHtml}
-    <div style="margin-top:8px;padding-top:8px;border-top:0.5px solid rgba(127,119,221,.15)">
-      <div class="panel-detail">Total tasks: ${WS.total_tasks||0}</div>
-      <div class="panel-detail">Total defences: ${WS.total_defences||0}</div>
-      <div class="panel-detail">World health: ${Math.floor(WS.world_health||100)}%</div>
-    </div>`;
-  document.getElementById('panel').classList.add('open');
-}
-
-// ============================================================
-// TASK OVERLAY
-// ============================================================
-document.getElementById('task-stakes').addEventListener('input', e => {
-  document.getElementById('stakes-val').textContent = Math.round(e.target.value * 100) + '%';
+canvas.addEventListener('mousedown',e=>{
+  pressStart={x:e.clientX,y:e.clientY};
+  pressTimer=setTimeout(()=>{
+    const hit=getBuildingAt(pressStart.x,pressStart.y);
+    if(hit){dragBuilding=hit;dragCursor={x:pressStart.x,y:pressStart.y};}
+  },500);
 });
-document.getElementById('task-cancel').addEventListener('click', () => {
-  document.getElementById('task-overlay').style.display = 'none';
+canvas.addEventListener('mousemove',e=>{
+  if(pressTimer&&Math.hypot(e.clientX-pressStart.x,e.clientY-pressStart.y)>8){clearTimeout(pressTimer);pressTimer=null;}
+  if(dragBuilding) dragCursor={x:e.clientX,y:e.clientY};
+});
+canvas.addEventListener('mouseup',e=>{
+  clearTimeout(pressTimer);pressTimer=null;
+  if(dragBuilding){
+    const drop=screenToTile(e.clientX,e.clientY);
+    if(isValidDrop(drop)){WS.buildings[dragBuilding].tx=drop.ti;WS.buildings[dragBuilding].tz=drop.tj;saveState();showToast('Building moved!','#1D9E75');}
+    dragBuilding=null;dragCursor=null;
+  }
+});
+function drawDragUI(){
+  if(!dragBuilding||!dragCursor) return;
+  ctx.save();
+  const orig=buildingScreenPos[dragBuilding];
+  if(orig){ctx.globalAlpha=.35;drawIsoBox(orig.x,orig.y,28,14,14,'#555','#333','#222');ctx.globalAlpha=1;}
+  const dc2=DOM_COLS[dragBuilding]||'#888';
+  drawIsoBox(dragCursor.x,dragCursor.y,28,14,14,darken(dc2,.4),darken(dc2,.6),darken(dc2,.7));
+  const dropT=screenToTile(dragCursor.x,dragCursor.y);
+  const valid=isValidDrop(dropT);
+  const tp=tileToScreen(dropT.ti,dropT.tj);
+  ctx.strokeStyle=valid?'#40FF80':'#FF4040';ctx.lineWidth=2;
+  ctx.beginPath();ctx.moveTo(tp.x,tp.y-TH/2);ctx.lineTo(tp.x+TW/2,tp.y);ctx.lineTo(tp.x,tp.y+TH/2);ctx.lineTo(tp.x-TW/2,tp.y);ctx.closePath();ctx.stroke();
+  if(['inject_detector','anomaly_tower','gossip_relay','honeypot'].includes(dragBuilding)){
+    ctx.strokeStyle='rgba(64,255,128,.25)';ctx.lineWidth=1;
+    ctx.beginPath();ctx.arc(tp.x,tp.y,3.5*TW/2,0,Math.PI*2);ctx.stroke();
+  }
+  ctx.restore();
+}
+
+// ========== CLICK DETECTION ==========
+canvas.addEventListener('click',e=>{
+  if(dragBuilding) return;
+  const x=e.clientX,y=e.clientY;
+  for(const ag of WS.agents){const p=tileToScreen(ag.tx,ag.tz);if(Math.hypot(x-p.x,y-p.y)<15){openAgentPanel(ag);return;}}
+  const tp=tileToScreen(7.5,7.5);if(Math.hypot(x-tp.x,y-tp.y)<32){openTowerPanel();return;}
+  for(const key of ['finance_house','devops_house','health_house','legal_house','calibrator']){
+    const p=buildingScreenPos[key];if(p&&Math.hypot(x-p.x,y-p.y)<26){openBuildingPanel(key);return;}
+  }
+  for(const key of ['inject_detector','anomaly_tower','gossip_relay','honeypot']){
+    const p=buildingScreenPos[key];if(p&&Math.hypot(x-p.x,y-p.y)<20){openBuildingPanel(key);return;}
+  }
+  const tile=screenToTile(x,y);
+  if(tile.ti>=0&&tile.ti<16&&tile.tj>=0&&tile.tj<16&&!isPath(tile.ti,tile.tj)&&!isCenter(tile.ti,tile.tj)){openTaskPanel(tile.ti,tile.tj);}
 });
 
-let _pendingTile = null;
-function showTaskInput(domain, ti, tj) {
-  _pendingTile = {ti, tj, domain};
-  document.getElementById('task-domain').textContent = domain;
-  document.getElementById('task-input').value = '';
-  document.getElementById('task-overlay').style.display = 'flex';
+// ========== WEBSOCKET ==========
+const WS_URL=(location.protocol==='https:'?'wss://':'ws://')+location.host+'/ws';
+let wsSocket=null,wsConnected=false;
+function connectWS(){
+  try{
+    wsSocket=new WebSocket(WS_URL);
+    wsSocket.onopen=()=>{wsConnected=true;showToast('Connected to MANIFOLD','#1D9E75');};
+    wsSocket.onmessage=evt=>{try{handleWSMsg(JSON.parse(evt.data));}catch(e){}};
+    wsSocket.onclose=()=>{wsConnected=false;setTimeout(connectWS,5000);};
+    wsSocket.onerror=()=>{wsSocket.close();};
+  }catch(e){setTimeout(connectWS,5000);}
 }
-
-document.getElementById('task-submit').addEventListener('click', async () => {
-  const task = document.getElementById('task-input').value.trim();
-  const stakes = parseFloat(document.getElementById('task-stakes').value);
-  if (!task) return;
-  const {ti, tj, domain} = _pendingTile || {ti:8, tj:8, domain:'general'};
-  document.getElementById('task-overlay').style.display = 'none';
-  try {
-    const key = localStorage.getItem('manifold_key') || '';
-    const res = await fetch('/task', {
-      method:'POST',
-      headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},
-      body:JSON.stringify({task, stakes, domain})
+function handleWSMsg(msg){
+  if(msg.type==='agent_update'){
+    msg.agents.forEach(upd=>{
+      const ag=WS.agents.find(a=>a.id===upd.id);
+      if(ag){ag.health=upd.health??ag.health;if(upd.ats_score) ag.level=Math.ceil(upd.ats_score*5);}
     });
-    const plan = await res.json();
-    spawnTaskPillar(ti, tj, plan.task_id || 'demo', domain);
-    showToast(`✓ Task deployed: ${plan.total_sub_tasks || 1} sub-tasks`);
-  } catch(e) {
-    spawnTaskPillar(ti, tj, 'demo-' + Date.now(), domain);
-    showToast('Demo: task pillar spawned');
   }
-});
-
-// ============================================================
-// ESCALATION BUTTONS
-// ============================================================
-document.getElementById('esc-approve').addEventListener('click', () => finishEscalation(true));
-document.getElementById('esc-reject').addEventListener('click', () => finishEscalation(false));
-
-// ============================================================
-// SETUP OVERLAY
-// ============================================================
-document.getElementById('setup-save').addEventListener('click', () => {
-  const url = document.getElementById('setup-url').value.trim();
-  const key = document.getElementById('setup-key').value.trim();
-  if (url) localStorage.setItem('manifold_url', url);
-  if (key) localStorage.setItem('manifold_key', key);
-  document.getElementById('setup-overlay').style.display = 'none';
-  connectWS();
-});
-document.getElementById('setup-skip').addEventListener('click', () => {
-  document.getElementById('setup-overlay').style.display = 'none';
-});
-
-function checkSetup() {
-  const key = localStorage.getItem('manifold_key');
-  if (!key) {
-    const savedUrl = localStorage.getItem('manifold_url') || '';
-    document.getElementById('setup-url').value = savedUrl;
-    document.getElementById('setup-overlay').style.display = 'flex';
+  if(msg.type==='governance_event'){
+    const ag=WS.agents.find(a=>a.id===msg.agent_id);
+    if(ag){ag._govPulse=1.0;ag._govPermitted=msg.permitted;}
+    if(!msg.permitted) showToast('Governance: action blocked','#E24B4A');
   }
+  if(msg.type==='task_update') showToast('Task '+msg.status+': '+(msg.task_id||'').slice(0,8));
+  if(msg.type==='world_stats') WS.world_health=msg.system_health*100;
+}
+setInterval(async()=>{
+  if(wsConnected) return;
+  const key=localStorage.getItem('manifold_key')||''; if(!key) return;
+  try{
+    const url=localStorage.getItem('manifold_url')||'';
+    const res=await fetch(`${url}/agents`,{headers:{'Authorization':'Bearer '+key}});
+    const data=await res.json();
+    if(data.agents) handleWSMsg({type:'agent_update',agents:data.agents});
+  }catch(e){}
+},30000);
+
+// ========== SETUP OVERLAY ==========
+function doConnect(){
+  const url=document.getElementById('setup-url').value.trim()||window.location.origin;
+  const key=document.getElementById('setup-key').value.trim();
+  localStorage.setItem('manifold_url',url);
+  if(key) localStorage.setItem('manifold_key',key);
+  document.getElementById('setup-overlay').style.display='none';
+  connectWS(); showToast('Connecting…','#AFA9EC');
+}
+function skipSetup(){
+  document.getElementById('setup-overlay').style.display='none';
+  wsConnected=false; connectWS(); showToast('Running in demo mode','#AFA9EC');
 }
 
-// ============================================================
-// WEBSOCKET
-// ============================================================
-let ws = null, wsRetryTimer = null;
-
-function connectWS() {
-  const customUrl = localStorage.getItem('manifold_url');
-  const base = customUrl || window.location.origin;
-  const wsProto = base.startsWith('https') ? 'wss' : 'ws';
-  const wsHost = base.replace(/^https?:\/\//, '');
-  const wsUrl = `${wsProto}://${wsHost}/ws`;
-  try {
-    ws = new WebSocket(wsUrl);
-    ws.onopen = () => showToast('⟳ Connected to MANIFOLD');
-    ws.onmessage = evt => {
-      try { handleWSMessage(JSON.parse(evt.data)); } catch(e) {}
-    };
-    ws.onclose = () => { wsRetryTimer = setTimeout(connectWS, 5000); };
-    ws.onerror = () => { ws.close(); };
-  } catch(e) {}
-}
-
-function handleWSMessage(msg) {
-  if (msg.type === 'agent_update') {
-    msg.agents.forEach(u => {
-      const ag = AGENTS.find(a => a.id === u.id);
-      if (ag) {
-        ag.status = u.status; ag.task = u.task; ag.risk = u.risk;
-        ag._health = u.health; ag._level = healthToLevel(u.health);
-        if (u.tx !== undefined) { ag._ttx = u.tx; ag._ttz = u.tz; }
-      }
+// ========== OFFLINE TICK ==========
+function applyOfflineTick(){
+  const last=WS.last_tick||Date.now();
+  const elapsed=Math.min(240,(Date.now()-last)/60000);
+  if(elapsed>1){
+    Object.entries(WS.resources).forEach(([key,res])=>{
+      const blvl=WS.buildings[RES_BMAP[key]]?.level||1;
+      res.v=Math.min(res.max,res.v+res.rate*blvl*elapsed);
     });
-    updateHUD();
+    Object.values(WS.buildings).forEach(b=>{if(b.upgrade_end&&Date.now()>=b.upgrade_end){b.level++;b.upgrade_end=null;}});
+    setTimeout(()=>showToast(`While away (${Math.round(elapsed)}m): resources generated`),500);
   }
-  if (msg.type === 'governance_event') {
-    const ag = AGENTS.find(a => a.id === msg.agent_id);
-    if (ag) {
-      ag._govPulse = 1.0; ag._govPermitted = msg.permitted;
-      GOV_BEAMS.push({agent:ag, permitted:msg.permitted, alpha:1.0});
-    }
-    if (!msg.permitted) {
-      if (msg.risk_score > 0.88 && msg.action === 'refuse') {
-        startDefenceEvent(ag?.domain || 'finance');
-      }
-      document.getElementById('alert-dot').style.display = 'block';
-      setTimeout(() => document.getElementById('alert-dot').style.display='none', 3000);
-    }
-    if (msg.action === 'escalate') {
-      startEscalation({sub:`${msg.agent_id} — risk ${(msg.risk_score*100).toFixed(0)}%`, ctx:'Governance requires human decision.'});
-    }
-    showToast(msg.permitted
-      ? `✓ Permitted: ${msg.agent_id} (${(msg.risk_score*100).toFixed(0)}%)`
-      : `✗ Blocked: ${msg.agent_id} — risk ${(msg.risk_score*100).toFixed(0)}%`);
-  }
-  if (msg.type === 'task_update') {
-    const p = TASK_PILLARS.find(x => x.taskId === msg.task_id);
-    if (p && msg.sub_tasks_total > 0) p.progress = msg.sub_tasks_done / msg.sub_tasks_total;
-  }
-  if (msg.type === 'world_stats') {
-    document.getElementById('cnt-tasks').textContent = msg.tasks_running || TASK_PILLARS.length;
-  }
+  WS.last_tick=Date.now();
 }
 
-function updateWsHud() {
-  const rmap = [
-    ['ft','finance_tokens','#BA7517'],
-    ['cc','compute_credits','#185FA5'],
-    ['ct','compliance_tokens','#0F6E56'],
-    ['ac','audit_credits','#534AB7'],
-    ['me','manifold_energy','#7F00FF'],
-  ];
-  rmap.forEach(([id,key,color]) => {
-    const r = WS.resources[key]; if(!r) return;
-    const pct = Math.min(100,(r.v/r.max)*100).toFixed(0);
-    const bar = document.getElementById('rb-'+id);
-    const num = document.getElementById('rn-'+id);
-    if(bar) {
-      bar.style.width = pct+'%';
-      const isPulse = r.v >= r.max*0.8;
-      const isEmpty = r.v <= 0;
-      bar.style.opacity = isEmpty ? '0.3' : '1';
-      bar.style.animation = isPulse ? 'pulse-amber 1s infinite' : 'none';
-    }
-    if(num) num.textContent = Math.floor(r.v)+'/'+r.max;
-  });
-}
-function updateHUD() {
-  const activeCount = AGENTS.filter(a => a.status === 'active').length;
-  document.getElementById('cnt-tasks').textContent = TASK_PILLARS.length;
-}
-
-// ============================================================
-// TOAST
-// ============================================================
-function showToast(msg, duration=2500) {
-  const el = document.createElement('div');
-  el.style.cssText = 'position:fixed;top:50px;left:50%;transform:translateX(-50%);background:rgba(10,12,20,.95);border:0.5px solid rgba(127,119,221,.5);color:#ccc;padding:6px 14px;border-radius:20px;font-size:11px;z-index:100;pointer-events:none;white-space:nowrap;max-width:90vw;overflow:hidden;text-overflow:ellipsis';
-  el.textContent = msg;
-  document.body.appendChild(el);
-  setTimeout(() => { if (el.parentNode) el.remove(); }, duration);
-}
-
-// ============================================================
-// MOUSE CONTROLS
-// ============================================================
-canvas.addEventListener('mousedown', e => {
-  isDragging = true;
-  dragStartX = e.clientX; dragStartY = e.clientY;
-  dragOX = OX; dragOY = OY;
-});
-canvas.addEventListener('mousemove', e => {
-  if (isDragging) { OX = dragOX + (e.clientX - dragStartX); OY = dragOY + (e.clientY - dragStartY); }
-});
-canvas.addEventListener('mouseup', e => {
-  const moved = Math.hypot(e.clientX - dragStartX, e.clientY - dragStartY);
-  if (moved < 5) handleClick(e.clientX, e.clientY);
-  isDragging = false;
-});
-canvas.addEventListener('wheel', e => {
-  e.preventDefault();
-  const factor = e.deltaY < 0 ? 1.1 : 0.91;
-  const prevZoom = zoom;
-  zoom = Math.max(0.4, Math.min(3.0, zoom * factor));
-  OX = e.clientX - (e.clientX - OX) * (zoom / prevZoom);
-  OY = e.clientY - (e.clientY - OY) * (zoom / prevZoom);
-}, {passive: false});
-
-// ============================================================
-// TOUCH CONTROLS
-// ============================================================
-let touchStart = null, pinchDist = null;
-canvas.addEventListener('touchstart', e => {
-  e.preventDefault();
-  if (e.touches.length === 1) {
-    touchStart = {x: e.touches[0].clientX, y: e.touches[0].clientY, ox: OX, oy: OY};
-  } else if (e.touches.length === 2) {
-    pinchDist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
-    touchStart = null;
-  }
-}, {passive: false});
-canvas.addEventListener('touchmove', e => {
-  e.preventDefault();
-  if (e.touches.length === 1 && touchStart) {
-    OX = touchStart.ox + (e.touches[0].clientX - touchStart.x);
-    OY = touchStart.oy + (e.touches[0].clientY - touchStart.y);
-  } else if (e.touches.length === 2 && pinchDist !== null) {
-    const newDist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
-    const cx = (e.touches[0].clientX + e.touches[1].clientX) / 2;
-    const cy = (e.touches[0].clientY + e.touches[1].clientY) / 2;
-    const prevZoom = zoom;
-    zoom = Math.max(0.4, Math.min(3.0, zoom * (newDist / pinchDist)));
-    OX = cx - (cx - OX) * (zoom / prevZoom);
-    OY = cy - (cy - OY) * (zoom / prevZoom);
-    pinchDist = newDist;
-  }
-}, {passive: false});
-canvas.addEventListener('touchend', e => {
-  if (e.changedTouches.length === 1 && touchStart) {
-    const dx = e.changedTouches[0].clientX - touchStart.x;
-    const dy = e.changedTouches[0].clientY - touchStart.y;
-    if (Math.hypot(dx, dy) < 8) handleClick(e.changedTouches[0].clientX, e.changedTouches[0].clientY);
-    touchStart = null;
-  }
-  pinchDist = null;
-}, {passive: false});
-
-// Mini-map click
-document.getElementById('mm').addEventListener('click', e => {
-  const rect = e.target.getBoundingClientRect();
-  const ti = ((e.clientX - rect.left) / 80) * GRID;
-  const tj = ((e.clientY - rect.top)  / 80) * GRID;
-  const {x, y} = tileToScreen(ti, tj);
-  targetOX = OX + (canvas.width/2 - x);
-  targetOY = OY + (canvas.height/2 - y);
-  cameraLerping = true;
-});
-
-// Alert dot click
-document.getElementById('alert-dot').addEventListener('click', () => {
-  showToast('⚠ High-risk event blocked — check agent panel');
-});
-
-// ============================================================
-// MAIN LOOP
-// ============================================================
-let lastTime = 0;
-function loop(now) {
-  const dt = Math.min((now - lastTime) / 1000, 0.1);
-  lastTime = now;
-  t += dt;
+// ========== MAIN LOOP ==========
+let lastTime=0, clock=0;
+function gameLoop(ts){
+  const dt=Math.min((ts-lastTime)/1000,.05);
+  lastTime=ts; clock+=dt;
+  // Updates
+  updateWaterRipples(dt);
   updateAgents(dt);
-  updateResources(dt);
-  updateAmbient(dt);
-  updateWeather(dt);
-  updateDefence(dt);
-  updateEscalation(dt);
-  updateFloaters(dt);
+  updatePillars(dt);
   updateParticles(dt);
-  updateWorldHealth(dt);
-  updateWsHud();
-  render();
-  requestAnimationFrame(loop);
+  updateResources(dt);
+  // Check building upgrades
+  for(const b of Object.values(WS.buildings)){
+    if(b.upgrade_end&&Date.now()>=b.upgrade_end){b.level++;b.upgrade_end=null;saveState();showToast('Building upgraded!','#1D9E75');}
+  }
+  // Auto-save
+  if(Math.floor(clock)%10===0&&Math.floor((clock-dt)*10)!==Math.floor(clock*10)){WS.last_tick=Date.now();saveState();}
+  // Draw
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  ctx.fillStyle='#07080f'; ctx.fillRect(0,0,canvas.width,canvas.height);
+  drawTerrain();
+  drawBuildings();
+  drawCrystals();
+  drawPillars();
+  drawAgents();
+  drawParticlesAndFloats();
+  drawDragUI();
+  updateHUD();
+  // Reset shadow/linedash globally
+  ctx.shadowBlur=0; ctx.setLineDash([]);
+  requestAnimationFrame(gameLoop);
 }
 
-// ============================================================
-// INIT
-// ============================================================
-checkSetup();
-connectWS();
-updateHUD();
-requestAnimationFrame(ts => { lastTime = ts; loop(ts); });
+// ========== INIT ==========
+loadState();
+applyOfflineTick();
+for(const ag of WS.agents) initAgent(ag);
+document.getElementById('setup-url').value=window.location.origin;
+if(localStorage.getItem('manifold_key')!==null){
+  document.getElementById('setup-overlay').style.display='none';
+  connectWS();
+}
+requestAnimationFrame(gameLoop);
 </script>
 </body>
 </html>
