@@ -529,6 +529,21 @@ class ManifoldHandler(BaseHTTPRequestHandler):
                 self._handle_get_digest()
                 return
 
+            # GET /  (landing page)
+            if path == "" or path == "/":
+                self._handle_get_landing()
+                return
+
+            # GET /signup  (signup form)
+            if path == "/signup":
+                self._handle_get_signup()
+                return
+
+            # GET /connect  (tool connection guide)
+            if path == "/connect":
+                self._handle_get_connect()
+                return
+
             _send_error(self, 404, f"No route for GET {self.path}")
         except Exception as exc:  # noqa: BLE001
             _send_error(self, 500, str(exc))
@@ -611,6 +626,8 @@ class ManifoldHandler(BaseHTTPRequestHandler):
                     return
                 org_id = path.split("/")[2]
                 self._handle_post_org_key(org_id, body, _caller2)
+            elif path == "/signup":
+                self._handle_post_signup(body)
             else:
                 _send_error(self, 404, f"No route for POST {self.path}")
         except Exception as exc:  # noqa: BLE001
@@ -3079,7 +3096,324 @@ def _handle_get_digest(self: "ManifoldHandler") -> None:
         _send_json(self, 200, response)
     except Exception as exc:  # noqa: BLE001
         _send_json(self, 500, {"error": str(exc)})
-ManifoldHandler._handle_post_run = _handle_post_run  # type: ignore[attr-defined]
+
+
+# ---------------------------------------------------------------------------
+# Consumer app endpoints
+# ---------------------------------------------------------------------------
+
+_CONSUMER_CSS = """
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+  background:#0f1117;color:#e2e8f0;line-height:1.6}
+.wrap{max-width:880px;margin:0 auto;padding:40px 24px}
+h1{font-size:clamp(2rem,5vw,3.5rem);font-weight:800;letter-spacing:-0.03em;
+  background:linear-gradient(135deg,#fff 0%,#a5b4fc 100%);
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent}
+h2{font-size:1.5rem;font-weight:700;margin-bottom:8px}
+.sub{color:#94a3b8;font-size:1.1rem;margin:16px 0 32px}
+.hero{text-align:center;padding:80px 0 60px}
+.btn{display:inline-block;padding:14px 28px;border-radius:8px;
+  font-size:15px;font-weight:600;text-decoration:none;cursor:pointer;
+  border:none;transition:opacity .15s}
+.btn-primary{background:#7F77DD;color:#fff}
+.btn-secondary{background:transparent;color:#7F77DD;
+  border:1px solid #7F77DD;margin-left:12px}
+.btn:hover{opacity:.85}
+.cards{display:flex;flex-wrap:wrap;gap:20px;margin:40px 0}
+.card{flex:1 1 220px;background:#1a1d27;border:1px solid #2a2d3a;
+  border-radius:12px;padding:28px 24px}
+.card-num{font-size:2rem;margin-bottom:8px}
+.card h3{font-size:1rem;font-weight:700;margin-bottom:8px}
+.card p{color:#94a3b8;font-size:.9rem}
+.compat{text-align:center;color:#64748b;font-size:.95rem;
+  padding:32px 0;border-top:1px solid #1e2130;border-bottom:1px solid #1e2130;
+  margin:40px 0}
+.cta{text-align:center;padding:60px 0}
+pre,.code{background:#0a0c14;border:1px solid #2a2d3a;border-radius:8px;
+  padding:14px 16px;font-family:monospace;font-size:13px;
+  color:#a5b4fc;overflow:auto;white-space:pre-wrap}
+label{display:block;font-size:.875rem;color:#94a3b8;margin-bottom:4px}
+input,select{width:100%;padding:10px 12px;background:#1a1d27;
+  border:1px solid #2a2d3a;border-radius:6px;color:#e2e8f0;
+  font-size:14px;margin-bottom:16px}
+input:focus,select:focus{outline:2px solid #7F77DD}
+form{background:#1a1d27;border:1px solid #2a2d3a;border-radius:12px;
+  padding:32px;max-width:520px;margin:0 auto}
+.note{text-align:center;color:#64748b;font-size:.8rem;margin-top:16px}
+footer{text-align:center;padding:40px 0;color:#475569;font-size:.85rem}
+footer a{color:#7F77DD;text-decoration:none}
+a.lnk{color:#7F77DD;text-decoration:none}
+</style>
+"""
+
+_CONSUMER_HEADER = """<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{title}</title>
+""" + _CONSUMER_CSS + "</head><body>"
+
+_CONSUMER_FOOTER = """<footer class="wrap">
+  <a href="/" class="lnk">Home</a> ·
+  <a href="/signup" class="lnk">Signup</a> ·
+  <a href="/connect" class="lnk">Connect</a> ·
+  <a href="/report" class="lnk">Dashboard</a> ·
+  <a href="/digest?period=7d" class="lnk">Digest API</a>
+</footer></body></html>"""
+
+
+def _handle_get_landing(self: "ManifoldHandler") -> None:
+    """GET / — consumer landing page."""
+    html = _CONSUMER_HEADER.format(title="MANIFOLD — AI Governance") + """
+<div class="wrap">
+  <section class="hero">
+    <h1>MANIFOLD</h1>
+    <p class="sub">Stop your AI from doing things it shouldn't.</p>
+    <p style="color:#94a3b8;max-width:560px;margin:0 auto 32px">
+      One line of code. Every AI call governed.<br>
+      Learns from every outcome. Works with any model.
+    </p>
+    <a href="/signup" class="btn btn-primary">Get started free</a>
+    <a href="/report" class="btn btn-secondary">View live demo</a>
+  </section>
+
+  <h2 style="text-align:center;margin-bottom:8px">How it works</h2>
+  <div class="cards">
+    <div class="card">
+      <div class="card-num">🔗</div>
+      <h3>Connect</h3>
+      <p>Point your AI tool at MANIFOLD. One URL change.</p>
+    </div>
+    <div class="card">
+      <div class="card-num">⚖️</div>
+      <h3>Govern</h3>
+      <p>Every call is priced for risk before it executes.</p>
+    </div>
+    <div class="card">
+      <div class="card-num">🧠</div>
+      <h3>Learn</h3>
+      <p>The system tightens its own policies from outcomes.</p>
+    </div>
+  </div>
+
+  <div class="compat">
+    Works with:&nbsp;
+    <strong>GPT-4</strong> &nbsp;·&nbsp;
+    <strong>Claude</strong> &nbsp;·&nbsp;
+    <strong>Gemini</strong> &nbsp;·&nbsp;
+    <strong>LangChain</strong> &nbsp;·&nbsp;
+    <strong>Cursor</strong> &nbsp;·&nbsp;
+    <strong>any OpenAI-compatible tool</strong>
+  </div>
+
+  <section class="cta">
+    <h2>Start governing your AI in 30 seconds</h2>
+    <p class="sub">Free forever for individual use.</p>
+    <a href="/signup" class="btn btn-primary">Get started</a>
+  </section>
+</div>
+""" + _CONSUMER_FOOTER
+    self.send_response(200)
+    self.send_header("Content-Type", "text/html; charset=utf-8")
+    self.end_headers()
+    self.wfile.write(html.encode())
+
+
+def _handle_get_signup(self: "ManifoldHandler") -> None:
+    """GET /signup — signup form page."""
+    html = _CONSUMER_HEADER.format(title="Sign up — MANIFOLD") + """
+<div class="wrap" style="padding-top:60px">
+  <div style="text-align:center;margin-bottom:32px">
+    <h1 style="font-size:2rem">Create your MANIFOLD account</h1>
+    <p class="sub">Free forever for individual use.</p>
+  </div>
+  <form method="POST" action="/signup">
+    <label for="email">Email address</label>
+    <input id="email" name="email" type="email" required
+           placeholder="you@example.com">
+
+    <label for="org_name">Organisation name</label>
+    <input id="org_name" name="org_name" type="text" required
+           placeholder="Acme Corp">
+
+    <label for="domain">Primary domain</label>
+    <select id="domain" name="domain">
+      <option value="general">General</option>
+      <option value="finance">Finance</option>
+      <option value="healthcare">Healthcare</option>
+      <option value="devops">DevOps</option>
+      <option value="legal">Legal</option>
+    </select>
+
+    <button type="submit" class="btn btn-primary" style="width:100%;padding:14px">
+      Create account + get API key
+    </button>
+  </form>
+  <p class="note">No credit card. No installation. API key shown once.</p>
+</div>
+""" + _CONSUMER_FOOTER
+    self.send_response(200)
+    self.send_header("Content-Type", "text/html; charset=utf-8")
+    self.end_headers()
+    self.wfile.write(html.encode())
+
+
+def _handle_post_signup(self: "ManifoldHandler", body: dict) -> None:
+    """POST /signup — create account, show API key once."""
+    import html as _html
+    import re as _re
+
+    email = str(body.get("email", "")).strip()
+    org_name = str(body.get("org_name", "")).strip()
+    domain = str(body.get("domain", "general")).strip() or "general"
+
+    if not email or not org_name:
+        _send_error(self, 400, "email and org_name required")
+        return
+
+    org_id = _re.sub(r"[^a-z0-9-]", "-", org_name.lower())[:32].strip("-") or "org"
+    try:
+        raw_key, _cfg = _ORG_REGISTRY.generate_key(
+            org_id=org_id,
+            display_name=org_name,
+            role=_OrgRole.AGENT,
+            domain=domain,
+            notes=f"signup:{email}",
+        )
+    except Exception as exc:  # noqa: BLE001
+        _send_error(self, 500, f"Could not create account: {exc}")
+        return
+
+    page = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Your MANIFOLD API key</title>
+<style>
+*{{box-sizing:border-box;margin:0;padding:0}}
+body{{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+  background:#0f1117;color:#e2e8f0;
+  display:flex;align-items:center;justify-content:center;
+  min-height:100vh}}
+.card{{background:#1a1d27;border:1px solid #2a2d3a;border-radius:12px;
+  padding:40px;max-width:540px;width:100%;margin:24px}}
+.key{{background:#0a0c14;border:1px solid #3a3d4a;border-radius:8px;
+  padding:16px;font-family:monospace;font-size:14px;
+  word-break:break-all;color:#a5b4fc;margin:16px 0}}
+.warn{{color:#EF9F27;font-size:13px;margin-bottom:24px}}
+.btn{{display:inline-block;background:#7F77DD;color:#fff;
+  padding:12px 24px;border-radius:8px;text-decoration:none;
+  font-size:14px;font-weight:600;margin-top:8px}}
+pre{{background:#0a0c14;padding:14px;border-radius:8px;
+  font-size:12px;overflow:auto;color:#a5b4fc;white-space:pre-wrap}}
+p{{color:#94a3b8}}
+</style>
+</head>
+<body>
+<div class="card">
+  <h2 style="margin-bottom:8px">Your account is ready ✓</h2>
+  <p style="margin-bottom:24px">Organisation: <strong style="color:#e2e8f0">{_html.escape(org_name)}</strong></p>
+  <p style="font-size:14px;color:#e2e8f0;margin-bottom:4px">Your API key</p>
+  <div class="key">{_html.escape(raw_key)}</div>
+  <p class="warn">⚠ Save this key now — it will not be shown again.</p>
+  <p style="font-size:14px;color:#e2e8f0;margin-bottom:12px">
+    Point any OpenAI-compatible agent at MANIFOLD:
+  </p>
+  <pre>import openai
+client = openai.OpenAI(
+    base_url="http://YOUR_HOST/v1",
+    api_key="{_html.escape(raw_key)}"
+)</pre>
+  <a href="/connect" class="btn">Next: connect your tools →</a>
+</div>
+</body>
+</html>"""
+    self.send_response(200)
+    self.send_header("Content-Type", "text/html; charset=utf-8")
+    self.end_headers()
+    self.wfile.write(page.encode())
+
+
+def _handle_get_connect(self: "ManifoldHandler") -> None:
+    """GET /connect — tool connection guide with integration snippets."""
+    html = _CONSUMER_HEADER.format(title="Connect your tools — MANIFOLD") + """
+<div class="wrap" style="padding-top:48px">
+  <h1 style="font-size:2rem;margin-bottom:8px">Connect your AI tools</h1>
+  <p class="sub">Replace <code style="background:#1a1d27;padding:2px 6px;border-radius:4px;color:#a5b4fc">HOST</code>
+  with your MANIFOLD server address and <code style="background:#1a1d27;padding:2px 6px;border-radius:4px;color:#a5b4fc">YOUR_KEY</code>
+  with your API key from <a href="/signup" class="lnk">/signup</a>.</p>
+
+  <div class="cards" style="flex-direction:column">
+
+    <div class="card">
+      <h3 style="margin-bottom:12px">🐍 Python / OpenAI SDK</h3>
+      <pre>import openai
+client = openai.OpenAI(
+    base_url="http://HOST/v1",
+    api_key="YOUR_KEY"
+)</pre>
+    </div>
+
+    <div class="card">
+      <h3 style="margin-bottom:12px">🦜 LangChain</h3>
+      <pre>from langchain_openai import ChatOpenAI
+llm = ChatOpenAI(
+    base_url="http://HOST/v1",
+    api_key="YOUR_KEY"
+)</pre>
+    </div>
+
+    <div class="card">
+      <h3 style="margin-bottom:12px">🖱️ Cursor / VS Code Copilot</h3>
+      <p style="color:#94a3b8;font-size:.9rem;margin-bottom:10px">
+        In <code style="color:#a5b4fc">settings.json</code>:
+      </p>
+      <pre>"github.copilot.advanced": {{
+    "debug.overrideProxyUrl": "http://HOST/v1"
+}}</pre>
+      <p style="color:#94a3b8;font-size:.9rem;margin-top:10px">
+        Or install the
+        <a href="/vscode-extension" class="lnk">MANIFOLD VS Code extension</a>.
+      </p>
+    </div>
+
+    <div class="card">
+      <h3 style="margin-bottom:12px">⚡ cURL / any HTTP client</h3>
+      <pre>curl http://HOST/v1/chat/completions \\
+  -H "Authorization: Bearer YOUR_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{{"model":"gpt-4o","messages":[{{"role":"user","content":"hello"}}]}}'</pre>
+    </div>
+
+    <div class="card">
+      <h3 style="margin-bottom:12px">🌍 Environment variable</h3>
+      <pre>export OPENAI_BASE_URL="http://HOST/v1"
+export OPENAI_API_KEY="YOUR_KEY"
+# All subsequent OpenAI SDK calls are now governed</pre>
+    </div>
+
+  </div>
+
+  <p style="text-align:center;margin-top:32px;color:#64748b">
+    View your governance dashboard →
+    <a href="/report" class="lnk">Live report</a>
+  </p>
+</div>
+""" + _CONSUMER_FOOTER
+    self.send_response(200)
+    self.send_header("Content-Type", "text/html; charset=utf-8")
+    self.end_headers()
+    self.wfile.write(html.encode())
+
+
+ManifoldHandler._handle_get_landing = _handle_get_landing  # type: ignore[attr-defined]
+ManifoldHandler._handle_get_signup = _handle_get_signup  # type: ignore[attr-defined]
+ManifoldHandler._handle_post_signup = _handle_post_signup  # type: ignore[attr-defined]
+ManifoldHandler._handle_get_connect = _handle_get_connect  # type: ignore[attr-defined]
 ManifoldHandler._handle_get_learned = _handle_get_learned  # type: ignore[attr-defined]
 ManifoldHandler._handle_get_v1_models = _handle_get_v1_models  # type: ignore[attr-defined]
 ManifoldHandler._handle_post_v1_chat_completions = _handle_post_v1_chat_completions  # type: ignore[attr-defined]

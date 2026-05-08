@@ -2,15 +2,19 @@
 
 ## [1.5.4] — 2026-05-07
 ### Added
-- GET /report — self-reporting visual dashboard (Chart.js, auto-refreshes every 30s)
-  Shows: decision counts, escalation/refusal rates, action distribution chart,
-  domain breakdown chart, tool health table, consolidated rules panel.
-  No Streamlit. No dependencies. Opens in any browser.
-- GET /digest?period=7d — structured JSON governance summary.
-  Suitable for email alerts, Slack webhooks, Grafana, or any automation.
-  Fields: summary stats, domain breakdown, tool health, policy state,
-  top risky decisions (anonymised), calibration signal.
-- 8 new tests. Total: 2299 passing.
+- GET / — landing page for consumer onboarding
+- GET /signup + POST /signup — self-service account creation with API key delivery
+- GET /connect — tool connection guide with integration snippets
+  (Python/OpenAI SDK, LangChain, Cursor/VS Code, cURL, environment variables)
+- GET /report — live visual governance dashboard (Chart.js, auto-refresh 30s)
+  Action distribution chart, domain breakdown, tool health table,
+  consolidated rules panel. No Streamlit. Works in any browser.
+- GET /digest?period=7d — structured JSON governance summary for
+  automation, Slack alerts, email digests, Grafana, PagerDuty
+- vscode-manifold/ — VS Code extension
+  Commands: "Check selected code for risk", "Open governance dashboard"
+  Auto-check on save (optional). Works with Cursor, Copilot, any VS Code AI.
+- 8 new tests (test_report_digest.py). Total: 2299 passing.
 
 ## [1.5.3] — 2026-05-07
 
