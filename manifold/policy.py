@@ -207,6 +207,10 @@ class RuleDiff:
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "RuleDiff":
         """Deserialise from a plain dict."""
+        if not isinstance(data, dict):
+            raise TypeError(
+                f"RuleDiff.from_dict expected a dict, got {type(data).__name__!r}"
+            )
         return cls(
             rule_name=str(data["rule_name"]),
             trigger=str(data["trigger"]),
@@ -550,8 +554,8 @@ class ManifoldPolicy:
         -------
         ManifoldPolicy
         """
-        domains = [PolicyDomain.from_dict(d) for d in data.get("domains", [])]
-        diffs = [RuleDiff.from_dict(d) for d in data.get("pending_diffs", [])]
+        domains = [PolicyDomain.from_dict(d) for d in data.get("domains", []) if isinstance(d, dict)]
+        diffs = [RuleDiff.from_dict(d) for d in data.get("pending_diffs", []) if isinstance(d, dict)]
         return cls(
             version=str(data.get("version", "1.0.0")),
             description=str(data.get("description", "")),
@@ -867,6 +871,11 @@ def _parse_block_yaml(yaml_str: str) -> dict[str, Any]:  # noqa: C901
             return True
         if s == "false":
             return False
+        # Inline empty collection literals
+        if s == "[]":
+            return []
+        if s == "{}":
+            return {}
         # Quoted string
         if (s.startswith('"') and s.endswith('"')) or (
             s.startswith("'") and s.endswith("'")
