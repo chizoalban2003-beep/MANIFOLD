@@ -26,6 +26,7 @@ canvas{display:block;touch-action:none}
 .counter span{color:#ccc;font-weight:600}
 #alert-dot{width:8px;height:8px;border-radius:50%;background:#A32D2D;display:none;animation:pulse-red 1s infinite;cursor:pointer}
 @keyframes pulse-red{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.4;transform:scale(1.5)}}
+@keyframes pulse-amber{0%,100%{opacity:1}50%{opacity:.4}}
 #world-health{position:fixed;top:8px;left:50%;transform:translateX(-50%);z-index:50;display:flex;align-items:center;gap:6px}
 #world-health .label{color:#555;font-size:10px}
 #wh-bar{width:120px;height:4px;background:#1a1a2e;border-radius:2px;overflow:hidden}
@@ -94,8 +95,13 @@ canvas{display:block;touch-action:none}
 
 <div id="hud-tl">
   <div class="logo">◈ MANIFOLD</div>
-  <div class="ver">v1.5.7 • World</div>
+  <div class="ver">v1.5.8 • World</div>
   <div id="res-bars">
+    <div class="res-row"><span class="res-lbl">💰</span><div class="res-bg"><div id="rb-ft" class="res-fill" style="background:#BA7517;width:40%"></div></div><span class="res-num" id="rn-ft" style="color:#555;font-size:8px;min-width:36px"></span></div>
+    <div class="res-row"><span class="res-lbl">⚙</span><div class="res-bg"><div id="rb-cc" class="res-fill" style="background:#185FA5;width:38%"></div></div><span class="res-num" id="rn-cc" style="color:#555;font-size:8px;min-width:36px"></span></div>
+    <div class="res-row"><span class="res-lbl">🏥</span><div class="res-bg"><div id="rb-ct" class="res-fill" style="background:#0F6E56;width:33%"></div></div><span class="res-num" id="rn-ct" style="color:#555;font-size:8px;min-width:36px"></span></div>
+    <div class="res-row"><span class="res-lbl">⚖</span><div class="res-bg"><div id="rb-ac" class="res-fill" style="background:#534AB7;width:30%"></div></div><span class="res-num" id="rn-ac" style="color:#555;font-size:8px;min-width:36px"></span></div>
+    <div class="res-row"><span class="res-lbl">⚡</span><div class="res-bg"><div id="rb-me" class="res-fill" style="background:#7F00FF;width:40%"></div></div><span class="res-num" id="rn-me" style="color:#555;font-size:8px;min-width:36px"></span></div>
     <div class="res-row"><span class="res-lbl">F</span><div class="res-bg"><div id="rb-finance" class="res-fill" style="background:#BA7517;width:45%"></div></div></div>
     <div class="res-row"><span class="res-lbl">D</span><div class="res-bg"><div id="rb-devops" class="res-fill" style="background:#185FA5;width:60%"></div></div></div>
     <div class="res-row"><span class="res-lbl">H</span><div class="res-bg"><div id="rb-health" class="res-fill" style="background:#0F6E56;width:30%"></div></div></div>
@@ -173,6 +179,262 @@ canvas{display:block;touch-action:none}
 
 <script>
 'use strict';
+
+// ============================================================
+// WORLD STATE ENGINE v1.5.8 (persistent via localStorage)
+// ============================================================
+const DEFAULT_WS = {
+  tower_level: 1,
+  world_health: 100,
+  total_tasks: 0,
+  total_defences: 0,
+  resources: {
+    finance_tokens:    {v:400, max:1000, rate:5},
+    compute_credits:   {v:300, max:800,  rate:4},
+    compliance_tokens: {v:200, max:600,  rate:3},
+    audit_credits:     {v:150, max:500,  rate:2.5},
+    manifold_energy:   {v:80,  max:200,  rate:1},
+  },
+  buildings: {
+    finance_house:   {level:1, upgrade_end:null},
+    devops_house:    {level:1, upgrade_end:null},
+    health_house:    {level:1, upgrade_end:null},
+    legal_house:     {level:1, upgrade_end:null},
+    calibrator:      {level:1, busy_until:null, job:null},
+    inject_detector: {level:1},
+    anomaly_tower:   {level:1},
+    gossip_relay:    {level:1},
+    honeypot:        {level:1, armed:true, triggered_at:null},
+  },
+  defence_stats: {inject_detector:0, anomaly_tower:0, gossip_relay:0, honeypot:0},
+  _lastTick: null,
+  building_positions: {},
+};
+function loadWS() {
+  try { const s = localStorage.getItem('manifold_world_state'); return s ? Object.assign({}, DEFAULT_WS, JSON.parse(s)) : DEFAULT_WS; }
+  catch(e) { return DEFAULT_WS; }
+}
+function saveWS() { try { localStorage.setItem('manifold_world_state', JSON.stringify(WS)); } catch(e){} }
+let WS = loadWS();
+if (!WS.resources) WS.resources = DEFAULT_WS.resources;
+if (!WS.buildings) WS.buildings = DEFAULT_WS.buildings;
+if (!WS.defence_stats) WS.defence_stats = DEFAULT_WS.defence_stats;
+setInterval(saveWS, 10000);
+
+const TOWER_GATES = {
+  1:{max_agents:2,max_zones:2,calibrators:1,desc:'Basic governance'},
+  2:{max_agents:3,max_zones:3,calibrators:1,desc:'+ 1 agent + 1 zone'},
+  3:{max_agents:4,max_zones:4,calibrators:1,desc:'+ ATS network access'},
+  4:{max_agents:5,max_zones:4,calibrators:2,desc:'+ 2nd calibrator + heroes'},
+  5:{max_agents:6,max_zones:4,calibrators:2,desc:'+ Federation + advanced defence'},
+};
+
+const UPGRADE_CONFIG = {
+  tower: {
+    2:{cost:{manifold_energy:100}, duration_ms:3*60*1000},
+    3:{cost:{manifold_energy:250}, duration_ms:10*60*1000},
+    4:{cost:{manifold_energy:500}, duration_ms:30*60*1000},
+    5:{cost:{manifold_energy:1000},duration_ms:2*60*60*1000},
+  },
+  finance_house: {
+    2:{cost:{finance_tokens:200},   duration_ms:2*60*1000},
+    3:{cost:{finance_tokens:500},   duration_ms:8*60*1000},
+  },
+  devops_house: {
+    2:{cost:{compute_credits:200},  duration_ms:2*60*1000},
+    3:{cost:{compute_credits:500},  duration_ms:8*60*1000},
+  },
+  health_house: {
+    2:{cost:{compliance_tokens:200},duration_ms:2*60*1000},
+    3:{cost:{compliance_tokens:500},duration_ms:8*60*1000},
+  },
+  legal_house: {
+    2:{cost:{audit_credits:200},    duration_ms:2*60*1000},
+    3:{cost:{audit_credits:500},    duration_ms:8*60*1000},
+  },
+};
+
+function canAfford(costs) {
+  return Object.entries(costs).every(([k,v]) => (WS.resources[k]?.v||0) >= v);
+}
+function spendResources(costs) {
+  Object.entries(costs).forEach(([k,v]) => { if(WS.resources[k]) WS.resources[k].v = Math.max(0, WS.resources[k].v - v); });
+}
+
+function startUpgrade(building_id, to_level) {
+  const config = UPGRADE_CONFIG[building_id]?.[to_level];
+  if (!config) return false;
+  if (!canAfford(config.cost)) return false;
+  if (WS.buildings.calibrator.busy_until && Date.now() < WS.buildings.calibrator.busy_until) return false;
+  spendResources(config.cost);
+  WS.buildings.calibrator.busy_until = Date.now() + config.duration_ms;
+  WS.buildings.calibrator.job = {building_id, to_level, end: WS.buildings.calibrator.busy_until};
+  saveWS();
+  showToast(`⚙ Upgrading ${building_id} → Level ${to_level}`);
+  return true;
+}
+
+function checkUpgradeComplete() {
+  const job = WS.buildings.calibrator.job;
+  if (!job) return;
+  if (Date.now() >= job.end) {
+    if (job.building_id === 'tower') {
+      WS.tower_level = job.to_level;
+    } else if (WS.buildings[job.building_id]) {
+      WS.buildings[job.building_id].level = job.to_level;
+      // sync BUILDING_LEVELS for visual rendering
+      const domMap = {finance_house:'finance',devops_house:'devops',health_house:'healthcare',legal_house:'legal'};
+      if (domMap[job.building_id]) BUILDING_LEVELS[domMap[job.building_id]] = job.to_level;
+    }
+    WS.buildings.calibrator.job = null;
+    WS.buildings.calibrator.busy_until = null;
+    saveWS();
+    showToast(`✓ Upgrade complete: ${job.building_id} → Level ${job.to_level}`);
+  }
+}
+
+function speedUpUpgrade() {
+  const job = WS.buildings.calibrator.job;
+  if (!job) return;
+  const remaining = Math.max(0, job.end - Date.now());
+  const energyCost = Math.ceil(remaining / (30*60*1000) * 10) + 5;
+  if ((WS.resources.manifold_energy?.v||0) < energyCost) {
+    showToast(`Need ${energyCost} ⚡ energy to speed up`);
+    return;
+  }
+  WS.resources.manifold_energy.v -= energyCost;
+  WS.buildings.calibrator.job.end = Date.now() + 1000;
+  WS.buildings.calibrator.busy_until = WS.buildings.calibrator.job.end;
+  saveWS();
+  showToast(`⚡ Upgrade accelerated!`);
+}
+
+function getResourceBuildingLevel(res_key) {
+  const m = {finance_tokens:'finance_house',compute_credits:'devops_house',compliance_tokens:'health_house',audit_credits:'legal_house',manifold_energy:'calibrator'};
+  return WS.buildings[m[res_key]]?.level || 1;
+}
+
+// ============================================================
+// DEFENCE BUILDINGS v1.5.8
+// ============================================================
+const DEFENCE_DEFS = {
+  inject_detector: {tx:0,  tz:4,  type:'injection',   color:'#E24B4A', damage:30, rangeBase:2.0, rangeScale:0.5, label:'Inject Detector'},
+  anomaly_tower:   {tx:8,  tz:4,  type:'degradation',  color:'#EF9F27', damage:25, rangeBase:1.8, rangeScale:0.4, label:'Anomaly Tower'},
+  gossip_relay:    {tx:4,  tz:0,  type:'poisoning',    color:'#7F77DD', damage:20, rangeBase:3.0, rangeScale:0.5, label:'Gossip Relay'},
+  honeypot:        {tx:4,  tz:8,  type:'any',          color:'#1D9E75', damage:60, rangeBase:1.5, rangeScale:0,   label:'Honeypot'},
+};
+
+function getDefenceRange(id) {
+  const d = DEFENCE_DEFS[id]; if (!d) return 2;
+  return d.rangeBase + d.rangeScale * (WS.buildings[id]?.level || 1);
+}
+
+// Active attacks list
+const ATTACKS = [];
+let _attackTimer = 45 + Math.random() * 45;
+
+function spawnAttack() {
+  const types = ['injection','degradation','poisoning'];
+  const type = types[Math.floor(Math.random()*3)];
+  const edge = Math.floor(Math.random()*4);
+  let tx, tz;
+  if (edge===0) { tx=0;         tz=Math.floor(Math.random()*9); }
+  else if (edge===1) { tx=Math.floor(Math.random()*9); tz=0; }
+  else if (edge===2) { tx=8;    tz=Math.floor(Math.random()*9); }
+  else              { tx=Math.floor(Math.random()*9); tz=8; }
+  ATTACKS.push({id:'atk-'+Date.now(), type, health:100, tx, tz, target_tx:4, target_tz:4, speed:0.8, alive:true});
+}
+
+function updateAttacks(dt) {
+  _attackTimer -= dt;
+  if (_attackTimer <= 0) {
+    spawnAttack();
+    _attackTimer = 45 + Math.random() * 45;
+  }
+
+  ATTACKS.forEach(atk => {
+    if (!atk.alive) return;
+    const dx = atk.target_tx - atk.tx;
+    const dz = atk.target_tz - atk.tz;
+    const dist = Math.hypot(dx, dz);
+    if (dist > 0.05) {
+      atk.tx += (dx/dist) * atk.speed * dt;
+      atk.tz += (dz/dist) * atk.speed * dt;
+    }
+    // Check defence buildings
+    for (const [id, def] of Object.entries(DEFENCE_DEFS)) {
+      const range = getDefenceRange(id);
+      const bx = WS.building_positions[id]?.tx ?? def.tx;
+      const bz = WS.building_positions[id]?.tz ?? def.tz;
+      const d2 = Math.hypot(atk.tx - bx, atk.tz - bz);
+      if (d2 <= range) {
+        // type match or honeypot
+        if (id === 'honeypot') {
+          if (WS.buildings.honeypot.armed) {
+            atk.health -= 60;
+            WS.buildings.honeypot.armed = false;
+            WS.buildings.honeypot.triggered_at = Date.now();
+            if (!WS.defence_stats) WS.defence_stats = {};
+            WS.defence_stats.honeypot = (WS.defence_stats.honeypot||0)+1;
+            spawnBurst(bx, bz, def.color, 6);
+          }
+        } else if (def.type === atk.type) {
+          atk.health -= def.damage * dt * 10;
+          // Draw beam from defence to attack (deferred to render)
+          if (!atk._beams) atk._beams = {};
+          atk._beams[id] = true;
+          if (!WS.defence_stats) WS.defence_stats = {};
+          WS.defence_stats[id] = (WS.defence_stats[id]||0);
+        }
+      }
+    }
+    // Reset honeypot after 60s
+    if (!WS.buildings.honeypot.armed && WS.buildings.honeypot.triggered_at) {
+      if (Date.now() - WS.buildings.honeypot.triggered_at > 60000) {
+        WS.buildings.honeypot.armed = true;
+        WS.buildings.honeypot.triggered_at = null;
+      }
+    }
+    if (atk.health <= 0) {
+      atk.alive = false;
+      WS.total_defences = (WS.total_defences||0)+1;
+      WS.world_health = Math.min(100, (WS.world_health||100) + 2);
+      WS.resources.manifold_energy.v = Math.min(WS.resources.manifold_energy.max, WS.resources.manifold_energy.v + 5);
+      spawnBurst(atk.tx, atk.tz, '#ff4444', 6);
+      const pos = tileToScreen(atk.tx, atk.tz);
+      FLOATERS.push({x:pos.x, y:pos.y-20*zoom, text:'+defended', color:'#4ade80', alpha:1.0});
+      if (!WS.defence_stats) WS.defence_stats = {};
+      const matchDef = Object.entries(DEFENCE_DEFS).find(([,d])=>d.type===atk.type);
+      if (matchDef) WS.defence_stats[matchDef[0]] = (WS.defence_stats[matchDef[0]]||0)+1;
+      checkAchievement('defender');
+    }
+    // Reached tower
+    if (dist < 1.5 && atk.alive) {
+      atk.alive = false;
+      WS.world_health = Math.max(10, (WS.world_health||100) - 15);
+      // Drain domain tokens
+      const domRes = {injection:'finance_tokens',degradation:'compute_credits',poisoning:'compliance_tokens'};
+      const rKey = domRes[atk.type] || 'finance_tokens';
+      if (WS.resources[rKey]) WS.resources[rKey].v = Math.max(0, WS.resources[rKey].v - 50);
+      defenceFlash = Date.now();
+      showToast('⚠ Governance breach! World health -15');
+    }
+  });
+  // Remove dead attacks older than 2s
+  for (let i = ATTACKS.length-1; i>=0; i--) {
+    if (!ATTACKS[i].alive) ATTACKS.splice(i,1);
+  }
+}
+
+function spawnBurst(tx, tz, color, n) {
+  const {x,y} = tileToScreen(tx, tz);
+  for (let i=0;i<n;i++) {
+    const angle = (i/n)*Math.PI*2;
+    PARTICLES.push({x,y,vx:Math.cos(angle)*50,vy:Math.sin(angle)*50-20,life:0.6,maxLife:0.6,color,size:3});
+  }
+}
+
+
 // ============================================================
 // CONSTANTS
 // ============================================================
@@ -710,6 +972,195 @@ function drawSensor(ti, tj, idx) {
     ctx.setLineDash([4*zoom, 4*zoom]);
     ctx.stroke();
     ctx.setLineDash([]);
+  }
+}
+
+
+// ============================================================
+// RENDER: DEFENCE BUILDINGS v1.5.8
+// ============================================================
+function drawDefenceBuildings() {
+  for (const [id, def] of Object.entries(DEFENCE_DEFS)) {
+    const tx = WS.building_positions[id]?.tx ?? def.tx;
+    const tz = WS.building_positions[id]?.tz ?? def.tz;
+    const {x, y} = tileToScreen(tx, tz);
+    const range = getDefenceRange(id);
+    const TW = BASE_TW * zoom;
+    const rangePx = range * TW / 2;
+    // Range circle
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(x, y, rangePx, 0, Math.PI*2);
+    ctx.strokeStyle = hexToRgb(def.color, 0.12);
+    ctx.lineWidth = 1;
+    ctx.setLineDash([3,6]);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.restore();
+
+    const lvl = WS.buildings[id]?.level || 1;
+    if (id === 'honeypot') {
+      // Gem shape
+      const armed = WS.buildings.honeypot.armed;
+      const c = armed ? def.color : '#ff4444';
+      const pulse = 0.6 + 0.4*Math.sin(t*2);
+      ctx.save();
+      ctx.shadowBlur = 12*zoom; ctx.shadowColor = c;
+      ctx.beginPath();
+      ctx.moveTo(x, y - 12*zoom);
+      ctx.lineTo(x + 8*zoom, y);
+      ctx.lineTo(x, y + 6*zoom);
+      ctx.lineTo(x - 8*zoom, y);
+      ctx.closePath();
+      ctx.fillStyle = hexToRgb(c, pulse);
+      ctx.fill();
+      ctx.restore();
+      if (!armed) {
+        ctx.fillStyle = '#ff4444';
+        ctx.font = `${Math.max(8,9*zoom)}px monospace`;
+        ctx.textAlign = 'center';
+        ctx.fillText('TRIGGERED', x, y - 16*zoom);
+        ctx.textAlign = 'left';
+      }
+    } else if (id === 'inject_detector') {
+      // Base + antenna + diamond
+      drawIsoBox(ctx, x, y, 16*zoom, 8*zoom, 5*zoom, def.color, darken(def.color,0.55), darken(def.color,0.4));
+      ctx.strokeStyle = def.color; ctx.lineWidth = 1.5*zoom;
+      ctx.beginPath(); ctx.moveTo(x, y-8*zoom); ctx.lineTo(x, y-22*zoom); ctx.stroke();
+      const pulse = 0.5+0.5*Math.sin(t*3);
+      ctx.save(); ctx.shadowBlur=8*zoom; ctx.shadowColor=def.color;
+      ctx.beginPath();
+      ctx.moveTo(x, y-28*zoom); ctx.lineTo(x+5*zoom, y-22*zoom);
+      ctx.lineTo(x, y-16*zoom); ctx.lineTo(x-5*zoom, y-22*zoom); ctx.closePath();
+      ctx.fillStyle = hexToRgb(def.color, pulse); ctx.fill();
+      ctx.restore();
+    } else if (id === 'anomaly_tower') {
+      // Tower + rotating dish
+      drawIsoBox(ctx, x, y, 14*zoom, 12*zoom, 5*zoom, def.color, darken(def.color,0.55), darken(def.color,0.4));
+      const dishAngle = t * 1.5;
+      ctx.save();
+      ctx.translate(x, y-14*zoom);
+      ctx.rotate(dishAngle);
+      ctx.beginPath();
+      ctx.arc(0, 0, 8*zoom, 0, Math.PI, false);
+      ctx.strokeStyle = def.color; ctx.lineWidth=1.5*zoom; ctx.stroke();
+      ctx.restore();
+    } else if (id === 'gossip_relay') {
+      // Antenna array
+      drawIsoBox(ctx, x, y, 12*zoom, 8*zoom, 4*zoom, def.color, darken(def.color,0.55), darken(def.color,0.4));
+      for (let i=-1;i<=1;i++) {
+        ctx.strokeStyle=def.color; ctx.lineWidth=1*zoom;
+        ctx.beginPath();
+        ctx.moveTo(x+i*5*zoom, y-8*zoom);
+        ctx.lineTo(x+i*5*zoom, y-(18+Math.abs(i)*4)*zoom);
+        ctx.stroke();
+      }
+    }
+    // Level label
+    ctx.fillStyle = '#555';
+    ctx.font = `${Math.max(7,7*zoom)}px monospace`;
+    ctx.textAlign = 'center';
+    ctx.fillText(`Lv${lvl}`, x, y + 10*zoom);
+    ctx.textAlign = 'left';
+  }
+}
+
+function drawAttacks() {
+  ATTACKS.forEach(atk => {
+    if (!atk.alive) return;
+    const {x,y} = tileToScreen(atk.tx, atk.tz);
+    const pulse = 0.7 + 0.3*Math.sin(t*5);
+    const c = atk.type === 'injection' ? '#ff4444' : atk.type === 'degradation' ? '#EF9F27' : '#AA44FF';
+    // Glow
+    ctx.save();
+    ctx.shadowBlur = 12*zoom; ctx.shadowColor = c;
+    ctx.beginPath();
+    ctx.arc(x, y, 8*zoom, 0, Math.PI*2);
+    ctx.fillStyle = hexToRgb(c, pulse);
+    ctx.fill();
+    ctx.restore();
+    // Health bar
+    const barW = 20*zoom;
+    ctx.fillStyle = '#333';
+    ctx.fillRect(x-barW/2, y-16*zoom, barW, 3*zoom);
+    ctx.fillStyle = c;
+    ctx.fillRect(x-barW/2, y-16*zoom, barW*(atk.health/100), 3*zoom);
+    // Skull
+    ctx.font = `${Math.max(8,9*zoom)}px sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.fillText('☠', x, y-18*zoom);
+    ctx.textAlign = 'left';
+    // Beams from defences
+    if (atk._beams) {
+      for (const bId of Object.keys(atk._beams)) {
+        const bd = DEFENCE_DEFS[bId]; if (!bd) continue;
+        const btx = WS.building_positions[bId]?.tx ?? bd.tx;
+        const btz = WS.building_positions[bId]?.tz ?? bd.tz;
+        const {x:bx,y:by} = tileToScreen(btx, btz);
+        ctx.save();
+        ctx.globalAlpha = 0.5 + 0.3*Math.sin(t*8);
+        ctx.strokeStyle = bd.color; ctx.lineWidth=1.5*zoom;
+        ctx.setLineDash([4*zoom,3*zoom]);
+        ctx.beginPath(); ctx.moveTo(bx,by-10*zoom); ctx.lineTo(x,y); ctx.stroke();
+        ctx.setLineDash([]); ctx.restore();
+      }
+      atk._beams = {};
+    }
+  });
+}
+
+// ============================================================
+// RENDER: CALIBRATOR BUILDING
+// ============================================================
+function drawCalibrator() {
+  const {x, y} = tileToScreen(4.8, 3.2);
+  const busy = WS.buildings.calibrator.busy_until && Date.now() < WS.buildings.calibrator.busy_until;
+  const baseColor = busy ? '#2a3a55' : '#1a2035';
+  drawIsoBox(ctx, x, y, 18*zoom, 12*zoom, 6*zoom, baseColor, darken(baseColor,0.6), darken(baseColor,0.45));
+  // Spinning gear
+  const gearAngle = busy ? (t * 1.5) : 0;
+  ctx.save();
+  ctx.translate(x, y - 14*zoom);
+  ctx.rotate(gearAngle);
+  ctx.strokeStyle = busy ? '#7F77DD' : '#334';
+  ctx.lineWidth = 1.5*zoom;
+  ctx.beginPath(); ctx.arc(0,0,5*zoom,0,Math.PI*2); ctx.stroke();
+  for (let i=0;i<6;i++) {
+    const a = (i/6)*Math.PI*2;
+    ctx.beginPath();
+    ctx.moveTo(Math.cos(a)*5*zoom, Math.sin(a)*5*zoom);
+    ctx.lineTo(Math.cos(a)*9*zoom, Math.sin(a)*9*zoom);
+    ctx.stroke();
+  }
+  ctx.restore();
+  // Status / timer
+  if (busy) {
+    const rem = WS.buildings.calibrator.busy_until - Date.now();
+    const mins = Math.floor(rem/60000), secs = Math.floor((rem%60000)/1000);
+    const label = rem > 60000 ? `${mins}m${secs}s` : `${secs}s`;
+    // Scaffolding
+    ctx.save();
+    const scaffoldAlpha = 0.3 + 0.2*Math.sin(t*2);
+    ctx.strokeStyle = `rgba(186,117,23,${scaffoldAlpha})`; ctx.lineWidth=1;
+    const hw=12*zoom, ht=20*zoom;
+    ctx.beginPath();
+    ctx.moveTo(x-hw,y-ht); ctx.lineTo(x-hw,y+4*zoom);
+    ctx.moveTo(x+hw,y-ht); ctx.lineTo(x+hw,y+4*zoom);
+    ctx.moveTo(x-hw,y-ht); ctx.lineTo(x+hw,y-ht);
+    ctx.moveTo(x-hw,y-ht/2); ctx.lineTo(x+hw,y-ht/2);
+    ctx.stroke();
+    ctx.restore();
+    ctx.fillStyle = '#AFA9EC';
+    ctx.font = `${Math.max(8,8*zoom)}px monospace`;
+    ctx.textAlign = 'center';
+    ctx.fillText(`⚙ ${label}`, x, y - 28*zoom);
+    ctx.textAlign = 'left';
+  } else {
+    ctx.fillStyle = '#4ade80';
+    ctx.font = `${Math.max(7,7*zoom)}px monospace`;
+    ctx.textAlign = 'center';
+    ctx.fillText('IDLE', x, y - 20*zoom);
+    ctx.textAlign = 'left';
   }
 }
 
@@ -1779,6 +2230,7 @@ function sendGovBeam(agentId, permitted) {
 function spawnTaskPillar(ti, tj, taskId, domain) {
   TASK_PILLARS.push({ti, tj, taskId, domain, progress:0});
   totalTasksDeployed++;
+  WS.total_tasks = (WS.total_tasks||0)+1;
   checkAchievement('first_task');
   domainsWithTasks.add(domain);
   checkAchievement('full_coverage');
@@ -1787,6 +2239,102 @@ function spawnTaskPillar(ti, tj, taskId, domain) {
 function saveProgress() {
   localStorage.setItem('manifold_building_levels', JSON.stringify(BUILDING_LEVELS));
   localStorage.setItem('manifold_task_counts', JSON.stringify(TASK_COUNTS));
+}
+
+
+// ============================================================
+// BUILDING PANELS v1.5.8
+// ============================================================
+function showBuildingPanel(buildingId, buildingLabel) {
+  const b = WS.buildings[buildingId];
+  if (!b) return;
+  const busy = WS.buildings.calibrator.busy_until && Date.now() < WS.buildings.calibrator.busy_until;
+  const currentJob = WS.buildings.calibrator.job;
+  const isThisUpgrading = currentJob && currentJob.building_id === buildingId;
+  const nextLevel = (b.level||1) + 1;
+  const config = UPGRADE_CONFIG[buildingId]?.[nextLevel];
+  let costHtml = '';
+  if (config) {
+    const costs = Object.entries(config.cost).map(([k,v])=>`${k}: ${v}`).join(', ');
+    const mins = Math.floor(config.duration_ms/60000);
+    const affordable = canAfford(config.cost);
+    let btnStyle = 'success', btnLabel = `Upgrade to Level ${nextLevel}`;
+    if (isThisUpgrading) {
+      const rem = Math.max(0, currentJob.end - Date.now());
+      const ms = Math.floor(rem/1000);
+      btnStyle = ''; btnLabel = `Upgrading… ${ms}s`;
+    } else if (busy) {
+      const rem = Math.max(0, WS.buildings.calibrator.busy_until - Date.now());
+      btnStyle = ''; btnLabel = `Calibrator busy — ${Math.floor(rem/1000)}s`;
+    } else if (!affordable) {
+      btnStyle = 'danger'; btnLabel = `Need: ${costs}`;
+    }
+    const energyCost = Math.ceil(config.duration_ms / (30*60*1000) * 10) + 5;
+    costHtml = `
+      <div class="panel-detail" style="margin-top:6px">Next level cost: ${costs}</div>
+      <div class="panel-detail">Time: ${mins}m</div>
+      <div class="panel-btns">
+        <button class="btn-sm ${btnStyle}" onclick="startUpgrade('${buildingId}',${nextLevel});closePanel()">${btnLabel}</button>
+        ${isThisUpgrading ? `<button class="btn-sm" onclick="speedUpUpgrade();closePanel()">⚡ Speed up (${energyCost} energy)</button>` : ''}
+      </div>`;
+  } else {
+    costHtml = `<div class="panel-detail" style="margin-top:6px;color:#555">Max level reached</div>`;
+  }
+  const defStats = WS.defence_stats?.[buildingId] || 0;
+  const extraInfo = DEFENCE_DEFS[buildingId] 
+    ? `<div class="panel-detail">Type: ${DEFENCE_DEFS[buildingId].type}</div><div class="panel-detail">Range: ${getDefenceRange(buildingId).toFixed(1)} tiles</div><div class="panel-detail">Defended: ${defStats} attacks</div>`
+    : '';
+  document.getElementById('panel-content').innerHTML = `
+    <div class="panel-title">${buildingLabel} <span class="badge badge-active">Level ${b.level||1}</span></div>
+    ${extraInfo}
+    ${costHtml}`;
+  document.getElementById('panel').classList.add('open');
+}
+
+function showCalibratorPanel() {
+  const job = WS.buildings.calibrator.job;
+  const busy = job && Date.now() < job.end;
+  let jobHtml = busy
+    ? `<div class="panel-detail">Upgrading: ${job.building_id} → Level ${job.to_level}</div>
+       <div class="panel-detail">Remaining: ${Math.max(0,Math.floor((job.end-Date.now())/1000))}s</div>
+       <div class="panel-btns"><button class="btn-sm" onclick="speedUpUpgrade();closePanel()">⚡ Speed up</button></div>`
+    : `<div class="panel-detail" style="color:#4ade80">Idle — ready to build</div>`;
+  document.getElementById('panel-content').innerHTML = `
+    <div class="panel-title">⚙ MANIFOLD Calibrator <span class="badge badge-active">Level ${WS.buildings.calibrator.level||1}</span></div>
+    ${jobHtml}
+    <div class="panel-detail" style="margin-top:8px">Upgrades coordinated: ${WS.total_defences||0}</div>`;
+  document.getElementById('panel').classList.add('open');
+}
+
+function showTowerPanel() {
+  const lvl = WS.tower_level || 1;
+  const gate = TOWER_GATES[lvl] || {};
+  const nextLvl = lvl + 1;
+  const config = UPGRADE_CONFIG.tower?.[nextLvl];
+  let upgradeHtml = '';
+  if (config && lvl < 5) {
+    const costs = Object.entries(config.cost).map(([k,v])=>`${k}: ${v}`).join(', ');
+    const mins = Math.floor(config.duration_ms/60000);
+    const affordable = canAfford(config.cost);
+    const busy = WS.buildings.calibrator.busy_until && Date.now() < WS.buildings.calibrator.busy_until;
+    let btnStyle = affordable && !busy ? 'success' : 'danger';
+    let btnLabel = affordable && !busy ? `Upgrade Tower → Level ${nextLvl}` : (busy ? 'Calibrator busy' : `Need: ${costs}`);
+    upgradeHtml = `<div class="panel-detail" style="margin-top:6px">Cost: ${costs} · Time: ${mins}m</div>
+      <div class="panel-btns"><button class="btn-sm ${btnStyle}" onclick="startUpgrade('tower',${nextLvl});closePanel()">${btnLabel}</button></div>`;
+  } else if (lvl >= 5) {
+    upgradeHtml = `<div class="panel-detail" style="color:#7F77DD;margin-top:6px">Maximum level reached</div>`;
+  }
+  document.getElementById('panel-content').innerHTML = `
+    <div class="panel-title">◈ MANIFOLD Tower <span class="badge badge-active">Level ${lvl}/5</span></div>
+    <div class="panel-detail">${gate.desc||''}</div>
+    <div class="panel-detail" style="margin-top:4px">Max agents: ${gate.max_agents||2} · Zones: ${gate.max_zones||2}</div>
+    ${upgradeHtml}
+    <div style="margin-top:8px;padding-top:8px;border-top:0.5px solid rgba(127,119,221,.15)">
+      <div class="panel-detail">Total tasks: ${WS.total_tasks||0}</div>
+      <div class="panel-detail">Total defences: ${WS.total_defences||0}</div>
+      <div class="panel-detail">World health: ${Math.floor(WS.world_health||100)}%</div>
+    </div>`;
+  document.getElementById('panel').classList.add('open');
 }
 
 // ============================================================
@@ -1922,6 +2470,29 @@ function handleWSMessage(msg) {
   }
 }
 
+function updateWsHud() {
+  const rmap = [
+    ['ft','finance_tokens','#BA7517'],
+    ['cc','compute_credits','#185FA5'],
+    ['ct','compliance_tokens','#0F6E56'],
+    ['ac','audit_credits','#534AB7'],
+    ['me','manifold_energy','#7F00FF'],
+  ];
+  rmap.forEach(([id,key,color]) => {
+    const r = WS.resources[key]; if(!r) return;
+    const pct = Math.min(100,(r.v/r.max)*100).toFixed(0);
+    const bar = document.getElementById('rb-'+id);
+    const num = document.getElementById('rn-'+id);
+    if(bar) {
+      bar.style.width = pct+'%';
+      const isPulse = r.v >= r.max*0.8;
+      const isEmpty = r.v <= 0;
+      bar.style.opacity = isEmpty ? '0.3' : '1';
+      bar.style.animation = isPulse ? 'pulse-amber 1s infinite' : 'none';
+    }
+    if(num) num.textContent = Math.floor(r.v)+'/'+r.max;
+  });
+}
 function updateHUD() {
   const activeCount = AGENTS.filter(a => a.status === 'active').length;
   document.getElementById('cnt-tasks').textContent = TASK_PILLARS.length;
@@ -2035,6 +2606,7 @@ function loop(now) {
   updateFloaters(dt);
   updateParticles(dt);
   updateWorldHealth(dt);
+  updateWsHud();
   render();
   requestAnimationFrame(loop);
 }
