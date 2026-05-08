@@ -16,10 +16,15 @@ canvas{display:block;touch-action:none}
 #hud-tl{position:fixed;top:12px;left:14px;z-index:50;pointer-events:none}
 #hud-tl .logo{color:#7F77DD;font-size:13px;font-weight:700;letter-spacing:.06em}
 #hud-tl .ver{color:#444;font-size:10px;margin-top:1px}
+#res-bars{margin-top:6px;display:flex;flex-direction:column;gap:2px}
+.res-row{display:flex;align-items:center;gap:4px}
+.res-lbl{color:#444;font-size:9px;width:10px}
+.res-bg{width:40px;height:4px;background:#111;border-radius:2px;overflow:hidden}
+.res-fill{height:100%;border-radius:2px;transition:width .3s}
 #hud-tr{position:fixed;top:12px;right:14px;z-index:50;display:flex;align-items:center;gap:10px}
 .counter{color:#888;font-size:11px;display:flex;align-items:center;gap:4px}
 .counter span{color:#ccc;font-weight:600}
-#alert-dot{width:8px;height:8px;border-radius:50%;background:#A32D2D;display:none;animation:pulse-red 1s infinite}
+#alert-dot{width:8px;height:8px;border-radius:50%;background:#A32D2D;display:none;animation:pulse-red 1s infinite;cursor:pointer}
 @keyframes pulse-red{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.4;transform:scale(1.5)}}
 #world-health{position:fixed;top:8px;left:50%;transform:translateX(-50%);z-index:50;display:flex;align-items:center;gap:6px}
 #world-health .label{color:#555;font-size:10px}
@@ -27,7 +32,7 @@ canvas{display:block;touch-action:none}
 #wh-fill{height:100%;background:#4ade80;border-radius:2px;transition:width .5s,background .5s}
 #minimap{position:fixed;bottom:14px;right:14px;z-index:50;cursor:pointer}
 #minimap canvas{border:0.5px solid rgba(127,119,221,.3);border-radius:4px}
-#panel{position:fixed;bottom:0;left:0;right:0;z-index:80;background:#0b0d1e;border-top:0.5px solid rgba(127,119,221,.3);padding:16px;transform:translateY(100%);transition:transform .25s ease;max-height:60vh;overflow-y:auto}
+#panel{position:fixed;bottom:0;left:0;right:0;z-index:80;background:#0b0d1e;border-top:0.5px solid rgba(127,119,221,.3);padding:16px;transform:translateY(100%);transition:transform .25s ease;max-height:65vh;overflow-y:auto}
 #panel.open{transform:translateY(0)}
 .panel-close{float:right;color:#555;font-size:18px;cursor:pointer;padding:0 4px}
 .panel-title{color:#ccc;font-size:14px;font-weight:600;margin-bottom:10px}
@@ -43,13 +48,16 @@ canvas{display:block;touch-action:none}
 .bar-val{color:#888;font-size:11px;width:32px;text-align:right}
 .panel-detail{color:#666;font-size:11px;margin-top:4px}
 .panel-btns{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
-.btn-sm{padding:7px 14px;border-radius:7px;font-size:12px;cursor:pointer;border:0.5px solid rgba(127,119,221,.4);background:rgba(127,119,221,.08);color:#AFA9EC}
+.btn-sm{padding:7px 14px;border-radius:7px;font-size:12px;cursor:pointer;border:0.5px solid rgba(127,119,221,.4);background:rgba(127,119,221,.08);color:#AFA9EC;font-family:inherit}
 .btn-sm.danger{border-color:rgba(163,60,60,.4);background:rgba(163,60,60,.08);color:#e57373}
+.btn-sm.success{border-color:rgba(74,222,128,.4);background:rgba(74,222,128,.08);color:#4ade80}
+.connections-section{margin-top:10px;padding-top:10px;border-top:0.5px solid rgba(127,119,221,.15)}
+.connections-section .heading{color:#555;font-size:10px;margin-bottom:4px;text-transform:uppercase;letter-spacing:.05em}
+.connections-section .link-row{color:#777;font-size:11px;margin:2px 0}
 #legend{position:fixed;bottom:14px;left:14px;z-index:50;pointer-events:none}
 #legend .row{display:flex;align-items:center;gap:5px;margin:2px 0}
 #legend .dot{width:8px;height:8px;border-radius:50%}
 #legend .lbl{color:#444;font-size:10px}
-/* task overlay */
 #task-overlay{display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.65);z-index:200;align-items:center;justify-content:center}
 #task-overlay .box{background:#0f1020;border:0.5px solid rgba(127,119,221,.5);border-radius:12px;padding:20px;width:min(340px,90vw)}
 #task-overlay .box-title{color:#888;font-size:11px;margin-bottom:4px}
@@ -63,7 +71,6 @@ canvas{display:block;touch-action:none}
 .overlay-btns button{flex:1;padding:10px;border-radius:8px;cursor:pointer;font-size:13px;font-family:inherit}
 #task-cancel{background:none;border:0.5px solid rgba(255,255,255,.12);color:#666}
 #task-submit{background:rgba(127,119,221,.15);border:0.5px solid rgba(127,119,221,.5);color:#AFA9EC;font-weight:500}
-/* setup overlay */
 #setup-overlay{display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.75);z-index:300;align-items:center;justify-content:center}
 #setup-overlay .box{background:#0f1020;border:0.5px solid rgba(127,119,221,.5);border-radius:14px;padding:24px;width:min(380px,92vw)}
 #setup-overlay h2{color:#AFA9EC;font-size:15px;margin-bottom:8px}
@@ -73,30 +80,39 @@ canvas{display:block;touch-action:none}
 .setup-btns{display:flex;gap:8px;margin-top:4px}
 #setup-skip{flex:1;padding:9px;border-radius:8px;background:none;border:0.5px solid rgba(255,255,255,.1);color:#555;cursor:pointer;font-family:inherit}
 #setup-save{flex:2;padding:9px;border-radius:8px;background:rgba(127,119,221,.15);border:0.5px solid rgba(127,119,221,.5);color:#AFA9EC;cursor:pointer;font-weight:500;font-family:inherit}
+#escalation-overlay{display:none;position:fixed;top:0;left:0;width:100%;height:100%;z-index:250;align-items:center;justify-content:center;pointer-events:none}
+#escalation-card{background:rgba(8,6,30,.98);border:1.5px solid rgba(175,169,236,.8);border-radius:14px;padding:20px;width:300px;pointer-events:all}
+#escalation-card .esc-header{color:#EEEDFE;font-size:14px;font-weight:700;margin-bottom:6px}
+#escalation-card .esc-sub{color:#888;font-size:12px;margin-bottom:4px}
+#escalation-card .esc-ctx{color:#555;font-size:11px;margin-bottom:16px;line-height:1.5}
+.esc-btns{display:flex;gap:8px}
+#esc-approve{flex:1;padding:10px;border-radius:8px;background:rgba(29,158,117,.2);border:1px solid rgba(29,158,117,.6);color:#4ade80;cursor:pointer;font-size:13px;font-weight:500;font-family:inherit}
+#esc-reject{flex:1;padding:10px;border-radius:8px;background:rgba(226,75,74,.2);border:1px solid rgba(226,75,74,.6);color:#ef4444;cursor:pointer;font-size:13px;font-weight:500;font-family:inherit}
 </style>
 </head>
 <body>
 
-<!-- HUD Top-Left -->
 <div id="hud-tl">
   <div class="logo">◈ MANIFOLD</div>
-  <div class="ver">v1.5.6 • World</div>
+  <div class="ver">v1.5.7 • World</div>
+  <div id="res-bars">
+    <div class="res-row"><span class="res-lbl">F</span><div class="res-bg"><div id="rb-finance" class="res-fill" style="background:#BA7517;width:45%"></div></div></div>
+    <div class="res-row"><span class="res-lbl">D</span><div class="res-bg"><div id="rb-devops" class="res-fill" style="background:#185FA5;width:60%"></div></div></div>
+    <div class="res-row"><span class="res-lbl">H</span><div class="res-bg"><div id="rb-health" class="res-fill" style="background:#0F6E56;width:30%"></div></div></div>
+    <div class="res-row"><span class="res-lbl">L</span><div class="res-bg"><div id="rb-legal" class="res-fill" style="background:#534AB7;width:80%"></div></div></div>
+  </div>
 </div>
 
-<!-- HUD Top-Right -->
 <div id="hud-tr">
-  <div class="counter">🔑 Tokens <span id="cnt-tokens">—</span></div>
   <div class="counter">⚡ Tasks <span id="cnt-tasks">0</span></div>
   <div id="alert-dot" title="High-risk event blocked"></div>
 </div>
 
-<!-- World Health Bar -->
 <div id="world-health">
   <span class="label">World Health</span>
   <div id="wh-bar"><div id="wh-fill" style="width:90%"></div></div>
 </div>
 
-<!-- Legend -->
 <div id="legend">
   <div class="row"><div class="dot" style="background:#BA7517"></div><div class="lbl">Finance</div></div>
   <div class="row"><div class="dot" style="background:#185FA5"></div><div class="lbl">DevOps</div></div>
@@ -105,16 +121,13 @@ canvas{display:block;touch-action:none}
   <div class="row"><div class="dot" style="background:#7F77DD"></div><div class="lbl">MANIFOLD</div></div>
 </div>
 
-<!-- Mini-map -->
 <div id="minimap"><canvas id="mm" width="80" height="80"></canvas></div>
 
-<!-- Bottom Panel -->
 <div id="panel">
   <span class="panel-close" onclick="closePanel()">✕</span>
   <div id="panel-content"></div>
 </div>
 
-<!-- Task Overlay -->
 <div id="task-overlay">
   <div class="box">
     <div class="box-title">DEPLOY TASK — <span id="task-domain">—</span></div>
@@ -131,7 +144,6 @@ canvas{display:block;touch-action:none}
   </div>
 </div>
 
-<!-- Setup Overlay -->
 <div id="setup-overlay">
   <div class="box">
     <h2>Connect to MANIFOLD</h2>
@@ -141,6 +153,18 @@ canvas{display:block;touch-action:none}
     <div class="setup-btns">
       <button id="setup-skip">Demo mode</button>
       <button id="setup-save">Connect</button>
+    </div>
+  </div>
+</div>
+
+<div id="escalation-overlay">
+  <div id="escalation-card">
+    <div class="esc-header">MANIFOLD NEEDS YOUR DECISION</div>
+    <div class="esc-sub" id="esc-sub">Invoice #4821 — risk score 94%</div>
+    <div class="esc-ctx" id="esc-ctx">Legal review flagged an anomalous transaction requiring human oversight.</div>
+    <div class="esc-btns">
+      <button id="esc-approve">✓ APPROVE</button>
+      <button id="esc-reject">✗ REJECT</button>
     </div>
   </div>
 </div>
@@ -164,29 +188,108 @@ const ZONE_DEFS = {
 };
 
 // ============================================================
-// STATE
+// RESOURCE SYSTEM
+// ============================================================
+const RESOURCES = {
+  finance:    {tokens:45, rate:1.2, max:100},
+  devops:     {tokens:60, rate:1.0, max:100},
+  healthcare: {tokens:30, rate:0.8, max:100},
+  legal:      {tokens:80, rate:0.6, max:100},
+};
+const RESOURCE_POS = {finance:[3,3], devops:[12,3], healthcare:[3,12], legal:[12,12]};
+
+// ============================================================
+// ACHIEVEMENT SYSTEM
+// ============================================================
+const ACHIEVEMENT_DEFS = [
+  {id:'first_task',    name:'First deployment',  desc:'Deploy your first task',            icon:'⚡'},
+  {id:'defender',      name:'First defence',      desc:'Defend against an adversarial probe',icon:'🛡'},
+  {id:'connected',     name:'Trusted network',    desc:'Two agents develop a social link',   icon:'🤝'},
+  {id:'memory_keeper', name:'Memory keeper',      desc:'Accumulate 20 memory crystals',      icon:'💎'},
+  {id:'low_risk_day',  name:'Clean run',          desc:'10 tasks with no escalations',       icon:'✨'},
+  {id:'levelled_up',   name:'Growing team',       desc:'Any agent reaches level 3',          icon:'⬆'},
+  {id:'full_coverage', name:'Full coverage',      desc:'Deploy tasks in all 4 domains',      icon:'🌐'},
+  {id:'master',        name:'MANIFOLD master',    desc:'All agents at level 3 or above',     icon:'👑'},
+];
+let ACHIEVEMENTS = JSON.parse(localStorage.getItem('manifold_achievements') || '{}');
+
+// ============================================================
+// MEMORY CRYSTALS (persistent)
+// ============================================================
+let MEMORY_CRYSTALS = JSON.parse(localStorage.getItem('manifold_crystals') || '[]');
+const STATIC_CRYSTALS = [[4,1],[12,4],[1,12],[14,14],[8,3],[3,8]];
+
+// ============================================================
+// BUILDING LEVELS
+// ============================================================
+let BUILDING_LEVELS = JSON.parse(localStorage.getItem('manifold_building_levels') || '{"finance":1,"devops":1,"healthcare":1,"legal":1}');
+let TASK_COUNTS    = JSON.parse(localStorage.getItem('manifold_task_counts')     || '{"finance":0,"devops":0,"healthcare":0,"legal":0}');
+const LEVEL_THRESHOLDS = [0, 5, 15, 35, 75];
+
+// ============================================================
+// SOCIAL CO-OCCURRENCE
+// ============================================================
+let COOCCURRENCE = JSON.parse(localStorage.getItem('manifold_cooccurrence') || '{}');
+
+// ============================================================
+// WORLD STATE
 // ============================================================
 let zoom = 1.0;
 let OX = 0, OY = 0;
+let targetOX = 0, targetOY = 0, cameraLerping = false;
 let isDragging = false, dragStartX = 0, dragStartY = 0, dragOX = 0, dragOY = 0;
 let selectedAgent = null, selectedType = null;
-let defenceFlash = 0; // timestamp when defence flash started
-let lowHealthTimer = 0; // seconds world health has been < 0.5
+let defenceFlash = 0;
+let defencePhase = 0, defencePhaseTimer = 0, defenceActive = false;
+let defenceZone = 'finance';
+let lowHealthTimer = 0;
 let worldHealthAlert = false;
-let t = 0; // animation time
+let t = 0;
+let worldHealth = 0.9;
 
-// Resource nodes fill level per domain (0-100)
-const RESOURCES = {finance:45, devops:60, healthcare:30, legal:80, manifold:50};
-const RESOURCE_POS = {finance:[3,3], devops:[12,3], healthcare:[3,12], legal:[12,12], manifold:[8,8]};
+// Weather
+let weatherRisk = 0.4, targetWeatherRisk = 0.4, weatherTimer = 30;
+let lightningTimer = 0, lightningFlash = 0;
+const CLOUDS = [{x:0.2,y:0.1,r:70,spd:0.15},{x:0.6,y:0.3,r:60,spd:0.1},{x:0.4,y:0.6,r:80,spd:0.08}];
 
-// Task pillars: [{ti, tj, taskId, domain, progress (0-1)}]
+// Escalation
+let escalationActive = false, escalationPhase = 0, escalationTimer = 0;
+let escalationDemoTimer = 90 + Math.random() * 60;
+let defenceDemoTimer = 60 + Math.random() * 30;
+let tasksSinceEscalation = 0;
+let totalTasksDeployed = 0;
+let domainsWithTasks = new Set();
+
+// Ambient particles per zone
+const AMBIENT = [];
+['finance','devops','healthcare','legal'].forEach(zone => {
+  const z = ZONE_DEFS[zone];
+  for (let i = 0; i < 8; i++) {
+    AMBIENT.push({
+      zone,
+      x: z.minI + Math.random() * (z.maxI - z.minI),
+      y: z.minJ + Math.random() * (z.maxJ - z.minJ),
+      vy: 0.008 + Math.random() * 0.012,
+      alpha: 0.1 + Math.random() * 0.2,
+      size: 1 + Math.random(),
+    });
+  }
+});
+
+// Task pillars
 const TASK_PILLARS = [];
-
-// Governance beams: [{agent, permitted, alpha, x, y}]
+// Governance beams
 const GOV_BEAMS = [];
+// Floating texts
+const FLOATERS = [];
+// Particles
+const PARTICLES = [];
 
-// TREE positions (avoiding roads at ti=7-8 or tj=7-8)
-const TREES = [
+// Defence sensors
+const SENSORS = [[0,0],[15,0],[0,15],[15,15]];
+
+// Trees (base set)
+let TREES = [
   [1,1],[4,2],[2,5],[5,1],[1,4],
   [10,1],[14,3],[11,5],[13,1],[14,1],
   [1,10],[3,14],[5,12],[1,14],[2,11],
@@ -194,40 +297,47 @@ const TREES = [
   [4,4],[11,4],[4,11],[11,11],
 ];
 
-// Defence sensor corners
-const SENSORS = [[0,0],[15,0],[0,15],[15,15]];
-
 // ============================================================
 // AGENTS
 // ============================================================
 const AGENTS = [
-  {id:'finance-bot',  name:'Finance',     domain:'finance',    home:[2,2],   status:'active', task:'Invoice processing',   risk:0.42, _health:0.88, color:'#BA7517', phase:0.0},
-  {id:'ops-agent',    name:'Ops Agent',   domain:'devops',     home:[13,2],  status:'active', task:'Pipeline monitoring',  risk:0.38, _health:0.92, color:'#185FA5', phase:1.1},
-  {id:'health-bot',   name:'Health Bot',  domain:'healthcare', home:[2,13],  status:'busy',   task:'Triage review',        risk:0.67, _health:0.75, color:'#0F6E56', phase:2.2},
-  {id:'legal-eye',    name:'Legal Eye',   domain:'legal',      home:[13,13], status:'idle',   task:'Awaiting task',        risk:0.22, _health:0.95, color:'#534AB7', phase:3.3},
-  {id:'risk-scout',   name:'Risk Scout',  domain:'general',    home:[8,8],   status:'busy',   task:'Anomaly scan',         risk:0.81, _health:0.58, color:'#854F0B', phase:4.4},
-  {id:'trade-watch',  name:'Trade Watch', domain:'trading',    home:[11,11], status:'paused', task:'PAUSED — high risk',   risk:0.93, _health:0.32, color:'#A32D2D', phase:5.5},
+  {id:'finance-bot',  name:'Finance',     domain:'finance',    home:[2,2],   status:'active', task:'Invoice processing',  risk:0.42, _health:0.88, color:'#BA7517', phase:0.0},
+  {id:'ops-agent',    name:'Ops Agent',   domain:'devops',     home:[13,2],  status:'active', task:'Pipeline monitoring', risk:0.38, _health:0.92, color:'#185FA5', phase:1.1},
+  {id:'health-bot',   name:'Health Bot',  domain:'healthcare', home:[2,13],  status:'busy',   task:'Triage review',       risk:0.67, _health:0.75, color:'#0F6E56', phase:2.2},
+  {id:'legal-eye',    name:'Legal Eye',   domain:'legal',      home:[13,13], status:'idle',   task:'Awaiting task',       risk:0.22, _health:0.95, color:'#534AB7', phase:3.3},
+  {id:'risk-scout',   name:'Risk Scout',  domain:'general',    home:[8,8],   status:'busy',   task:'Anomaly scan',        risk:0.81, _health:0.58, color:'#854F0B', phase:4.4},
+  {id:'trade-watch',  name:'Trade Watch', domain:'trading',    home:[11,11], status:'paused', task:'PAUSED — high risk',  risk:0.93, _health:0.32, color:'#A32D2D', phase:5.5},
 ];
 
 AGENTS.forEach(a => {
-  a.tx = a.home[0]; a.tz = a.home[1]; // current float position
-  a._tx = a.home[0]; a._tz = a.home[1]; // target
-  a._ttx = null; a._ttz = null; // server-pushed target
+  a.tx = a.home[0]; a.tz = a.home[1];
+  a._tx = a.home[0]; a._tz = a.home[1];
+  a._ttx = null; a._ttz = null;
   a._govPulse = 0; a._govPermitted = true;
   a._moveTimer = 2 + Math.random() * 3;
   a._level = healthToLevel(a._health);
+  a._prevLevel = a._level;
+  a._sparkleTimer = 0;
+  a._stressFlash = 0;
 });
 
 function healthToLevel(h) {
-  if (h > 0.9) return 5;
+  if (h > 0.90) return 5;
   if (h > 0.75) return 4;
-  if (h > 0.6) return 3;
-  if (h > 0.4) return 2;
+  if (h > 0.60) return 3;
+  if (h > 0.40) return 2;
   return 1;
 }
 
+function getMood(h) {
+  if (h > 0.85) return {label:'😊 Excellent', speed:1.1,  bobAmp:1.2,  brightness:1.0, grey:0};
+  if (h > 0.60) return {label:'�� Normal',    speed:1.0,  bobAmp:1.0,  brightness:1.0, grey:0};
+  if (h > 0.40) return {label:'😔 Low',       speed:0.85, bobAmp:0.8,  brightness:0.7, grey:0};
+  return             {label:'😟 Stressed',    speed:0.70, bobAmp:0.6,  brightness:0.5, grey:0.4};
+}
+
 // ============================================================
-// CANVAS SETUP
+// CANVAS
 // ============================================================
 const canvas = document.getElementById('world');
 const ctx = canvas.getContext('2d');
@@ -237,6 +347,7 @@ function resizeCanvas() {
   canvas.height = window.innerHeight;
   OX = canvas.width  / 2;
   OY = canvas.height * 0.18;
+  targetOX = OX; targetOY = OY;
 }
 resizeCanvas();
 window.addEventListener('resize', resizeCanvas);
@@ -246,10 +357,7 @@ window.addEventListener('resize', resizeCanvas);
 // ============================================================
 function tileToScreen(ti, tj) {
   const TW = BASE_TW * zoom, TH = BASE_TH * zoom;
-  return {
-    x: OX + (ti - tj) * (TW / 2),
-    y: OY + (ti + tj) * (TH / 2),
-  };
+  return { x: OX + (ti - tj) * (TW / 2), y: OY + (ti + tj) * (TH / 2) };
 }
 
 function screenToTile(sx, sy) {
@@ -268,9 +376,7 @@ function getZone(ti, tj) {
   return 'neutral';
 }
 
-function isRoad(ti, tj) {
-  return (ti === 7 || ti === 8 || tj === 7 || tj === 8);
-}
+function isRoad(ti, tj) { return (ti === 7 || ti === 8 || tj === 7 || tj === 8); }
 
 // ============================================================
 // DRAWING HELPERS
@@ -288,7 +394,6 @@ function drawTileDiamond(ctx, cx, cy, tw, th, fill, stroke) {
 
 function drawIsoBox(ctx, cx, cy, w, h, depth, topColor, leftColor, rightColor) {
   const hw = w / 2, hd = depth / 2;
-  // top face
   ctx.beginPath();
   ctx.moveTo(cx,      cy - h);
   ctx.lineTo(cx + hw, cy - h + hd);
@@ -296,7 +401,6 @@ function drawIsoBox(ctx, cx, cy, w, h, depth, topColor, leftColor, rightColor) {
   ctx.lineTo(cx - hw, cy - h + hd);
   ctx.closePath();
   ctx.fillStyle = topColor; ctx.fill();
-  // left face
   ctx.beginPath();
   ctx.moveTo(cx - hw, cy - h + hd);
   ctx.lineTo(cx,      cy - h + depth);
@@ -304,7 +408,6 @@ function drawIsoBox(ctx, cx, cy, w, h, depth, topColor, leftColor, rightColor) {
   ctx.lineTo(cx - hw, cy + hd);
   ctx.closePath();
   ctx.fillStyle = leftColor; ctx.fill();
-  // right face
   ctx.beginPath();
   ctx.moveTo(cx + hw, cy - h + hd);
   ctx.lineTo(cx,      cy - h + depth);
@@ -328,55 +431,14 @@ function darken(hex, factor=0.6) {
   return `rgb(${r},${g},${b})`;
 }
 
-// ============================================================
-// SORTED RENDER LIST
-// ============================================================
-function buildRenderList() {
-  // Collect all objects to render, sorted by painter depth (ti+tj)
-  const items = [];
-  for (let ti = 0; ti < GRID; ti++) {
-    for (let tj = 0; tj < GRID; tj++) {
-      items.push({type:'tile', ti, tj, depth: ti + tj});
-    }
-  }
-  TREES.forEach((pos, idx) => {
-    items.push({type:'tree', ti:pos[0], tj:pos[1], idx, depth:pos[0]+pos[1]+0.1});
-  });
-  // Houses
-  const HOUSES = [
-    {ti:2,  tj:2,  zone:'finance'},
-    {ti:13, tj:2,  zone:'devops'},
-    {ti:2,  tj:13, zone:'healthcare'},
-    {ti:13, tj:13, zone:'legal'},
-  ];
-  HOUSES.forEach(h => items.push({type:'house', ...h, depth:h.ti+h.tj+0.2}));
-  // Resource nodes
-  Object.entries(RESOURCE_POS).forEach(([zone, [ti,tj]]) => {
-    items.push({type:'resource', ti, tj, zone, depth:ti+tj+0.3});
-  });
-  // Memory crystals
-  const CRYSTALS = [[4,1],[12,4],[1,12],[14,14],[8,3],[3,8]];
-  CRYSTALS.forEach((pos, idx) => {
-    items.push({type:'crystal', ti:pos[0], tj:pos[1], idx, depth:pos[0]+pos[1]+0.15});
-  });
-  // Defence sensors
-  SENSORS.forEach((pos, idx) => {
-    items.push({type:'sensor', ti:pos[0], tj:pos[1], idx, depth:pos[0]+pos[1]+0.2});
-  });
-  // MANIFOLD tower
-  items.push({type:'tower', ti:7, tj:7, depth:14.5});
-  // Task pillars
-  TASK_PILLARS.forEach(p => items.push({type:'pillar', ...p, depth:p.ti+p.tj+0.4}));
-  // Agents
-  AGENTS.forEach(a => {
-    items.push({type:'agent', agent:a, depth:a.tx+a.tz+0.5});
-  });
-  items.sort((a,b) => a.depth - b.depth);
-  return items;
+function lerpColor(hex1, hex2, f) {
+  const r1=parseInt(hex1.slice(1,3),16), g1=parseInt(hex1.slice(3,5),16), b1=parseInt(hex1.slice(5,7),16);
+  const r2=parseInt(hex2.slice(1,3),16), g2=parseInt(hex2.slice(3,5),16), b2=parseInt(hex2.slice(5,7),16);
+  return `rgb(${Math.round(r1+(r2-r1)*f)},${Math.round(g1+(g2-g1)*f)},${Math.round(b1+(b2-b1)*f)})`;
 }
 
 // ============================================================
-// RENDER FUNCTIONS
+// RENDER: TILES
 // ============================================================
 function drawTile(ti, tj) {
   const {x, y} = tileToScreen(ti, tj);
@@ -385,21 +447,78 @@ function drawTile(ti, tj) {
   let fill = ZONE_DEFS[zone]?.tile || '#0f0f0f';
   if (isRoad(ti, tj)) fill = '#111111';
   const accent = ZONE_DEFS[zone]?.accent;
+  // Zone border glow based on building level
   let strokeColor = null;
-  if (!isRoad(ti,tj) && accent) strokeColor = hexToRgb(accent, 0.1);
+  if (!isRoad(ti,tj) && accent) {
+    const lvl = BUILDING_LEVELS[zone] || 1;
+    strokeColor = hexToRgb(accent, lvl >= 2 ? 0.18 : 0.08);
+  }
   drawTileDiamond(ctx, x, y, TW, TH, fill, strokeColor);
 }
 
+// ============================================================
+// RENDER: WEATHER
+// ============================================================
+function drawWeather() {
+  if (weatherRisk < 0.35) return;
+  ctx.save();
+  if (weatherRisk >= 0.35 && weatherRisk < 0.60) {
+    // Amber haze
+    const oz = ZONE_DEFS.finance;
+    const {x, y} = tileToScreen(oz.minI, oz.minJ);
+    const drift = Math.sin(t * 0.3) * 5;
+    ctx.fillStyle = 'rgba(186,117,23,0.05)';
+    for (let ti = 0; ti < GRID; ti++) {
+      for (let tj = 0; tj < GRID; tj++) {
+        const zone = getZone(ti, tj);
+        if (zone === 'finance' || zone === 'legal') {
+          const pos = tileToScreen(ti, tj);
+          ctx.beginPath();
+          ctx.ellipse(pos.x + drift, pos.y, 22*zoom, 12*zoom, 0, 0, Math.PI*2);
+          ctx.fill();
+        }
+      }
+    }
+  }
+  if (weatherRisk >= 0.60) {
+    // Storm clouds
+    const intensity = weatherRisk >= 0.80 ? 0.22 : 0.13;
+    CLOUDS.forEach((c, i) => {
+      const cx = canvas.width  * c.x + Math.sin(t * c.spd + i) * 40;
+      const cy = canvas.height * c.y + Math.cos(t * c.spd * 0.7 + i) * 20;
+      ctx.beginPath();
+      ctx.arc(cx, cy, c.r * zoom, 0, Math.PI*2);
+      ctx.arc(cx + c.r*0.6*zoom, cy - c.r*0.3*zoom, c.r*0.7*zoom, 0, Math.PI*2);
+      ctx.arc(cx - c.r*0.5*zoom, cy - c.r*0.2*zoom, c.r*0.6*zoom, 0, Math.PI*2);
+      ctx.fillStyle = `rgba(20,10,40,${intensity})`;
+      ctx.fill();
+    });
+    // Lightning
+    if (weatherRisk >= 0.80 && lightningFlash > 0) {
+      const lx = canvas.width * 0.3 + Math.random() * canvas.width * 0.4;
+      ctx.beginPath();
+      ctx.moveTo(lx, 0);
+      ctx.lineTo(lx + 20*zoom, canvas.height * 0.3);
+      ctx.lineTo(lx - 10*zoom, canvas.height * 0.6);
+      ctx.strokeStyle = 'rgba(200,200,255,0.5)';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+      lightningFlash--;
+    }
+  }
+  ctx.restore();
+}
+
+// ============================================================
+// RENDER: TREES
+// ============================================================
 function drawTree(ti, tj, idx) {
   const {x, y} = tileToScreen(ti, tj);
   const zone = getZone(ti, tj);
   const accent = ZONE_DEFS[zone]?.accent || '#4a7a4a';
   const sway = Math.sin(t * 0.8 + idx * 1.3) * 2 * zoom;
-  const TH = BASE_TH * zoom;
-  // trunk
   ctx.fillStyle = '#4a3520';
   ctx.fillRect(x - 2*zoom, y - 8*zoom + sway, 4*zoom, 8*zoom);
-  // canopy diamond
   ctx.beginPath();
   ctx.moveTo(x + sway,           y - 18*zoom + sway);
   ctx.lineTo(x + 10*zoom + sway, y - 10*zoom + sway);
@@ -410,26 +529,71 @@ function drawTree(ti, tj, idx) {
   ctx.fill();
 }
 
+// ============================================================
+// RENDER: HOUSES (with building levels)
+// ============================================================
 function drawHouse(ti, tj, zone) {
   const {x, y} = tileToScreen(ti, tj);
   const z = ZONE_DEFS[zone];
   const accent = z?.accent || '#888888';
-  const w = 28*zoom, h1 = 14*zoom, h2 = 10*zoom, depth = 7*zoom;
-  // Base level
-  drawIsoBox(ctx, x, y, w, h1+h2, depth, accent, darken(accent,0.5), darken(accent,0.35));
-  // Upper level — narrower
-  drawIsoBox(ctx, x, y - h1 - depth, w*0.7, h2, depth*0.7, accent, darken(accent,0.55), darken(accent,0.4));
-  // Door
-  ctx.fillStyle = 'rgba(0,0,0,.4)';
-  ctx.fillRect(x - 4*zoom, y - h2 + depth/2, 8*zoom, h2*0.8);
+  const lvl = BUILDING_LEVELS[zone] || 1;
+  const w = (28 + (lvl >= 5 ? 5 : 0)) * zoom;
+  const h1 = 14*zoom, depth = 7*zoom;
+
+  // Level 1+: base
+  drawIsoBox(ctx, x, y, w, h1, depth, accent, darken(accent,0.5), darken(accent,0.35));
+
+  // Level 2+: second floor
+  if (lvl >= 2) {
+    const h2 = 10*zoom, d2 = 6*zoom;
+    drawIsoBox(ctx, x, y - h1 - depth/2, w*0.75, h2, d2, accent, darken(accent,0.55), darken(accent,0.4));
+    if (lvl >= 3) {
+      // Roof pyramid
+      const roofY = y - h1 - depth/2 - h2 - d2/2;
+      ctx.beginPath();
+      ctx.moveTo(x, roofY - 10*zoom);
+      ctx.lineTo(x + w*0.4, roofY);
+      ctx.lineTo(x - w*0.4, roofY);
+      ctx.closePath();
+      ctx.fillStyle = darken(accent, 0.8);
+      ctx.fill();
+    }
+    if (lvl >= 4) {
+      // Glowing windows
+      const winFlicker = 0.5 + 0.3 * Math.sin(t*3 + ti);
+      const leftFaceBase = y - h1 + depth/2;
+      for (let i = 0; i < 2; i++) {
+        ctx.fillStyle = hexToRgb(accent, winFlicker);
+        ctx.fillRect(x - w*0.38 + i*6*zoom, leftFaceBase - h1*0.5 - i*4*zoom, 4*zoom, 4*zoom);
+        ctx.fillRect(x + w*0.12 + i*4*zoom, leftFaceBase - h1*0.5 - i*4*zoom, 4*zoom, 4*zoom);
+      }
+      // Flag
+      const fsx = x, fsy = y - h1 - depth/2 - 10*zoom - 10*zoom - depth/4;
+      ctx.strokeStyle = '#888'; ctx.lineWidth = 1.5*zoom;
+      ctx.beginPath(); ctx.moveTo(fsx, fsy); ctx.lineTo(fsx, fsy - 10*zoom); ctx.stroke();
+      ctx.fillStyle = accent;
+      ctx.fillRect(fsx, fsy - 10*zoom, 8*zoom, 5*zoom);
+    }
+    if (lvl >= 5) {
+      // Satellite outpost
+      drawIsoBox(ctx, x + w*1.3, y, w*0.45, 8*zoom, 4*zoom, darken(accent, 1.2), darken(accent,0.6), darken(accent,0.45));
+      ctx.shadowBlur = 14; ctx.shadowColor = accent;
+      ctx.shadowBlur = 0;
+    }
+  }
 }
 
-function drawCrystal(ti, tj, idx) {
+// ============================================================
+// RENDER: CRYSTALS (static + memory)
+// ============================================================
+function drawCrystal(ti, tj, idx, alpha_override) {
   const {x, y} = tileToScreen(ti, tj);
   const zone = getZone(ti, tj);
   const accent = ZONE_DEFS[zone]?.accent || '#7F77DD';
-  const pulse = 0.4 + 0.4 * Math.sin(t * 1.5 + idx);
+  const pulse = (alpha_override !== undefined) ? alpha_override : (0.4 + 0.4 * Math.sin(t * 1.5 + idx));
   const sz = 8 * zoom;
+  ctx.save();
+  ctx.shadowBlur = 6 * zoom; ctx.shadowColor = accent;
   ctx.beginPath();
   ctx.moveTo(x,      y - sz*1.5);
   ctx.lineTo(x + sz, y);
@@ -438,19 +602,45 @@ function drawCrystal(ti, tj, idx) {
   ctx.closePath();
   ctx.fillStyle = hexToRgb(accent, pulse);
   ctx.fill();
-  ctx.strokeStyle = hexToRgb(accent, pulse + 0.2);
-  ctx.lineWidth = 0.5;
-  ctx.stroke();
+  ctx.restore();
 }
 
+function drawMemoryCrystals() {
+  const now = Date.now();
+  MEMORY_CRYSTALS.forEach((c, idx) => {
+    const {x, y} = tileToScreen(c.tx, c.tz);
+    const zone = c.domain;
+    const accent = ZONE_DEFS[zone]?.accent || '#7F77DD';
+    const ageMs = now - c.timestamp;
+    const ageH = ageMs / 3600000;
+    let alpha = ageH < 1 ? 0.9 : ageH < 24 ? 0.6 : ageH < 168 ? 0.4 : 0.2;
+    alpha += 0.12 * Math.sin(t * 1.2 + idx * 0.5);
+    const sz = 6 * zoom;
+    ctx.save();
+    ctx.shadowBlur = 8 * zoom; ctx.shadowColor = accent;
+    ctx.beginPath();
+    ctx.moveTo(x,      y - sz*1.5);
+    ctx.lineTo(x + sz, y);
+    ctx.lineTo(x,      y + sz*0.8);
+    ctx.lineTo(x - sz, y);
+    ctx.closePath();
+    ctx.fillStyle = hexToRgb(accent, Math.max(0.05, alpha));
+    ctx.fill();
+    ctx.restore();
+  });
+}
+
+// ============================================================
+// RENDER: RESOURCE NODES (domes)
+// ============================================================
 function drawResource(ti, tj, zone) {
   const {x, y} = tileToScreen(ti, tj);
   const accent = ZONE_DEFS[zone]?.accent || '#888';
-  const level = RESOURCES[zone] || 0;
-  const full = level >= 99;
+  const res = RESOURCES[zone] || {tokens:0, max:100};
+  const level = res.tokens;
+  const full = level >= 95;
   const r = 12 * zoom;
   const pulse = full ? (0.7 + 0.3 * Math.sin(t * 3)) : 0.5;
-  // dome base
   ctx.beginPath();
   ctx.ellipse(x, y, r, r * 0.5, 0, Math.PI, 0);
   ctx.closePath();
@@ -459,36 +649,43 @@ function drawResource(ti, tj, zone) {
   ctx.strokeStyle = hexToRgb(accent, 0.4);
   ctx.lineWidth = 0.5;
   ctx.stroke();
-  // fill arc
   const fillArc = Math.PI * (1 - level / 100);
   ctx.beginPath();
-  ctx.ellipse(x, y, r * 0.85, r * 0.4, 0, Math.PI, fillArc, true);
+  ctx.ellipse(x, y, r * 0.85, r * 0.42, 0, Math.PI, fillArc, true);
   ctx.fillStyle = hexToRgb(accent, pulse);
   ctx.fill();
-  // label
+  // Label
+  const label = full ? 'HARVEST' : `${Math.floor(level)}`;
   ctx.fillStyle = full ? accent : '#555';
-  ctx.font = `${Math.max(8, 9*zoom)}px monospace`;
+  ctx.font = `${Math.max(7, 8*zoom)}px monospace`;
   ctx.textAlign = 'center';
-  ctx.fillText(full ? '!' : `${Math.floor(level)}`, x, y - r * 0.6);
+  ctx.fillText(label, x, y - r * 0.7);
   ctx.textAlign = 'left';
+  // Low resource warning in HUD
+  const pct = (level / 100 * 100).toFixed(0) + '%';
+  const barEl = document.getElementById('rb-' + zone);
+  if (barEl) {
+    barEl.style.width = pct;
+    barEl.style.opacity = level < 20 ? '0.5' : '1';
+  }
 }
 
+// ============================================================
+// RENDER: DEFENCE SENSORS
+// ============================================================
 function drawSensor(ti, tj, idx) {
   const {x, y} = tileToScreen(ti, tj);
-  const isFlash = (Date.now() - defenceFlash) < 1500;
+  const isFlash = defenceActive || (Date.now() - defenceFlash) < 1500;
   const color = isFlash ? '#ff2222' : '#333';
   const alpha = isFlash ? (0.6 + 0.4 * Math.sin(t * 10)) : 0.4;
-  // base box
   ctx.fillStyle = hexToRgb(color, alpha * 0.5);
   ctx.fillRect(x - 4*zoom, y - 4*zoom, 8*zoom, 4*zoom);
-  // vertical antenna
   ctx.beginPath();
   ctx.moveTo(x, y - 4*zoom);
   ctx.lineTo(x, y - 14*zoom);
   ctx.strokeStyle = hexToRgb(color, alpha);
   ctx.lineWidth = 1.5 * zoom;
   ctx.stroke();
-  // dish diamond
   const dz = 4 * zoom;
   ctx.beginPath();
   ctx.moveTo(x,      y - 18*zoom);
@@ -498,31 +695,54 @@ function drawSensor(ti, tj, idx) {
   ctx.closePath();
   ctx.fillStyle = hexToRgb(color, alpha);
   ctx.fill();
+  // Defence beams (phase 3)
+  if (defenceActive && defencePhase >= 2) {
+    const tower = tileToScreen(7.5, 7.5);
+    const beamAlpha = 0.3 + 0.3 * Math.sin(t * 5);
+    ctx.beginPath();
+    ctx.moveTo(x, y - 14*zoom);
+    ctx.lineTo(tower.x, tower.y - 60*zoom);
+    ctx.strokeStyle = `rgba(255,80,80,${beamAlpha})`;
+    ctx.lineWidth = 1.5 * zoom;
+    ctx.setLineDash([4*zoom, 4*zoom]);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
 }
 
+// ============================================================
+// RENDER: TOWER
+// ============================================================
 function drawTower() {
   const {x, y} = tileToScreen(7.5, 7.5);
-  // Level 1 - base platform (2x2)
+  const towerRed = defenceActive && defencePhase >= 0;
+  const orbColor = towerRed ? '#ff4444' : '#EEEDFE';
+  const pulseRate = escalationActive ? 3 : 1.5;
   const w1 = 48*zoom, d1 = 12*zoom;
   drawIsoBox(ctx, x, y, w1, 10*zoom, d1, '#2a2460', '#1a1540', '#1d1845');
-  // Level 2 - main body
   const w2 = 34*zoom, d2 = 10*zoom, y2 = y - 10*zoom - d1/2;
   drawIsoBox(ctx, x, y2, w2, 30*zoom, d2, '#534AB7', darken('#534AB7',0.55), darken('#534AB7',0.4));
-  // Level 3 - upper spire
   const w3 = 20*zoom, d3 = 6*zoom, y3 = y2 - 30*zoom - d2/2;
   drawIsoBox(ctx, x, y3, w3, 20*zoom, d3, '#7F77DD', darken('#7F77DD',0.55), darken('#7F77DD',0.4));
-  // Level 4 - orb
   const orbY = y3 - 20*zoom - d3/2;
   const orbR = 8 * zoom;
-  const orbPulse = 0.7 + 0.3 * Math.sin(t * 2);
+  const orbPulse = 0.7 + 0.3 * Math.sin(t * pulseRate);
+  // Red glow during defence
+  if (towerRed) {
+    ctx.beginPath();
+    ctx.arc(x, orbY, orbR * 2, 0, Math.PI*2);
+    ctx.fillStyle = `rgba(255,50,50,${0.2 * orbPulse})`;
+    ctx.fill();
+  }
   ctx.beginPath();
   ctx.arc(x, orbY, orbR, 0, Math.PI * 2);
-  ctx.fillStyle = hexToRgb('#EEEDFE', orbPulse);
+  ctx.fillStyle = hexToRgb(orbColor, orbPulse);
   ctx.fill();
   ctx.strokeStyle = 'rgba(127,119,221,.6)';
   ctx.lineWidth = 1;
   ctx.stroke();
-  // Governance beams from orb
+
+  // Governance beams
   GOV_BEAMS.forEach(beam => {
     if (beam.alpha <= 0) return;
     const agPos = tileToScreen(beam.agent.tx, beam.agent.tz);
@@ -537,8 +757,41 @@ function drawTower() {
     ctx.stroke();
     ctx.setLineDash([]);
   });
+
+  // Escalation beam upward
+  if (escalationActive && escalationPhase >= 1) {
+    const beamAlpha = Math.min(1, (escalationTimer / 0.9)) * 0.8;
+    const trapW = 20 * zoom * escalationPhase;
+    ctx.beginPath();
+    ctx.moveTo(x - 3*zoom, orbY);
+    ctx.lineTo(x + 3*zoom, orbY);
+    ctx.lineTo(x + trapW, 0);
+    ctx.lineTo(x - trapW, 0);
+    ctx.closePath();
+    ctx.fillStyle = `rgba(175,169,236,${beamAlpha * 0.5})`;
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(x, orbY);
+    ctx.lineTo(x, 0);
+    ctx.strokeStyle = `rgba(238,237,254,${beamAlpha})`;
+    ctx.lineWidth = 2 * zoom;
+    ctx.stroke();
+  }
+
+  // Expanding glow on escalation start
+  if (escalationActive && escalationPhase === 0 && escalationTimer > 0) {
+    const r2 = (40 * zoom) * (1 - escalationTimer / 0.6);
+    ctx.beginPath();
+    ctx.arc(x, orbY, r2, 0, Math.PI*2);
+    ctx.strokeStyle = `rgba(127,119,221,${0.6 * (escalationTimer/0.6)})`;
+    ctx.lineWidth = 2;
+    ctx.stroke();
+  }
 }
 
+// ============================================================
+// RENDER: TASK PILLARS
+// ============================================================
 function drawPillar(pillar) {
   const {x, y} = tileToScreen(pillar.ti, pillar.tj);
   const zone = pillar.domain || 'neutral';
@@ -547,35 +800,77 @@ function drawPillar(pillar) {
   const w = 4 * zoom;
   ctx.fillStyle = hexToRgb(accent, 0.8 + 0.2 * Math.sin(t * 4));
   ctx.fillRect(x - w/2, y - h, w, h);
-  // glow top
   ctx.beginPath();
   ctx.arc(x, y - h, w * 0.8, 0, Math.PI * 2);
   ctx.fillStyle = hexToRgb(accent, 0.9);
   ctx.fill();
 }
 
+// ============================================================
+// RENDER: SOCIAL LINKS
+// ============================================================
+function drawSocialLinks() {
+  ctx.save();
+  for (const [key, count] of Object.entries(COOCCURRENCE)) {
+    if (count < 3) continue;
+    const [id1, id2] = key.split('__');
+    const a1 = AGENTS.find(a => a.id === id1);
+    const a2 = AGENTS.find(a => a.id === id2);
+    if (!a1 || !a2) continue;
+    const p1 = tileToScreen(a1.tx, a1.tz);
+    const p2 = tileToScreen(a2.tx, a2.tz);
+    const alpha = Math.min(0.4, count * 0.05);
+    const bothPaused = a1.status === 'paused' || a2.status === 'paused';
+    const bothSameDomain = a1.domain === a2.domain;
+    ctx.beginPath();
+    ctx.moveTo(p1.x, p1.y - 8*zoom);
+    ctx.lineTo(p2.x, p2.y - 8*zoom);
+    if (bothPaused) {
+      ctx.strokeStyle = `rgba(226,75,74,${alpha * 0.8})`;
+      ctx.setLineDash([3,6]);
+    } else {
+      ctx.strokeStyle = `rgba(127,119,221,${alpha})`;
+      ctx.setLineDash([3,6]);
+    }
+    ctx.lineWidth = 0.8;
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+  ctx.restore();
+}
+
+// ============================================================
+// RENDER: AGENTS
+// ============================================================
 function drawAgent(a) {
+  const mood = getMood(a._health);
   const {x, y} = tileToScreen(a.tx, a.tz);
-  const bob = Math.sin(t * 3 + a.phase) * 3 * zoom;
+  const bob = Math.sin(t * 3 + a.phase) * 3 * mood.bobAmp * zoom;
   const ay = y + bob;
   const isPaused = a.status === 'paused';
-  const statusColor = {
-    active: '#4ade80', busy: '#fbbf24', idle: '#9ca3af', paused: '#A32D2D'
-  }[a.status] || '#888';
-  // shadow
+
+  // Shadow
   ctx.beginPath();
   ctx.ellipse(x, y + 2*zoom, 8*zoom, 3*zoom, 0, 0, Math.PI*2);
   ctx.fillStyle = 'rgba(0,0,0,.35)';
   ctx.fill();
-  // body box
+
+  // Mood-adjusted colour
+  let drawColor = a.color;
+  if (mood.grey > 0) drawColor = lerpColor(a.color, '#666666', mood.grey);
+
+  // Body box
   const bw = 10*zoom, bh = 12*zoom, bd = 4*zoom;
-  drawIsoBox(ctx, x, ay, bw, bh, bd, a.color, darken(a.color, 0.55), darken(a.color, 0.4));
-  // head
+  drawIsoBox(ctx, x, ay, bw, bh, bd, drawColor, darken(drawColor,0.55), darken(drawColor,0.4));
+
+  // Head (drooped if low mood)
+  const headDroop = a._health < 0.6 ? 2 * zoom : 0;
   ctx.beginPath();
-  ctx.arc(x, ay - bh - bd/2 - 5*zoom, 5*zoom, 0, Math.PI*2);
-  ctx.fillStyle = a.color;
+  ctx.arc(x, ay - bh - bd/2 - 5*zoom + headDroop, 5*zoom, 0, Math.PI*2);
+  ctx.fillStyle = drawColor;
   ctx.fill();
-  // governance glow
+
+  // Governance glow
   if (a._govPulse > 0) {
     const glowColor = a._govPermitted ? '#4ade80' : '#ff2222';
     ctx.beginPath();
@@ -584,7 +879,8 @@ function drawAgent(a) {
     ctx.lineWidth = 2 * zoom;
     ctx.stroke();
   }
-  // name tag
+
+  // Name tag
   const nameY = ay - bh - bd/2 - 16*zoom;
   ctx.fillStyle = 'rgba(0,0,0,.7)';
   const tw = 5.5 * a.name.length * zoom * 0.8;
@@ -593,13 +889,15 @@ function drawAgent(a) {
   ctx.font = `${Math.max(7, 9*zoom)}px sans-serif`;
   ctx.textAlign = 'center';
   ctx.fillText(a.name, x, nameY);
-  // risk indicator dot
+
+  // Risk dot
   const riskColor = a.risk > 0.7 ? '#ff4444' : a.risk > 0.4 ? '#fbbf24' : '#4ade80';
   ctx.beginPath();
   ctx.arc(x + 8*zoom, ay - bh - bd/2 - 2*zoom, 3*zoom, 0, Math.PI*2);
   ctx.fillStyle = riskColor;
   ctx.fill();
-  // paused X
+
+  // Paused X
   if (isPaused) {
     const px = x, py2 = ay - bh - bd/2 - 20*zoom;
     ctx.strokeStyle = '#ff4444';
@@ -608,40 +906,220 @@ function drawAgent(a) {
     ctx.beginPath(); ctx.moveTo(px-s, py2-s); ctx.lineTo(px+s, py2+s); ctx.stroke();
     ctx.beginPath(); ctx.moveTo(px+s, py2-s); ctx.lineTo(px-s, py2+s); ctx.stroke();
   }
-  // level stars
+
+  // Stressed ! indicator
+  if (a._health < 0.40) {
+    ctx.fillStyle = '#ff4444';
+    ctx.font = `bold ${Math.max(8, 10*zoom)}px sans-serif`;
+    ctx.fillText('!', x - 2*zoom, ay - bh - bd/2 - 22*zoom);
+  }
+
+  // Sparkle for great mood
+  if (a._health > 0.85 && a._sparkleTimer > 0) {
+    for (let i = 0; i < 3; i++) {
+      const angle = (i / 3) * Math.PI * 2 + t;
+      const dist = 12 * zoom;
+      ctx.beginPath();
+      ctx.arc(x + Math.cos(angle)*dist, ay - bh + Math.sin(angle)*dist, 1.5*zoom, 0, Math.PI*2);
+      ctx.fillStyle = hexToRgb('#FFD700', a._sparkleTimer);
+      ctx.fill();
+    }
+  }
+
+  // Level stars
   const lvl = a._level;
-  const starColor = lvl >= 5 ? '#fbbf24' : lvl >= 4 ? '#d1d5db' : lvl >= 3 ? '#b45309' : '#888';
+  const starColor = lvl >= 5 ? '#FFD700' : lvl >= 4 ? '#C0C0C0' : lvl >= 3 ? '#CD7F32' : '#666';
   ctx.fillStyle = starColor;
   ctx.font = `${Math.max(6, 7*zoom)}px sans-serif`;
-  ctx.fillText('★'.repeat(Math.max(1, Math.min(lvl, 5))), x - (lvl * 3.5 * zoom), ay - bh - bd/2 - 28*zoom);
+  ctx.textAlign = 'center';
+  ctx.fillText('★'.repeat(Math.max(1, Math.min(lvl, 5))), x, ay - bh - bd/2 - 28*zoom);
   ctx.textAlign = 'left';
 }
 
 // ============================================================
-// MAIN RENDER LOOP
+// RENDER: FLOATERS & PARTICLES
 // ============================================================
+function drawFloaters() {
+  ctx.save();
+  FLOATERS.forEach(f => {
+    ctx.globalAlpha = f.alpha;
+    ctx.fillStyle = f.color;
+    ctx.font = f.font || `bold ${Math.max(9, 11*zoom)}px sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.fillText(f.text, f.x, f.y);
+  });
+  ctx.globalAlpha = 1;
+  ctx.textAlign = 'left';
+  ctx.restore();
+}
+
+function drawParticles() {
+  PARTICLES.forEach(p => {
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.r, 0, Math.PI*2);
+    ctx.fillStyle = hexToRgb(p.color, p.alpha);
+    ctx.fill();
+  });
+}
+
+// ============================================================
+// RENDER: AMBIENT PARTICLES
+// ============================================================
+function drawAmbient() {
+  AMBIENT.forEach(p => {
+    const {x, y} = tileToScreen(p.x, p.y);
+    const zone = getZone(Math.round(p.x), Math.round(p.y));
+    const accent = ZONE_DEFS[zone]?.accent || '#7F77DD';
+    ctx.beginPath();
+    ctx.arc(x, y, p.size * zoom, 0, Math.PI*2);
+    ctx.fillStyle = hexToRgb(accent, p.alpha);
+    ctx.fill();
+  });
+}
+
+// ============================================================
+// RENDER: DEFENCE SHOCKWAVE
+// ============================================================
+function drawDefenceShockwave() {
+  if (!defenceActive || defencePhase !== 0) return;
+  const z = ZONE_DEFS[defenceZone] || ZONE_DEFS.finance;
+  const cx = (z.minI + z.maxI) / 2, cz = (z.minJ + z.maxJ) / 2;
+  const {x, y} = tileToScreen(cx, cz);
+  const prog = 1 - (defencePhaseTimer / 0.5);
+  const r = prog * 80 * zoom;
+  const alpha = 0.6 * (1 - prog);
+  ctx.beginPath();
+  ctx.arc(x, y, r, 0, Math.PI*2);
+  ctx.strokeStyle = `rgba(226,75,74,${alpha})`;
+  ctx.lineWidth = 3 * zoom;
+  ctx.stroke();
+}
+
+// ============================================================
+// RENDER: ZONE DECORATIONS (based on level)
+// ============================================================
+function drawZoneDecorations() {
+  for (const [zone, lvl] of Object.entries(BUILDING_LEVELS)) {
+    if (lvl < 4) continue;
+    const z = ZONE_DEFS[zone];
+    const accent = z?.accent || '#888';
+    // Corner posts
+    const corners = [[z.minI,z.minJ],[z.maxI,z.minJ],[z.minI,z.maxJ],[z.maxI,z.maxJ]];
+    corners.forEach(([ti, tj]) => {
+      const {x, y} = tileToScreen(ti, tj);
+      drawIsoBox(ctx, x, y, 4*zoom, 14*zoom, 2*zoom, accent, darken(accent,0.6), darken(accent,0.45));
+    });
+    if (lvl >= 5) {
+      // Zone flag at apex tile
+      const {x, y} = tileToScreen(z.minI, z.minJ);
+      ctx.strokeStyle = '#888'; ctx.lineWidth = 1*zoom;
+      ctx.beginPath(); ctx.moveTo(x, y - 5*zoom); ctx.lineTo(x, y - 20*zoom); ctx.stroke();
+      // Waving flag
+      const waveAmp = 3 * zoom;
+      ctx.beginPath();
+      ctx.moveTo(x, y - 20*zoom);
+      for (let i = 0; i <= 8; i++) {
+        const fx = x + i * zoom;
+        const fy = y - 20*zoom + Math.sin(t * 3 + i * 0.8) * waveAmp;
+        ctx.lineTo(fx, fy);
+      }
+      ctx.lineTo(x + 8*zoom, y - 14*zoom);
+      ctx.closePath();
+      ctx.fillStyle = hexToRgb(accent, 0.8);
+      ctx.fill();
+      // First letter of zone
+      ctx.fillStyle = '#fff';
+      ctx.font = `bold ${Math.max(5, 6*zoom)}px sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.fillText(zone[0].toUpperCase(), x + 4*zoom, y - 15*zoom + Math.sin(t*3)*waveAmp);
+      ctx.textAlign = 'left';
+    }
+  }
+}
+
+// ============================================================
+// MAIN RENDER
+// ============================================================
+function buildRenderList() {
+  const items = [];
+  for (let ti = 0; ti < GRID; ti++) {
+    for (let tj = 0; tj < GRID; tj++) {
+      items.push({type:'tile', ti, tj, depth: ti + tj});
+    }
+  }
+  TREES.forEach((pos, idx) => {
+    items.push({type:'tree', ti:pos[0], tj:pos[1], idx, depth:pos[0]+pos[1]+0.1});
+  });
+  const HOUSES = [
+    {ti:2,  tj:2,  zone:'finance'},
+    {ti:13, tj:2,  zone:'devops'},
+    {ti:2,  tj:13, zone:'healthcare'},
+    {ti:13, tj:13, zone:'legal'},
+  ];
+  HOUSES.forEach(h => items.push({type:'house', ...h, depth:h.ti+h.tj+0.2}));
+  Object.entries(RESOURCE_POS).forEach(([zone, [ti,tj]]) => {
+    items.push({type:'resource', ti, tj, zone, depth:ti+tj+0.3});
+  });
+  STATIC_CRYSTALS.forEach((pos, idx) => {
+    items.push({type:'crystal', ti:pos[0], tj:pos[1], idx, depth:pos[0]+pos[1]+0.15});
+  });
+  SENSORS.forEach((pos, idx) => {
+    items.push({type:'sensor', ti:pos[0], tj:pos[1], idx, depth:pos[0]+pos[1]+0.2});
+  });
+  items.push({type:'tower', depth:14.5});
+  TASK_PILLARS.forEach(p => items.push({type:'pillar', ...p, depth:p.ti+p.tj+0.4}));
+  AGENTS.forEach(a => items.push({type:'agent', agent:a, depth:a.tx+a.tz+0.5}));
+  items.sort((a,b) => a.depth - b.depth);
+  return items;
+}
+
 function render() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
-  // Dark background
   ctx.fillStyle = '#0a0c14';
   ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  // Camera lerp
+  if (cameraLerping) {
+    OX += (targetOX - OX) * 0.05;
+    OY += (targetOY - OY) * 0.05;
+    if (Math.hypot(OX - targetOX, OY - targetOY) < 1) cameraLerping = false;
+  }
+
+  drawWeather();
 
   const items = buildRenderList();
   items.forEach(item => {
     switch (item.type) {
-      case 'tile':    drawTile(item.ti, item.tj); break;
-      case 'tree':    drawTree(item.ti, item.tj, item.idx); break;
-      case 'house':   drawHouse(item.ti, item.tj, item.zone); break;
-      case 'crystal': drawCrystal(item.ti, item.tj, item.idx); break;
-      case 'resource':drawResource(item.ti, item.tj, item.zone); break;
-      case 'sensor':  drawSensor(item.ti, item.tj, item.idx); break;
-      case 'tower':   drawTower(); break;
-      case 'pillar':  drawPillar(item); break;
-      case 'agent':   drawAgent(item.agent); break;
+      case 'tile':     drawTile(item.ti, item.tj); break;
+      case 'tree':     drawTree(item.ti, item.tj, item.idx); break;
+      case 'house':    drawHouse(item.ti, item.tj, item.zone); break;
+      case 'crystal':  drawCrystal(item.ti, item.tj, item.idx); break;
+      case 'resource': drawResource(item.ti, item.tj, item.zone); break;
+      case 'sensor':   drawSensor(item.ti, item.tj, item.idx); break;
+      case 'tower':    drawTower(); break;
+      case 'pillar':   drawPillar(item); break;
+      case 'agent':    break; // drawn after zones
     }
   });
 
-  // Draw mini-map
+  drawMemoryCrystals();
+  drawZoneDecorations();
+  drawSocialLinks();
+  // Now draw agents on top
+  items.filter(i => i.type === 'agent').forEach(i => drawAgent(i.agent));
+  drawDefenceShockwave();
+  drawAmbient();
+  drawParticles();
+  drawFloaters();
+
+  // Escalation dim overlay
+  if (escalationActive && escalationPhase >= 0) {
+    const maxAlpha = 0.50;
+    const alpha = Math.min(maxAlpha, (escalationTimer / 0.6) * maxAlpha);
+    ctx.fillStyle = `rgba(0,0,0,${alpha})`;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+  }
+
   drawMinimap();
 }
 
@@ -663,40 +1141,38 @@ function drawMinimap() {
       mc.fillRect(ti * ts, tj * ts, ts, ts);
     }
   }
-  // Tower
   mc.fillStyle = '#7F77DD';
   mc.fillRect(7*ts, 7*ts, ts*2, ts*2);
-  // Agents
   AGENTS.forEach(a => {
     mc.beginPath();
     mc.arc(a.tx * ts + ts/2, a.tz * ts + ts/2, 2, 0, Math.PI*2);
     mc.fillStyle = a.color;
     mc.fill();
   });
-  // Task pillars
   TASK_PILLARS.forEach(p => {
     mc.fillStyle = '#ffff44';
     mc.fillRect(p.ti*ts, p.tj*ts, ts, ts);
   });
-  // Viewport indicator
-  const vpTi = (OX - canvas.width/2) / (-BASE_TW * zoom) + GRID/2;
   mc.strokeStyle = 'rgba(127,119,221,.4)';
   mc.lineWidth = 0.5;
   mc.strokeRect(0, 0, 80, 80);
 }
 
 // ============================================================
-// AGENT MOVEMENT / GAME LOGIC
+// GAME LOGIC UPDATE
 // ============================================================
 function updateAgents(dt) {
   AGENTS.forEach(a => {
-    // Server-pushed position
     if (a._ttx !== null) {
       a._tx = a._ttx; a._tz = a._ttz;
       a._ttx = null; a._ttz = null;
     }
     if (a.status === 'paused') return;
-    // Movement timer
+    if (escalationActive) return; // Freeze agents during escalation
+
+    const mood = getMood(a._health);
+    const spd = mood.speed * 0.03;
+
     a._moveTimer -= dt;
     if (a._moveTimer <= 0 && a.status !== 'busy') {
       a._moveTimer = 3 + Math.random() * 4;
@@ -712,17 +1188,32 @@ function updateAgents(dt) {
         tj = minJ + Math.floor(Math.random() * (maxJ - minJ + 1));
         tries++;
       } while (isRoad(ti,tj) && tries < 10);
-      // Level gate: low level agents can't enter high-risk zones unescorted
-      const highRisk = a.risk > 0.7 && a._level < 3;
-      if (!highRisk) { a._tx = ti; a._tz = tj; }
+      if (a._level >= 3 || a.risk <= 0.7) { a._tx = ti; a._tz = tj; }
     }
-    // Smooth lerp toward target
-    const spd = 0.03;
-    a.tx += (a._tx - a.tx) * spd * (dt * 60);
-    a.tz += (a._tz - a.tz) * spd * (dt * 60);
+
+    // Throttle if domain resource empty
+    const res = RESOURCES[a.domain];
+    const throttle = (res && res.tokens <= 0) ? 0.5 : 1.0;
+    a.tx += (a._tx - a.tx) * spd * throttle * (dt * 60);
+    a.tz += (a._tz - a.tz) * spd * throttle * (dt * 60);
 
     // Gov pulse decay
     if (a._govPulse > 0) a._govPulse = Math.max(0, a._govPulse - dt * 0.6);
+
+    // Sparkle timer
+    if (a._health > 0.85) {
+      a._sparkleTimer -= dt;
+      if (a._sparkleTimer <= 0) a._sparkleTimer = 3 + Math.random() * 4;
+    }
+
+    // Level-up detection
+    const newLvl = healthToLevel(a._health);
+    if (newLvl > a._level) {
+      a._level = newLvl;
+      spawnLevelUp(a);
+    } else {
+      a._level = newLvl;
+    }
   });
 
   // Decay governance beams
@@ -739,56 +1230,336 @@ function updateAgents(dt) {
       TASK_PILLARS.splice(i, 1);
     }
   }
+}
 
-  // Resource fill
-  Object.keys(RESOURCES).forEach(zone => {
-    RESOURCES[zone] = Math.min(100, RESOURCES[zone] + dt * 2);
+function updateResources(dt) {
+  for (const [zone, res] of Object.entries(RESOURCES)) {
+    res.tokens = Math.min(res.max, res.tokens + res.rate * dt);
+  }
+}
+
+function updateAmbient(dt) {
+  AMBIENT.forEach(p => {
+    p.y -= p.vy;
+    const z = ZONE_DEFS[p.zone];
+    if (p.y < z.minJ) {
+      p.y = z.maxJ;
+      p.x = z.minI + Math.random() * (z.maxI - z.minI);
+    }
   });
+}
 
-  // World health
+function updateWeather(dt) {
+  weatherTimer -= dt;
+  if (weatherTimer <= 0) {
+    weatherTimer = 30;
+    const avgRisk = AGENTS.filter(a => a.status !== 'paused').reduce((s,a) => s+a.risk, 0) / Math.max(1, AGENTS.length);
+    targetWeatherRisk = avgRisk + (Math.sin(t * 0.05) * 0.2);
+  }
+  weatherRisk += (targetWeatherRisk - weatherRisk) * dt * 0.1;
+  // Lightning
+  if (weatherRisk >= 0.80) {
+    lightningTimer -= dt;
+    if (lightningTimer <= 0) {
+      lightningTimer = 3 + Math.random() * 3;
+      lightningFlash = 2;
+    }
+  }
+}
+
+function updateDefence(dt) {
+  if (!defenceActive) {
+    defenceDemoTimer -= dt;
+    if (defenceDemoTimer <= 0) {
+      defenceDemoTimer = 45 + Math.random() * 45;
+      startDefenceEvent(defenceZone);
+    }
+    return;
+  }
+  defencePhaseTimer -= dt;
+  if (defencePhaseTimer <= 0) {
+    defencePhase++;
+    if (defencePhase === 1) {
+      defencePhaseTimer = 1.5;
+      // Agents run home
+      AGENTS.forEach(a => {
+        if (getZone(Math.round(a.tx), Math.round(a.tz)) === defenceZone) {
+          a._tx = a.home[0]; a._tz = a.home[1];
+        }
+      });
+      // All governance beams fire simultaneously
+      AGENTS.forEach(a => {
+        GOV_BEAMS.push({agent:a, permitted:false, alpha:0.8});
+      });
+    } else if (defencePhase === 2) {
+      defencePhaseTimer = 1.5;
+      showToast(`⚠ ADVERSARIAL PROBE — ${defenceZone} zone defended`, 3000);
+      // World health drops
+      const wfEl = document.getElementById('wh-fill');
+      if (wfEl) {
+        const curW = parseFloat(wfEl.style.width || '90');
+        wfEl.style.width = Math.max(10, curW - 8) + '%';
+      }
+      // Check achievement
+      checkAchievement('defender');
+    } else if (defencePhase === 3) {
+      defencePhaseTimer = 1.5;
+      showToast('✓ Threat neutralised', 2500);
+    } else {
+      // All clear
+      defenceActive = false;
+      defencePhase = 0;
+    }
+  }
+}
+
+function updateEscalation(dt) {
+  if (!escalationActive) {
+    escalationDemoTimer -= dt;
+    if (escalationDemoTimer <= 0) {
+      escalationDemoTimer = 90 + Math.random() * 60;
+      startEscalation({sub:'Invoice #4821 — risk score 94%', ctx:'Legal review flagged an anomalous transaction requiring human oversight.'});
+    }
+    return;
+  }
+  escalationTimer += dt;
+  if (escalationPhase === 0 && escalationTimer >= 0.6) {
+    escalationPhase = 1;
+    escalationTimer = 0;
+    // Pan camera to tower
+    const tPos = tileToScreen(7.5, 7.5);
+    targetOX = OX + (canvas.width/2 - tPos.x);
+    targetOY = OY + (canvas.height/2 - tPos.y);
+    cameraLerping = true;
+  } else if (escalationPhase === 1 && escalationTimer >= 0.9) {
+    escalationPhase = 2;
+    escalationTimer = 0;
+    // Show decision card
+    document.getElementById('escalation-overlay').style.display = 'flex';
+  }
+}
+
+function updateFloaters(dt) {
+  for (let i = FLOATERS.length - 1; i >= 0; i--) {
+    FLOATERS[i].y -= 0.6;
+    FLOATERS[i].alpha -= dt * 0.8;
+    if (FLOATERS[i].alpha <= 0) FLOATERS.splice(i, 1);
+  }
+}
+
+function updateParticles(dt) {
+  for (let i = PARTICLES.length - 1; i >= 0; i--) {
+    const p = PARTICLES[i];
+    p.x += p.vx; p.y += p.vy;
+    p.alpha -= dt * 2;
+    if (p.alpha <= 0) PARTICLES.splice(i, 1);
+  }
+}
+
+// ============================================================
+// GAME EVENTS
+// ============================================================
+function startDefenceEvent(zone) {
+  defenceActive = true;
+  defencePhase = 0;
+  defencePhaseTimer = 0.5;
+  defenceZone = zone || 'finance';
+  defenceFlash = Date.now();
+  document.getElementById('alert-dot').style.display = 'block';
+  try { navigator.vibrate && navigator.vibrate([50,30,50,30,50]); } catch(e) {}
+}
+
+function startEscalation(opts) {
+  escalationActive = true;
+  escalationPhase = 0;
+  escalationTimer = 0;
+  document.getElementById('esc-sub').textContent = opts.sub || 'Unknown risk event';
+  document.getElementById('esc-ctx').textContent = opts.ctx || 'MANIFOLD requires human oversight.';
+  tasksSinceEscalation = 0;
+  try { navigator.vibrate && navigator.vibrate([100,50,100]); } catch(e) {}
+}
+
+function finishEscalation(approved) {
+  document.getElementById('escalation-overlay').style.display = 'none';
+  escalationActive = false;
+  escalationPhase = 0;
+  escalationTimer = 0;
+  const affected = AGENTS.find(a => a.status === 'busy') || AGENTS[0];
+  if (approved) {
+    affected._govPulse = 1.0; affected._govPermitted = true;
+    GOV_BEAMS.push({agent:affected, permitted:true, alpha:1.0});
+    showToast('✓ Decision recorded — task approved');
+    tasksSinceEscalation++;
+    checkAchievement('low_risk_day');
+  } else {
+    affected._govPulse = 1.0; affected._govPermitted = false;
+    GOV_BEAMS.push({agent:affected, permitted:false, alpha:1.0});
+    // Cancel a task pillar if any
+    if (TASK_PILLARS.length > 0) {
+      const p = TASK_PILLARS.pop();
+      spawnMemoryCrystal(p.ti, p.tz || p.tj, p.domain, 'Rejected: ' + (p.taskId || 'task'));
+    }
+    showToast('✗ Task rejected — MANIFOLD learning from outcome');
+  }
+  try { navigator.vibrate && navigator.vibrate(50); } catch(e) {}
+}
+
+function spawnCompletion(pillar) {
+  const {x, y} = tileToScreen(pillar.ti, pillar.tj);
+  const zone = pillar.domain || 'neutral';
+  const accent = ZONE_DEFS[zone]?.accent || '#7F77DD';
+  const dirs = [{dx:-10,dy:-8},{dx:10,dy:-8},{dx:-8,dy:8},{dx:8,dy:8}];
+  dirs.forEach(d => {
+    PARTICLES.push({x, y: y-4*zoom, vx: d.dx*zoom*0.3, vy: d.dy*zoom*0.3, r:3*zoom, color:accent, alpha:1.0});
+  });
+  // XP floater on nearest busy agent
+  const ag = AGENTS.find(a => a.status === 'busy');
+  if (ag) {
+    const ap = tileToScreen(ag.tx, ag.tz);
+    FLOATERS.push({x: ap.x, y: ap.y - 20*zoom, text:'+XP', color:'#FFD700', alpha:1.0});
+  }
+  // Completion sound
+  try {
+    const ac = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = ac.createOscillator();
+    const gain = ac.createGain();
+    osc.connect(gain); gain.connect(ac.destination);
+    osc.frequency.value = 440;
+    gain.gain.value = 0.1;
+    osc.start(); osc.stop(ac.currentTime + 0.15);
+    gain.gain.exponentialRampToValueAtTime(0.0001, ac.currentTime + 0.15);
+  } catch(e) {}
+  // Record in domain
+  const dom = pillar.domain;
+  if (dom && TASK_COUNTS[dom] !== undefined) {
+    TASK_COUNTS[dom]++;
+    checkBuildingLevel(dom);
+    saveProgress();
+  }
+  spawnMemoryCrystal(pillar.ti, pillar.tj, pillar.domain, pillar.taskId || 'task');
+  domainsWithTasks.add(pillar.domain);
+  tasksSinceEscalation++;
+  // Co-occurrence
+  const busyAgents = AGENTS.filter(a => a.status === 'busy');
+  if (busyAgents.length >= 2) {
+    const key = [busyAgents[0].id, busyAgents[1].id].sort().join('__');
+    COOCCURRENCE[key] = (COOCCURRENCE[key] || 0) + 1;
+    localStorage.setItem('manifold_cooccurrence', JSON.stringify(COOCCURRENCE));
+    if (COOCCURRENCE[key] >= 3) checkAchievement('connected');
+  }
+  checkAchievement('full_coverage');
+  checkAchievement('low_risk_day');
+  showToast('✓ Task complete!');
+  try { navigator.vibrate && navigator.vibrate(50); } catch(e) {}
+}
+
+function spawnLevelUp(agent) {
+  const {x, y} = tileToScreen(agent.tx, agent.tz);
+  for (let i = 0; i < 8; i++) {
+    const angle = (i / 8) * Math.PI * 2;
+    PARTICLES.push({
+      x, y: y - 10*zoom,
+      vx: Math.cos(angle) * 4 * zoom,
+      vy: Math.sin(angle) * 4 * zoom,
+      r: 2.5*zoom, color:'#FFD700', alpha:1.0
+    });
+  }
+  FLOATERS.push({x, y: y - 30*zoom, text:`+Level ${agent._level}`, color:'#FFD700', alpha:1.0});
+  checkAchievement('levelled_up');
+  checkAchievement('master');
+}
+
+function spawnMemoryCrystal(tx, tz, domain, label) {
+  const crystal = {
+    tx: tx + (Math.random()-0.5)*0.8,
+    tz: tz + (Math.random()-0.5)*0.8,
+    domain: domain || 'neutral',
+    label: (label || '').slice(0, 20),
+    timestamp: Date.now(),
+  };
+  MEMORY_CRYSTALS.push(crystal);
+  if (MEMORY_CRYSTALS.length > 200) MEMORY_CRYSTALS.shift();
+  localStorage.setItem('manifold_crystals', JSON.stringify(MEMORY_CRYSTALS));
+  if (MEMORY_CRYSTALS.length >= 20) checkAchievement('memory_keeper');
+}
+
+function checkBuildingLevel(domain) {
+  const count = TASK_COUNTS[domain] || 0;
+  let newLvl = 1;
+  for (let i = 0; i < LEVEL_THRESHOLDS.length; i++) {
+    if (count >= LEVEL_THRESHOLDS[i]) newLvl = i + 1;
+  }
+  newLvl = Math.min(5, newLvl);
+  if (newLvl > (BUILDING_LEVELS[domain] || 1)) {
+    BUILDING_LEVELS[domain] = newLvl;
+    showToast(`🏗 ${domain} base levelled up to ${newLvl}!`, 3000);
+    // Add trees if level 3
+    if (newLvl === 3) {
+      const z = ZONE_DEFS[domain];
+      if (z) {
+        TREES.push([z.minI + 1, z.minJ + 2]);
+        TREES.push([z.maxI - 1, z.maxJ - 2]);
+      }
+    }
+    saveProgress();
+  }
+}
+
+// ============================================================
+// ACHIEVEMENT SYSTEM
+// ============================================================
+function checkAchievement(id) {
+  if (ACHIEVEMENTS[id]?.unlocked) return;
+  let unlock = false;
+  switch(id) {
+    case 'first_task':    unlock = totalTasksDeployed >= 1; break;
+    case 'defender':      unlock = !defenceActive && defencePhase >= 3; break;
+    case 'connected':     unlock = Object.values(COOCCURRENCE).some(v => v >= 3); break;
+    case 'memory_keeper': unlock = MEMORY_CRYSTALS.length >= 20; break;
+    case 'low_risk_day':  unlock = tasksSinceEscalation >= 10; break;
+    case 'levelled_up':   unlock = AGENTS.some(a => a._level >= 3); break;
+    case 'full_coverage': unlock = domainsWithTasks.size >= 4; break;
+    case 'master':        unlock = AGENTS.every(a => a._level >= 3); break;
+  }
+  if (unlock) {
+    ACHIEVEMENTS[id] = {unlocked: true, timestamp: Date.now()};
+    localStorage.setItem('manifold_achievements', JSON.stringify(ACHIEVEMENTS));
+    const def = ACHIEVEMENT_DEFS.find(d => d.id === id);
+    if (def) showAchievementToast(def);
+  }
+}
+
+function showAchievementToast(def) {
+  const el = document.createElement('div');
+  el.style.cssText = 'position:fixed;bottom:100px;right:16px;background:#0b0d1e;border-left:3px solid #7F77DD;border-radius:8px;padding:10px 14px;max-width:240px;z-index:150;box-shadow:0 4px 20px rgba(0,0,0,.6);animation:slide-in .3s ease';
+  el.innerHTML = `<div style="font-size:20px;float:left;margin-right:10px">${def.icon}</div><div><div style="color:#AFA9EC;font-size:12px;font-weight:600">${def.name}</div><div style="color:#555;font-size:10px;margin-top:2px">${def.desc}</div></div>`;
+  document.body.appendChild(el);
+  setTimeout(() => el.style.opacity = '0', 2800);
+  setTimeout(() => el.remove(), 3200);
+}
+
+// ============================================================
+// WORLD HEALTH UPDATE
+// ============================================================
+function updateWorldHealth(dt) {
   const active = AGENTS.filter(a => a.status !== 'paused');
   const avgH = active.reduce((s,a) => s + a._health, 0) / Math.max(1, active.length);
+  worldHealth = avgH;
   const fillPct = (avgH * 100).toFixed(0) + '%';
-  const fillEl = document.getElementById('wh-fill');
-  const whColor = avgH > 0.8 ? '#4ade80' : avgH > 0.5 ? '#fbbf24' : '#ef4444';
-  fillEl.style.width = fillPct;
-  fillEl.style.background = whColor;
+  const whEl = document.getElementById('wh-fill');
+  if (whEl) {
+    whEl.style.width = fillPct;
+    whEl.style.background = avgH > 0.8 ? '#4ade80' : avgH > 0.5 ? '#fbbf24' : '#ef4444';
+  }
   if (avgH < 0.5) {
     lowHealthTimer += dt;
     if (lowHealthTimer > 10 && !worldHealthAlert) {
       worldHealthAlert = true;
       showToast('⚠ World health critical!', 4000);
-      triggerDefenceFlash();
+      startDefenceEvent(defenceZone);
     }
-  } else {
-    lowHealthTimer = 0; worldHealthAlert = false;
-  }
-
-  // HUD
+  } else { lowHealthTimer = 0; worldHealthAlert = false; }
   document.getElementById('cnt-tasks').textContent = TASK_PILLARS.length;
-}
-
-// Particle burst on task complete
-function spawnCompletion(pillar) {
-  const {x, y} = tileToScreen(pillar.ti, pillar.tj);
-  const zone = pillar.domain || 'neutral';
-  const accent = ZONE_DEFS[zone]?.accent || '#7F77DD';
-  // Quick 4-dot animation via requestAnimationFrame
-  const particles = [{dx:-10,dy:-8},{dx:10,dy:-8},{dx:-8,dy:8},{dx:8,dy:8}];
-  let age = 0;
-  function animate() {
-    if (age > 25) return;
-    age++;
-    particles.forEach(p => {
-      ctx.beginPath();
-      ctx.arc(x + p.dx*zoom*(age/10), y + p.dy*zoom*(age/10), 3*zoom, 0, Math.PI*2);
-      ctx.fillStyle = hexToRgb(accent, 1 - age/25);
-      ctx.fill();
-    });
-    requestAnimationFrame(animate);
-  }
-  animate();
-  showToast('✓ Task complete!');
 }
 
 // ============================================================
@@ -799,39 +1570,44 @@ function closePanel() {
   selectedAgent = null; selectedType = null;
 }
 
+// Crystal tooltip state
+let crystalTooltip = null, crystalTooltipTimer = 0;
+
 function handleClick(sx, sy) {
   const {ti, tj} = screenToTile(sx, sy);
   if (ti < 0 || ti >= GRID || tj < 0 || tj >= GRID) return;
 
-  // Check tower
+  // Tower
   if (ti >= 6 && ti <= 9 && tj >= 6 && tj <= 9) {
-    showTowerPanel();
-    return;
+    showTowerPanel(); return;
   }
 
-  // Check agents
+  // Agents
   for (const a of AGENTS) {
     const {x, y} = tileToScreen(a.tx, a.tz);
-    const dist = Math.hypot(sx - x, sy - (y - 6*zoom));
-    if (dist < 16 * zoom) {
-      showAgentPanel(a);
-      return;
+    if (Math.hypot(sx - x, sy - (y - 6*zoom)) < 16 * zoom) {
+      showAgentPanel(a); return;
     }
   }
 
-  // Check resource nodes
+  // Resource nodes
   for (const [zone, [nti, ntj]] of Object.entries(RESOURCE_POS)) {
     if (Math.abs(nti - ti) <= 1 && Math.abs(ntj - tj) <= 1) {
-      harvestResource(zone);
-      return;
+      harvestResource(zone); return;
     }
   }
 
-  // Check task pillars
+  // Task pillars
   for (const p of TASK_PILLARS) {
-    if (p.ti === ti && p.tj === tj) {
-      showPillarPanel(p);
-      return;
+    if (p.ti === ti && p.tj === tj) { showPillarPanel(p); return; }
+  }
+
+  // Memory crystals
+  for (const c of MEMORY_CRYSTALS) {
+    const {x, y} = tileToScreen(c.tx, c.tz);
+    if (Math.hypot(sx - x, sy - y) < 10 * zoom) {
+      const ago = timeAgo(c.timestamp);
+      showToast(`💎 ${c.label} · ${ago}`, 3000); return;
     }
   }
 
@@ -842,12 +1618,35 @@ function handleClick(sx, sy) {
   }
 }
 
+function timeAgo(ts) {
+  const s = (Date.now() - ts) / 1000;
+  if (s < 60) return 'just now';
+  if (s < 3600) return `${Math.floor(s/60)}m ago`;
+  if (s < 86400) return `${Math.floor(s/3600)}h ago`;
+  return `${Math.floor(s/86400)}d ago`;
+}
+
 function showAgentPanel(a) {
   selectedAgent = a; selectedType = 'agent';
+  const mood = getMood(a._health);
   const badgeClass = `badge-${a.status}`;
   const riskPct = (a.risk * 100).toFixed(0);
   const healthPct = (a._health * 100).toFixed(0);
   const lvlStars = '★'.repeat(a._level) + '☆'.repeat(5 - a._level);
+  // Connections
+  let connHtml = '';
+  const myConns = Object.entries(COOCCURRENCE)
+    .filter(([k, v]) => k.includes(a.id) && v >= 1)
+    .sort((x,y) => y[1] - x[1])
+    .slice(0, 3);
+  if (myConns.length > 0) {
+    connHtml = `<div class="connections-section"><div class="heading">Connections</div>` +
+      myConns.map(([k, v]) => {
+        const otherId = k.split('__').find(x => x !== a.id);
+        const other = AGENTS.find(ag => ag.id === otherId);
+        return `<div class="link-row">🤝 ${other?.name || otherId} (${v} tasks)</div>`;
+      }).join('') + `</div>`;
+  }
   document.getElementById('panel-content').innerHTML = `
     <div class="panel-title">${a.name} <span class="badge ${badgeClass}">${a.status}</span></div>
     <div class="panel-detail">Domain: ${a.domain} &nbsp;|&nbsp; Level: ${lvlStars}</div>
@@ -862,9 +1661,15 @@ function showAgentPanel(a) {
       <div class="bar-bg"><div class="bar-fill" style="width:${healthPct}%;background:#4ade80"></div></div>
       <span class="bar-val">${healthPct}%</span>
     </div>
+    <div class="bar-row">
+      <span class="bar-label">Mood</span>
+      <div class="bar-bg"><div class="bar-fill" style="width:${healthPct}%;background:#7F77DD"></div></div>
+      <span class="bar-val" style="width:80px;font-size:11px">${mood.label}</span>
+    </div>
+    ${connHtml}
     <div class="panel-btns">
       <button class="btn-sm" onclick="togglePause('${a.id}')">${a.status==='paused'?'Resume':'Pause'}</button>
-      <button class="btn-sm" onclick="sendGovBeam('${a.id}', true)">Permit</button>
+      <button class="btn-sm success" onclick="sendGovBeam('${a.id}', true)">Permit</button>
       <button class="btn-sm danger" onclick="sendGovBeam('${a.id}', false)">Block</button>
     </div>`;
   document.getElementById('panel').classList.add('open');
@@ -873,16 +1678,30 @@ function showAgentPanel(a) {
 function showTowerPanel() {
   selectedType = 'tower';
   const activeCount = AGENTS.filter(a => a.status === 'active').length;
-  const tasksCount = TASK_PILLARS.length;
+  const unlockedCount = Object.values(ACHIEVEMENTS).filter(a => a.unlocked).length;
+  const buildHtml = Object.entries(BUILDING_LEVELS).map(([z, l]) =>
+    `<div class="panel-detail">${z}: Level ${l} (${TASK_COUNTS[z] || 0} tasks)</div>`
+  ).join('');
+  const achHtml = ACHIEVEMENT_DEFS.map(def => {
+    const done = ACHIEVEMENTS[def.id]?.unlocked;
+    return `<div style="display:inline-flex;align-items:center;gap:4px;margin:3px;opacity:${done?1:.35}">
+      <span>${def.icon}</span><span style="color:#888;font-size:10px">${def.name}</span></div>`;
+  }).join('');
   document.getElementById('panel-content').innerHTML = `
     <div class="panel-title">◈ MANIFOLD Tower</div>
-    <div class="panel-detail">Active governance core — Mode 3: Active Manager</div>
+    <div class="panel-detail">Active governance core — Mode 3</div>
     <div class="bar-row" style="margin-top:10px">
       <span class="bar-label">Agents</span>
       <div class="bar-bg"><div class="bar-fill" style="width:${(activeCount/AGENTS.length*100).toFixed(0)}%;background:#7F77DD"></div></div>
       <span class="bar-val">${activeCount}/${AGENTS.length}</span>
     </div>
-    <div class="panel-detail" style="margin-top:8px">Tasks running: ${tasksCount}</div>
+    <div class="panel-detail" style="margin-top:8px">Tasks running: ${TASK_PILLARS.length}</div>
+    <div class="panel-detail" style="margin-top:4px">Achievements: ${unlockedCount}/${ACHIEVEMENT_DEFS.length}</div>
+    <div style="margin-top:8px;border-top:0.5px solid rgba(127,119,221,.15);padding-top:8px">
+      <div style="color:#555;font-size:10px;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Bases</div>
+      ${buildHtml}
+    </div>
+    <div style="margin-top:8px;border-top:0.5px solid rgba(127,119,221,.15);padding-top:8px">${achHtml}</div>
     <div class="panel-btns">
       <button class="btn-sm" onclick="window.open('/report','_blank')">Full Report</button>
       <button class="btn-sm" onclick="window.open('/digest','_blank')">Digest</button>
@@ -904,9 +1723,15 @@ function showPillarPanel(p) {
 }
 
 function harvestResource(zone) {
-  RESOURCES[zone] = 0;
-  showToast(`Harvested ${zone} resources!`);
-  // Optional: POST to /ats/signal
+  const res = RESOURCES[zone];
+  if (!res || res.tokens < 80) {
+    showToast(`${zone} pool only at ${Math.floor(res?.tokens || 0)}% — wait until 80+`);
+    return;
+  }
+  const {x, y} = tileToScreen(...RESOURCE_POS[zone]);
+  FLOATERS.push({x, y: y - 14*zoom, text:`+${Math.floor(res.tokens)}`, color: ZONE_DEFS[zone]?.accent || '#7F77DD', alpha:1.0});
+  res.tokens = 0;
+  showToast(`✓ Harvested ${zone} resources!`);
   const key = localStorage.getItem('manifold_key') || '';
   if (key) {
     fetch('/ats/signal', {
@@ -940,7 +1765,7 @@ function sendGovBeam(agentId, permitted) {
   a._govPulse = 1.0; a._govPermitted = permitted;
   GOV_BEAMS.push({agent: a, permitted, alpha: 1.0});
   if (!permitted) {
-    triggerDefenceFlash();
+    startDefenceEvent(a.domain);
     document.getElementById('alert-dot').style.display = 'block';
     setTimeout(() => document.getElementById('alert-dot').style.display = 'none', 3000);
   }
@@ -950,10 +1775,15 @@ function sendGovBeam(agentId, permitted) {
 
 function spawnTaskPillar(ti, tj, taskId, domain) {
   TASK_PILLARS.push({ti, tj, taskId, domain, progress:0});
+  totalTasksDeployed++;
+  checkAchievement('first_task');
+  domainsWithTasks.add(domain);
+  checkAchievement('full_coverage');
 }
 
-function triggerDefenceFlash() {
-  defenceFlash = Date.now();
+function saveProgress() {
+  localStorage.setItem('manifold_building_levels', JSON.stringify(BUILDING_LEVELS));
+  localStorage.setItem('manifold_task_counts', JSON.stringify(TASK_COUNTS));
 }
 
 // ============================================================
@@ -991,11 +1821,16 @@ document.getElementById('task-submit').addEventListener('click', async () => {
     spawnTaskPillar(ti, tj, plan.task_id || 'demo', domain);
     showToast(`✓ Task deployed: ${plan.total_sub_tasks || 1} sub-tasks`);
   } catch(e) {
-    // Demo mode: still spawn a pillar
     spawnTaskPillar(ti, tj, 'demo-' + Date.now(), domain);
     showToast('Demo: task pillar spawned');
   }
 });
+
+// ============================================================
+// ESCALATION BUTTONS
+// ============================================================
+document.getElementById('esc-approve').addEventListener('click', () => finishEscalation(true));
+document.getElementById('esc-reject').addEventListener('click', () => finishEscalation(false));
 
 // ============================================================
 // SETUP OVERLAY
@@ -1036,14 +1871,9 @@ function connectWS() {
     ws = new WebSocket(wsUrl);
     ws.onopen = () => showToast('⟳ Connected to MANIFOLD');
     ws.onmessage = evt => {
-      try {
-        const msg = JSON.parse(evt.data);
-        handleWSMessage(msg);
-      } catch(e) {}
+      try { handleWSMessage(JSON.parse(evt.data)); } catch(e) {}
     };
-    ws.onclose = () => {
-      wsRetryTimer = setTimeout(connectWS, 5000);
-    };
+    ws.onclose = () => { wsRetryTimer = setTimeout(connectWS, 5000); };
     ws.onerror = () => { ws.close(); };
   } catch(e) {}
 }
@@ -1053,11 +1883,8 @@ function handleWSMessage(msg) {
     msg.agents.forEach(u => {
       const ag = AGENTS.find(a => a.id === u.id);
       if (ag) {
-        ag.status = u.status;
-        ag.task   = u.task;
-        ag.risk   = u.risk;
-        ag._health = u.health;
-        ag._level = healthToLevel(u.health);
+        ag.status = u.status; ag.task = u.task; ag.risk = u.risk;
+        ag._health = u.health; ag._level = healthToLevel(u.health);
         if (u.tx !== undefined) { ag._ttx = u.tx; ag._ttz = u.tz; }
       }
     });
@@ -1066,14 +1893,18 @@ function handleWSMessage(msg) {
   if (msg.type === 'governance_event') {
     const ag = AGENTS.find(a => a.id === msg.agent_id);
     if (ag) {
-      ag._govPulse = 1.0;
-      ag._govPermitted = msg.permitted;
+      ag._govPulse = 1.0; ag._govPermitted = msg.permitted;
       GOV_BEAMS.push({agent:ag, permitted:msg.permitted, alpha:1.0});
     }
     if (!msg.permitted) {
-      triggerDefenceFlash();
+      if (msg.risk_score > 0.88 && msg.action === 'refuse') {
+        startDefenceEvent(ag?.domain || 'finance');
+      }
       document.getElementById('alert-dot').style.display = 'block';
       setTimeout(() => document.getElementById('alert-dot').style.display='none', 3000);
+    }
+    if (msg.action === 'escalate') {
+      startEscalation({sub:`${msg.agent_id} — risk ${(msg.risk_score*100).toFixed(0)}%`, ctx:'Governance requires human decision.'});
     }
     showToast(msg.permitted
       ? `✓ Permitted: ${msg.agent_id} (${(msg.risk_score*100).toFixed(0)}%)`
@@ -1081,33 +1912,27 @@ function handleWSMessage(msg) {
   }
   if (msg.type === 'task_update') {
     const p = TASK_PILLARS.find(x => x.taskId === msg.task_id);
-    if (p && msg.sub_tasks_total > 0) {
-      p.progress = msg.sub_tasks_done / msg.sub_tasks_total;
-    }
+    if (p && msg.sub_tasks_total > 0) p.progress = msg.sub_tasks_done / msg.sub_tasks_total;
   }
   if (msg.type === 'world_stats') {
-    updateWorldStats(msg);
+    document.getElementById('cnt-tasks').textContent = msg.tasks_running || TASK_PILLARS.length;
   }
 }
 
 function updateHUD() {
   const activeCount = AGENTS.filter(a => a.status === 'active').length;
-  document.getElementById('cnt-tokens').textContent = activeCount;
-}
-
-function updateWorldStats(s) {
-  document.getElementById('cnt-tasks').textContent = s.tasks_running || TASK_PILLARS.length;
+  document.getElementById('cnt-tasks').textContent = TASK_PILLARS.length;
 }
 
 // ============================================================
 // TOAST
 // ============================================================
 function showToast(msg, duration=2500) {
-  const t = document.createElement('div');
-  t.style.cssText = 'position:fixed;top:50px;left:50%;transform:translateX(-50%);background:rgba(10,12,20,.95);border:0.5px solid rgba(127,119,221,.5);color:#ccc;padding:6px 14px;border-radius:20px;font-size:11px;z-index:100;pointer-events:none;white-space:nowrap';
-  t.textContent = msg;
-  document.body.appendChild(t);
-  setTimeout(() => { if (t.parentNode) t.remove(); }, duration);
+  const el = document.createElement('div');
+  el.style.cssText = 'position:fixed;top:50px;left:50%;transform:translateX(-50%);background:rgba(10,12,20,.95);border:0.5px solid rgba(127,119,221,.5);color:#ccc;padding:6px 14px;border-radius:20px;font-size:11px;z-index:100;pointer-events:none;white-space:nowrap;max-width:90vw;overflow:hidden;text-overflow:ellipsis';
+  el.textContent = msg;
+  document.body.appendChild(el);
+  setTimeout(() => { if (el.parentNode) el.remove(); }, duration);
 }
 
 // ============================================================
@@ -1119,10 +1944,7 @@ canvas.addEventListener('mousedown', e => {
   dragOX = OX; dragOY = OY;
 });
 canvas.addEventListener('mousemove', e => {
-  if (isDragging) {
-    OX = dragOX + (e.clientX - dragStartX);
-    OY = dragOY + (e.clientY - dragStartY);
-  }
+  if (isDragging) { OX = dragOX + (e.clientX - dragStartX); OY = dragOY + (e.clientY - dragStartY); }
 });
 canvas.addEventListener('mouseup', e => {
   const moved = Math.hypot(e.clientX - dragStartX, e.clientY - dragStartY);
@@ -1134,7 +1956,6 @@ canvas.addEventListener('wheel', e => {
   const factor = e.deltaY < 0 ? 1.1 : 0.91;
   const prevZoom = zoom;
   zoom = Math.max(0.4, Math.min(3.0, zoom * factor));
-  // Zoom toward cursor
   OX = e.clientX - (e.clientX - OX) * (zoom / prevZoom);
   OY = e.clientY - (e.clientY - OY) * (zoom / prevZoom);
 }, {passive: false});
@@ -1143,30 +1964,22 @@ canvas.addEventListener('wheel', e => {
 // TOUCH CONTROLS
 // ============================================================
 let touchStart = null, pinchDist = null;
-
 canvas.addEventListener('touchstart', e => {
   e.preventDefault();
   if (e.touches.length === 1) {
     touchStart = {x: e.touches[0].clientX, y: e.touches[0].clientY, ox: OX, oy: OY};
   } else if (e.touches.length === 2) {
-    pinchDist = Math.hypot(
-      e.touches[0].clientX - e.touches[1].clientX,
-      e.touches[0].clientY - e.touches[1].clientY
-    );
+    pinchDist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
     touchStart = null;
   }
 }, {passive: false});
-
 canvas.addEventListener('touchmove', e => {
   e.preventDefault();
   if (e.touches.length === 1 && touchStart) {
     OX = touchStart.ox + (e.touches[0].clientX - touchStart.x);
     OY = touchStart.oy + (e.touches[0].clientY - touchStart.y);
   } else if (e.touches.length === 2 && pinchDist !== null) {
-    const newDist = Math.hypot(
-      e.touches[0].clientX - e.touches[1].clientX,
-      e.touches[0].clientY - e.touches[1].clientY
-    );
+    const newDist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
     const cx = (e.touches[0].clientX + e.touches[1].clientX) / 2;
     const cy = (e.touches[0].clientY + e.touches[1].clientY) / 2;
     const prevZoom = zoom;
@@ -1176,27 +1989,30 @@ canvas.addEventListener('touchmove', e => {
     pinchDist = newDist;
   }
 }, {passive: false});
-
 canvas.addEventListener('touchend', e => {
   if (e.changedTouches.length === 1 && touchStart) {
     const dx = e.changedTouches[0].clientX - touchStart.x;
     const dy = e.changedTouches[0].clientY - touchStart.y;
-    if (Math.hypot(dx, dy) < 8) {
-      handleClick(e.changedTouches[0].clientX, e.changedTouches[0].clientY);
-    }
+    if (Math.hypot(dx, dy) < 8) handleClick(e.changedTouches[0].clientX, e.changedTouches[0].clientY);
     touchStart = null;
   }
   pinchDist = null;
 }, {passive: false});
 
-// Mini-map click to jump camera
+// Mini-map click
 document.getElementById('mm').addEventListener('click', e => {
   const rect = e.target.getBoundingClientRect();
-  const px = e.clientX - rect.left, py = e.clientY - rect.top;
-  const ti = (px / 80) * GRID, tj = (py / 80) * GRID;
+  const ti = ((e.clientX - rect.left) / 80) * GRID;
+  const tj = ((e.clientY - rect.top)  / 80) * GRID;
   const {x, y} = tileToScreen(ti, tj);
-  OX += (canvas.width/2 - x);
-  OY += (canvas.height/2 - y);
+  targetOX = OX + (canvas.width/2 - x);
+  targetOY = OY + (canvas.height/2 - y);
+  cameraLerping = true;
+});
+
+// Alert dot click
+document.getElementById('alert-dot').addEventListener('click', () => {
+  showToast('⚠ High-risk event blocked — check agent panel');
 });
 
 // ============================================================
@@ -1208,6 +2024,14 @@ function loop(now) {
   lastTime = now;
   t += dt;
   updateAgents(dt);
+  updateResources(dt);
+  updateAmbient(dt);
+  updateWeather(dt);
+  updateDefence(dt);
+  updateEscalation(dt);
+  updateFloaters(dt);
+  updateParticles(dt);
+  updateWorldHealth(dt);
   render();
   requestAnimationFrame(loop);
 }

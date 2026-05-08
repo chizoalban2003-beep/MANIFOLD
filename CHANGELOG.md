@@ -1,6 +1,38 @@
 # Changelog
 
-## [1.5.6] — 2026-05-08
+## [1.5.7] — 2026-05-08
+
+### Added
+- Resource system: token pools per domain (finance/devops/healthcare/legal), fill rate,
+  HUD resource bars with amber warning at <20%, harvest mechanic (click dome when >=80%),
+  agent speed throttle when pool hits 0, floating harvest text, calibration signal to server.
+- Agent levelling: health score maps to level 1-5, coloured star indicators above head
+  (gold/silver/bronze/grey), zone access rules, level-up particle burst + floater text.
+- Agent moods: health score drives speed, bob amplitude, colour brightness, head droop,
+  stressed "!" indicator, sparkle particles at >85% health; mood bar in agent tap panel.
+- Defence events: 4-phase adversarial probe sequence (shockwave, agents flee home,
+  multi-beam governance fire, all-clear); automatic demo timer every 45-90s;
+  triggered by WS governance_event with risk_score > 0.88 + refuse action.
+- Risk weather system: ambient risk level from agent scores drives visual overlays —
+  amber haze (medium), drifting storm clouds (high), lightning flashes (critical).
+- The escalation moment: world freezes, dim overlay, MANIFOLD tower fires beam upward,
+  decision card appears (Approve / Reject), world resumes with outcome applied.
+  Demo timer every 90-150s; WebSocket escalate action also triggers it.
+- Memory landscape: completed tasks spawn persistent crystals in localStorage (max 200),
+  age-based alpha, tap to show label/timestamp tooltip, forms visual history over time.
+- Social links: co-occurrence tracking between busy agents, dotted lines drawn between
+  connected pairs (alpha scales with count), red for paused pairs, solid when collaborating,
+  connections section in agent tap panel.
+- Base growth: building levels 1-5 in localStorage keyed by domain task counts
+  (5/15/35/75 tasks), visual upgrades per level (extra floor, roof, windows, flag, outpost),
+  level-up construction animation with floater text.
+- Achievement system: 8 governance milestones checked after every significant event,
+  slide-in toast notification with icon, full achievement grid in MANIFOLD tower panel.
+- World growth decoration: corner posts at level 4+, animated waving zone flags at level 5.
+- Polish: camera lerp (smooth pan to events), ambient particles per zone (floating upward),
+  particle bursts on task completion + level-up, floater texts, haptics on mobile
+  (vibrate API for task complete / escalation / defence), Web Audio beep on task complete.
+
 
 ### Added
 - manifold-world/ — full isometric game world (CoC+Sims style)
