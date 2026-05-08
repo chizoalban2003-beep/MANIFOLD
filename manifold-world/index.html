@@ -178,6 +178,9 @@ canvas{display:block;touch-action:none}
 // ============================================================
 const GRID = 16;
 const BASE_TW = 72, BASE_TH = 36;
+const MAX_MEMORY_CRYSTALS = 200;
+const DEFENCE_DEMO_MIN = 45, DEFENCE_DEMO_MAX = 45;   // seconds between auto defence events
+const ESCALATION_DEMO_MIN = 90, ESCALATION_DEMO_RANGE = 60; // seconds between auto escalations
 const ZONE_DEFS = {
   finance:    {minI:0,  maxI:6,  minJ:0,  maxJ:6,  tile:'#1e1000', accent:'#BA7517'},
   devops:     {minI:9,  maxI:15, minJ:0,  maxJ:6,  tile:'#00111e', accent:'#185FA5'},
@@ -254,8 +257,8 @@ const CLOUDS = [{x:0.2,y:0.1,r:70,spd:0.15},{x:0.6,y:0.3,r:60,spd:0.1},{x:0.4,y:
 
 // Escalation
 let escalationActive = false, escalationPhase = 0, escalationTimer = 0;
-let escalationDemoTimer = 90 + Math.random() * 60;
-let defenceDemoTimer = 60 + Math.random() * 30;
+let escalationDemoTimer = ESCALATION_DEMO_MIN + Math.random() * ESCALATION_DEMO_RANGE;
+let defenceDemoTimer = DEFENCE_DEMO_MIN + Math.random() * DEFENCE_DEMO_MAX;
 let tasksSinceEscalation = 0;
 let totalTasksDeployed = 0;
 let domainsWithTasks = new Set();
@@ -1271,7 +1274,7 @@ function updateDefence(dt) {
   if (!defenceActive) {
     defenceDemoTimer -= dt;
     if (defenceDemoTimer <= 0) {
-      defenceDemoTimer = 45 + Math.random() * 45;
+      defenceDemoTimer = DEFENCE_DEMO_MIN + Math.random() * DEFENCE_DEMO_MAX;
       startDefenceEvent(defenceZone);
     }
     return;
@@ -1317,7 +1320,7 @@ function updateEscalation(dt) {
   if (!escalationActive) {
     escalationDemoTimer -= dt;
     if (escalationDemoTimer <= 0) {
-      escalationDemoTimer = 90 + Math.random() * 60;
+      escalationDemoTimer = ESCALATION_DEMO_MIN + Math.random() * ESCALATION_DEMO_RANGE;
       startEscalation({sub:'Invoice #4821 — risk score 94%', ctx:'Legal review flagged an anomalous transaction requiring human oversight.'});
     }
     return;
@@ -1478,9 +1481,9 @@ function spawnMemoryCrystal(tx, tz, domain, label) {
     timestamp: Date.now(),
   };
   MEMORY_CRYSTALS.push(crystal);
-  if (MEMORY_CRYSTALS.length > 200) MEMORY_CRYSTALS.shift();
+  if (MEMORY_CRYSTALS.length > MAX_MEMORY_CRYSTALS) MEMORY_CRYSTALS.shift();
   localStorage.setItem('manifold_crystals', JSON.stringify(MEMORY_CRYSTALS));
-  if (MEMORY_CRYSTALS.length >= 20) checkAchievement('memory_keeper');
+  if (MEMORY_CRYSTALS.length >= MAX_MEMORY_CRYSTALS * 0.1) checkAchievement('memory_keeper');
 }
 
 function checkBuildingLevel(domain) {
