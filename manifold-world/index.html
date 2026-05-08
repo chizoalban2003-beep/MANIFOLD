@@ -441,6 +441,21 @@ function spawnBurst(tx, tz, color, n) {
 const GRID = 16;
 const BASE_TW = 72, BASE_TH = 36;
 const MAX_MEMORY_CRYSTALS = 200;
+
+// Terrain sets (isometric coordinates)
+const WATER_TILES = new Set(['0,0','0,1','1,0','15,0','0,15','15,15','14,15','15,14']);
+const ROCK_TILES  = new Set(['4,0','0,4','11,0','15,4','0,11','4,15','11,15','15,11']);
+// Grass tuft seed (fixed 20% positions — generated once)
+const GRASS_TUFTS = (function(){
+  const s = new Set();
+  for (let ti=0;ti<16;ti++) for (let tj=0;tj<16;tj++) {
+    if ((ti*31+tj*17)%5===0) s.add(ti+','+tj);
+  }
+  return s;
+})();
+// Water ripple state per tile
+const WATER_RIPPLES = {};
+WATER_TILES.forEach(k => { WATER_RIPPLES[k] = {r:0,alpha:0,timer:3+Math.random()*2,x:Math.random(),y:Math.random()}; });
 const DEFENCE_DEMO_MIN = 45, DEFENCE_DEMO_MAX = 45;   // seconds between auto defence events
 const ESCALATION_DEMO_MIN = 90, ESCALATION_DEMO_RANGE = 60; // seconds between auto escalations
 const ZONE_DEFS = {
@@ -709,16 +724,97 @@ function drawTile(ti, tj) {
   const {x, y} = tileToScreen(ti, tj);
   const TW = BASE_TW*zoom, TH = BASE_TH*zoom;
   const zone = getZone(ti, tj);
+  const key = ti+','+tj;
+  const road = isRoad(ti, tj);
+
+  // ── WATER TILES ──────────────────────────────────────────
+  if (WATER_TILES.has(key)) {
+    const rpl = WATER_RIPPLES[key];
+    const shimmer = 0.08 * Math.sin(t*1.2 + ti*0.5);
+    const base = hexToRgb('#03080f', 1);
+    ctx.save();
+    // Slight brightness oscillation via overlay
+    drawTileDiamond(ctx, x, y, TW, TH, '#03080f', null);
+    if (shimmer > 0) {
+      ctx.globalAlpha = shimmer;
+      drawTileDiamond(ctx, x, y, TW, TH, '#0a2030', null);
+      ctx.globalAlpha = 1;
+    }
+    // Ripple circle
+    if (rpl && rpl.alpha > 0) {
+      const rx = x + (rpl.x - 0.5) * TW * 0.6;
+      const ry = y + (rpl.y - 0.5) * TH * 0.4;
+      ctx.beginPath();
+      ctx.arc(rx, ry, rpl.r * zoom, 0, Math.PI*2);
+      ctx.strokeStyle = `rgba(100,180,220,${rpl.alpha})`;
+      ctx.lineWidth = 0.8;
+      ctx.stroke();
+    }
+    ctx.restore();
+    return;
+  }
+
+  // ── ROCK TILES ───────────────────────────────────────────
+  if (ROCK_TILES.has(key)) {
+    drawTileDiamond(ctx, x, y, TW, TH, '#0a0a0c', null);
+    // Draw 2-3 small grey ovals as rock clusters
+    ctx.save();
+    const seed = ti*13+tj*7;
+    for (let r=0;r<3;r++) {
+      const rx = x + ((seed*r*37)%100-50)*zoom*0.22;
+      const ry = y + ((seed*r*19)%60-30)*zoom*0.18 - r*2*zoom;
+      const rw = (6+r*2)*zoom, rh = (3+r)*zoom;
+      ctx.beginPath(); ctx.ellipse(rx, ry, rw, rh, 0.2*r, 0, Math.PI*2);
+      ctx.fillStyle = r===0?'#363636':r===1?'#2a2a2a':'#1e1e1e';
+      ctx.fill();
+      ctx.strokeStyle='rgba(80,80,80,0.3)'; ctx.lineWidth=0.5; ctx.stroke();
+    }
+    ctx.restore();
+    return;
+  }
+
+  // ── ROAD / DIRT PATH TILES ───────────────────────────────
+  if (road) {
+    drawTileDiamond(ctx, x, y, TW, TH, '#111118', null);
+    // Foot-worn path lines
+    ctx.save();
+    ctx.globalAlpha = 0.12;
+    ctx.strokeStyle = '#1c1c28'; ctx.lineWidth = 1;
+    for (let p=0;p<3;p++) {
+      const off = (p-1) * 4 * zoom;
+      ctx.beginPath();
+      ctx.moveTo(x - TW*0.4 + off, y - TH*0.05);
+      ctx.quadraticCurveTo(x, y + TH*0.1, x + TW*0.4 + off, y - TH*0.05);
+      ctx.stroke();
+    }
+    ctx.restore();
+    return;
+  }
+
+  // ── GRASS / ZONE TILES ───────────────────────────────────
   let fill = ZONE_DEFS[zone]?.tile || '#0f0f0f';
-  if (isRoad(ti, tj)) fill = '#111111';
   const accent = ZONE_DEFS[zone]?.accent;
-  // Zone border glow based on building level
   let strokeColor = null;
-  if (!isRoad(ti,tj) && accent) {
+  if (accent) {
     const lvl = BUILDING_LEVELS[zone] || 1;
     strokeColor = hexToRgb(accent, lvl >= 2 ? 0.18 : 0.08);
   }
   drawTileDiamond(ctx, x, y, TW, TH, fill, strokeColor);
+
+  // Grass tufts (20% of zone tiles)
+  if (GRASS_TUFTS.has(key) && accent) {
+    ctx.save();
+    ctx.globalAlpha = 0.28;
+    ctx.strokeStyle = accent; ctx.lineWidth = 1;
+    for (let g=0;g<3;g++) {
+      const gx = x + ((ti*17+tj*11+g*7)%40-20)*zoom*0.3;
+      const gy = y + ((ti*11+tj*13+g*5)%24-12)*zoom*0.25;
+      ctx.beginPath();
+      ctx.moveTo(gx, gy); ctx.lineTo(gx+(g-1)*zoom, gy-3*zoom);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
 }
 
 // ============================================================
