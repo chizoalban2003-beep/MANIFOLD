@@ -1,5 +1,30 @@
 # Changelog
 
+## [1.5.9] — 2026-05-08
+
+### Added
+- manifold-world/ complete CoC-quality isometric game world
+  - 16×16 terrain with water shimmer+ripples, rock clusters, grass tufts, dirt path textures
+  - All buildings with 5 visual levels: domain houses (multi-floor, windows, flags, torches,
+    satellite structures, domain symbols), calibrator (spinning gear, exhaust pipes, energy rings),
+    MANIFOLD tower (orb, buttresses, orbiting crystals), defence buildings (antenna, radar, rings, gem)
+  - 6 fully animated agents: walk cycles, thought bubbles, progress bars, motion trails, level stars,
+    path lines, selection rings, domain-bounded wandering, task assignment, work, return-home cycle
+  - Particle system: harvest coins, completion stars, levelup sparks, breach fragments
+  - Floating numbers: +tokens, +XP, -HP on every event
+  - Ambient animation: waving flags, torch flames, water shimmer+ripples, resource drip, memory crystals,
+    orbiting sparks around MANIFOLD orb
+  - Long-press drag editor: reposition defence buildings + domain houses, live range preview,
+    valid/invalid drop indicators, ghost at original position
+  - Offline ticking: resources accumulate while app closed (capped at 4 hours)
+  - Construction scaffolding + grow animation on building upgrade
+  - WebSocket live data from MANIFOLD server (/ws) with auto-reconnect
+  - REST polling fallback (/agents endpoint every 30s)
+  - API key setup screen on first launch (or skip to demo mode)
+  - Toast notification queue (max 2 simultaneous, slide in from bottom-right)
+  - GET /world serves world from server (already present in server.py)
+  - PWA manifest meta tags for mobile install
+
 ## [1.5.8] — 2026-05-08
 
 ### Added
