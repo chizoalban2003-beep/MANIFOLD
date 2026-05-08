@@ -285,3 +285,36 @@ Live HTML fleet dashboard showing CI history, economy ledger, entropy, threat fe
 **Response:** `text/html` — rendered in browser.
 
 Open `https://your-domain/dashboard` in a browser, or use the Streamlit app (`streamlit run app.py`) for a richer UI.
+
+
+---
+
+### GET /report
+Live visual governance dashboard for stakeholders.
+
+**Auth:** Public
+
+**Query params:** none
+
+**Response:** `text/html` — auto-refreshing page with charts and tables
+
+Shows: decision counts, action distribution, domain breakdown, tool health, consolidated policy rules.
+
+---
+
+### GET /digest
+Structured governance summary for automation and alerting.
+
+**Auth:** Public
+
+**Query params:**
+- `period`: `"24h"` | `"7d"` | `"30d"` (default: `"7d"`)
+
+**Response:** JSON
+
+**Example:**
+```bash
+curl https://your-host/digest?period=7d
+```
+
+Returns: `{generated_at, period, version, summary, domains, tools, policy, governance}`
