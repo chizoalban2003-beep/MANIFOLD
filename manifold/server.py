@@ -202,7 +202,7 @@ _REFUSAL_COUNT: int = 0
 _ats_registry = ATSRegistry()
 
 # Multi-tenancy: OrgRegistry for per-org policy and RBAC
-from .orgs import OrgConfig as _OrgConfig, OrgRegistry, OrgRole as _OrgRole, has_permission as _rbac_check  # noqa: E402
+from .orgs import OrgConfig as _OrgConfig, OrgRegistry, OrgRole as _OrgRole  # noqa: E402
 
 _ORG_REGISTRY = OrgRegistry(
     orgs_file=os.environ.get("MANIFOLD_ORGS_FILE", "orgs.json")
@@ -877,11 +877,11 @@ class ManifoldHandler(BaseHTTPRequestHandler):
         # Static validation first
         violations = _SANDBOX_VALIDATOR.validate(source)
         if violations:
-            source_hash = _hashlib.md5(source.encode(), usedforsecurity=False).hexdigest()[:8]  # noqa: S324
+            source_hash = hashlib.md5(source.encode(), usedforsecurity=False).hexdigest()[:8]  # noqa: S324
             with _LOCK:
                 _VAULT.append_sandbox_violation(
                     source_hash,
-                    timestamp=_time.time(),
+                    timestamp=time.time(),
                     violations=[v.to_dict() for v in violations],
                     agent_id=agent_id,
                 )
@@ -945,7 +945,7 @@ class ManifoldHandler(BaseHTTPRequestHandler):
                 vector_id,
                 vector=float_vector,
                 metadata=metadata,
-                timestamp=_time.time(),
+                timestamp=time.time(),
             )
         _EVENT_BUS.publish(TOPIC_VECTOR_ENTRY_ADDED, {"vector_id": vector_id})
         _send_json(self, 200, {"vector_id": vector_id, "dim": len(float_vector)})
@@ -2645,7 +2645,6 @@ def _handle_get_admin(self: "ManifoldHandler") -> None:
 
 def _collect_pipeline_stats() -> dict:
     """Return a dict of live pipeline statistics.  Safe when _pipeline is None."""
-    import html as _html
     from collections import Counter as _Counter
 
     pipeline = _pipeline  # read module-level singleton without creating one
