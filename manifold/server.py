@@ -4199,6 +4199,7 @@ ManifoldHandler._handle_post_nervatura_world_init = _handle_post_nervatura_world
 # ---------------------------------------------------------------------------
 
 _PHYSICAL_MANAGER: "Any | None" = None  # PhysicalManager singleton
+_PHYSICAL_MANAGER_LOCK = threading.Lock()
 
 
 def _handle_get_physical_cameras(self: "ManifoldHandler") -> None:
@@ -4214,7 +4215,9 @@ def _handle_get_physical_cameras(self: "ManifoldHandler") -> None:
 def _handle_get_physical_status(self: "ManifoldHandler") -> None:
     """GET /physical/status — PhysicalManager status, or empty if not initialised."""
     global _PHYSICAL_MANAGER  # noqa: PLW0603
-    if _PHYSICAL_MANAGER is None:
+    with _PHYSICAL_MANAGER_LOCK:
+        pm = _PHYSICAL_MANAGER
+    if pm is None:
         _send_json(self, 200, {
             "roomba_connected": False,
             "mqtt_connected": False,
@@ -4225,7 +4228,7 @@ def _handle_get_physical_status(self: "ManifoldHandler") -> None:
         })
         return
     try:
-        status = _PHYSICAL_MANAGER.status()
+        status = pm.status()
         status["initialised"] = True
         _send_json(self, 200, status)
     except Exception as exc:  # noqa: BLE001
@@ -4235,20 +4238,23 @@ def _handle_get_physical_status(self: "ManifoldHandler") -> None:
 def _handle_post_physical_init(self: "ManifoldHandler", body: dict) -> None:
     """POST /physical/init — initialise (or re-initialise) the PhysicalManager."""
     global _PHYSICAL_MANAGER  # noqa: PLW0603
-    try:
-        # Stop existing manager if present
-        if _PHYSICAL_MANAGER is not None:
-            try:
-                _PHYSICAL_MANAGER.stop_all()
-            except Exception:  # noqa: BLE001
-                pass
+    with _PHYSICAL_MANAGER_LOCK:
+        try:
+            # Stop existing manager if present
+            if _PHYSICAL_MANAGER is not None:
+                try:
+                    _PHYSICAL_MANAGER.stop_all()
+                except Exception:  # noqa: BLE001
+                    pass
 
-        from manifold_physical.physical_manager import PhysicalManager
-        _PHYSICAL_MANAGER = PhysicalManager(config=body)
-        _PHYSICAL_MANAGER.start_all()
-        _send_json(self, 200, {"status": "ok", **_PHYSICAL_MANAGER.status()})
-    except Exception as exc:  # noqa: BLE001
-        _send_json(self, 500, {"error": str(exc)})
+            from manifold_physical.physical_manager import PhysicalManager
+            _PHYSICAL_MANAGER = PhysicalManager(config=body)
+            _PHYSICAL_MANAGER.start_all()
+            status = _PHYSICAL_MANAGER.status()
+        except Exception as exc:  # noqa: BLE001
+            _send_json(self, 500, {"error": str(exc)})
+            return
+    _send_json(self, 200, {"status": "ok", **status})
 
 
 ManifoldHandler._handle_get_physical_cameras = _handle_get_physical_cameras  # type: ignore[attr-defined]

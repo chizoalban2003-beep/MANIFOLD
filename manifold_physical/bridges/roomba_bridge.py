@@ -18,6 +18,9 @@ from manifold_physical.sensor_bridge import ObstacleEvent, SensorBridge
 
 _IROBOT_BASE_URL = "https://api.irobot.com"
 
+# Number of sensor polls between simulated bump events in mock mode
+MOCK_BUMP_INTERVAL = 7
+
 
 class RoombaBridge:
     """Connects an iRobot Roomba to MANIFOLD as a governed physical agent.
@@ -256,7 +259,7 @@ class RoombaBridge:
         return {
             "x": float(self.grid_position[0]) + (self._mock_poll_count * 0.1) % 5.0,
             "y": float(self.grid_position[1]),
-            "bump_left": self._mock_poll_count % 7 == 0,
+            "bump_left": self._mock_poll_count % MOCK_BUMP_INTERVAL == 0,
             "bump_right": False,
             "battery": 95,
             "status": "cleaning",

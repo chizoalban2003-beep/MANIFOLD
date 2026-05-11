@@ -51,6 +51,16 @@ _MIN_EVENT_INTERVAL = 0.5
 _CLEAR_TIMEOUT = 3.0
 
 
+_MODEL_SIZE_MAP: dict[str, str] = {
+    "nano": "n",
+    "small": "s",
+    "medium": "m",
+    "large": "l",
+    "xlarge": "x",
+}
+
+
+
 @dataclass
 class Detection:
     """One object detection result."""
@@ -204,7 +214,8 @@ class CameraDetector:
     def _load_model(self) -> None:
         """Load YOLOv8 model, or fall back to motion detection."""
         if _YOLO_AVAILABLE:
-            model_name = f"yolov8{self.model_size[0]}.pt"
+            size_char = _MODEL_SIZE_MAP.get(self.model_size, self.model_size[:1])
+            model_name = f"yolov8{size_char}.pt"
             try:
                 self._model = _YOLO(model_name)
                 logging.debug("CameraDetector: loaded %s", model_name)

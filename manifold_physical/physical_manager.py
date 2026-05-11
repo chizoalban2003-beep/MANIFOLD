@@ -125,7 +125,7 @@ class PhysicalManager:
 
         if self._mqtt is not None:
             self._mqtt.start()
-            self._mqtt_connected = self._mqtt._sock is not None
+            self._mqtt_connected = self._mqtt.is_connected()
             if self._mqtt_connected:
                 logging.debug("PhysicalManager: MQTT bridge started")
 

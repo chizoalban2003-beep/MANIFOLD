@@ -13,7 +13,7 @@
 
 [![CI](https://github.com/chizoalban2003-beep/MANIFOLD/actions/workflows/manifold-ci.yml/badge.svg)](https://github.com/chizoalban2003-beep/MANIFOLD/actions/workflows/manifold-ci.yml)
 [![Tests](https://img.shields.io/badge/tests-2383%2F2383-brightgreen)]()
-[![Version](https://img.shields.io/badge/version-1.7.0-blue)]()
+[![Version](https://img.shields.io/badge/version-1.8.0-blue)]()
 [![Python](https://img.shields.io/badge/python-3.12%2B-blue)]()
 [![Zero deps](https://img.shields.io/badge/external%20deps-0-success)]()
 [![License](https://img.shields.io/badge/license-MIT-lightgrey)]()

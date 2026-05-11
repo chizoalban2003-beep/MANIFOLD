@@ -121,6 +121,10 @@ class MQTTBridge:
                 pass
             self._sock = None
 
+    def is_connected(self) -> bool:
+        """Return True if the broker connection is active."""
+        return self._running and self._sock is not None
+
     @classmethod
     def HomeAssistantProfile(cls) -> list[DeviceMapping]:
         """Return DeviceMapping objects for common Home Assistant MQTT topics."""
