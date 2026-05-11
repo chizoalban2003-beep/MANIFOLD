@@ -1,5 +1,63 @@
 # Changelog
 
+## [1.9.0] — ManifoldLLM + Universal Policy Ingestion
+
+### Added
+- `POST /llm/chat` — natural language governance configuration via ManifoldLLM
+- `GET /llm/history` — last 20 LLM exchanges
+- `PolicyTranslator` — validates LLM-generated policy dicts + vocabulary mapping
+- `PolicyTranslator.hipaa_preset()` / `gdpr_preset()` / `sox_preset()` / `iso27001_preset()` — industry compliance rule presets
+- `POST /rules/preset` — apply a compliance preset in one call
+- `GovernanceReporter` — plain English governance summaries, weekly digest, escalation explainer, policy simulation
+- `GET /digest?format=text` — plain text weekly digest via GovernanceReporter
+- `DocumentIngester` — ingest PDF, Markdown, CSV, TSV, plain text, and URLs into PolicyRules
+- `POST /ingest/document` — ingest a URL or text body
+- `ImageIngester` — floor plan images → SpaceIngestion CRNA grid; whiteboard images → PolicyRules
+- `POST /ingest/image` — ingest base64-encoded image
+- `AudioIngester` — voice instructions → PolicyRules (Whisper + LLM fallback)
+- `POST /ingest/audio` — ingest base64-encoded audio
+- `UniversalIngester` — auto-detect any input format and route to correct ingester
+- `POST /ingest` — universal endpoint, accepts URL or text
+- `GET /ingest/history` — last 20 ingestion events
+- Model-agnostic: Claude, GPT-4V, Gemini, or local Ollama via MANIFOLD gateway
+
+## [1.8.0] — MANIFOLD Physical v0.1
+
+### Added
+- `manifold_physical/bridges/roomba_bridge.py` — `RoombaBridge`: iRobot Roomba
+  governed by MANIFOLD via iRobot REST cloud API. Command poller (every 20 s),
+  sensor poller (every 5 s), bump → obstacle event, `mock_mode` for hardware-free
+  testing.
+- `manifold_physical/bridges/mqtt_bridge.py` — `MQTTBridge`: any MQTT 3.1.1 IoT
+  device as a governed MANIFOLD agent. Minimal MQTT client using stdlib `socket`
+  + `struct` only (zero external deps). `DeviceMapping` dataclass,
+  `HomeAssistantProfile` classmethod for Home Assistant topics.
+- `manifold_physical/camera_detector.py` — `CameraDetector`: YOLOv8 real-time
+  obstacle detection to CRNA grid. Graceful fallback to motion-detection-only
+  mode when `ultralytics` is not installed. `CameraRegistry` singleton.
+  `RaspberryPiConfig` classmethod for Pi 5.
+- `manifold_physical/physical_manager.py` — `PhysicalManager`: unified physical
+  layer manager. `start_all()`, `stop_all()`, `status()`. Initialises from a
+  config dict.
+- `GET /physical/status` — `PhysicalManager.status()` if initialised, else empty
+  shape.
+- `POST /physical/init` — initialise `PhysicalManager` from request body config.
+- `GET /physical/cameras` — `CameraRegistry` status list.
+- `manifold_physical/config_example.json` — complete home config (Roomba + MQTT +
+  camera).
+- `manifold_physical/QUICKSTART.md` — step-by-step guide for first physical
+  deployment (Roomba, Home Assistant, webcam).
+- 16 new tests across `test_roomba_bridge.py`, `test_mqtt_bridge.py`,
+  `test_camera_detector.py`, `test_physical_integration.py`.
+- Full `mock_mode` support — all bridges testable without hardware.
+
+### Changed
+- Version bumped to 1.8.0 in `manifold/__init__.py` and `pyproject.toml`.
+- `manifold_physical/__init__.py` exports `RoombaBridgeFull`, `MQTTBridge`,
+  `DeviceMapping`, `CameraDetector`, `CameraRegistry`, `Detection`,
+  `get_camera_registry`, `PhysicalManager`.
+- `pyproject.toml`: added `manifold_physical.bridges` to `packages`.
+
 ## [1.7.0] — 2026-05-11
 
 ### Added — Real-Time Obstacle Handling + NERVATURA Engine

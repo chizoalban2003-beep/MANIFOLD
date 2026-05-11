@@ -1,0 +1,45 @@
+{
+  "_comment": "MANIFOLD Physical v0.1 — complete home configuration example",
+  "roomba": {
+    "robot_id": "roomba-01",
+    "cloud_email": "you@example.com",
+    "cloud_password": "your-irobot-password",
+    "grid_position": [0, 0, 0],
+    "manifold_url": "http://localhost:8080",
+    "manifold_api_key": "your-manifold-api-key",
+    "mock_mode": false
+  },
+  "mqtt": {
+    "broker_host": "homeassistant.local",
+    "broker_port": 1883,
+    "devices": [
+      {
+        "topic": "homeassistant/binary_sensor/+/motion/state",
+        "device_type": "motion_sensor",
+        "grid_coord": [2, 3, 0],
+        "risk_on_trigger": 0.75
+      },
+      {
+        "topic": "homeassistant/binary_sensor/+/door/state",
+        "device_type": "door_sensor",
+        "grid_coord": [0, 5, 0],
+        "risk_on_trigger": 0.60
+      },
+      {
+        "topic": "homeassistant/sensor/+/smoke/state",
+        "device_type": "smoke_detector",
+        "grid_coord": [3, 3, 0],
+        "risk_on_trigger": 0.95
+      }
+    ]
+  },
+  "cameras": [
+    {
+      "camera_index": 0,
+      "model_size": "nano",
+      "grid_origin": [0, 0, 0],
+      "grid_scale": 1.0,
+      "confidence_threshold": 0.45
+    }
+  ]
+}
