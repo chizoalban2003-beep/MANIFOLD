@@ -30,7 +30,6 @@ import json
 import re as _re
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any
 
 
 @dataclass

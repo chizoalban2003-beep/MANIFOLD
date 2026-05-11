@@ -106,7 +106,7 @@ from .cooccurrence import ToolCooccurrenceGraph
 from .predictor import PredictiveBrain
 from .consolidator import MemoryConsolidator
 from .policy_rules import PolicyRule, PolicyRuleEngine
-from .federation import FederatedGossipBridge, GlobalReputationLedger, OrgReputationSnapshot
+from .federation import FederatedGossipBridge
 
 
 # ---------------------------------------------------------------------------
@@ -120,7 +120,6 @@ _BRAIN_STATE_DIR = Path(
 
 def _save_brain_state() -> None:
     """Serialise all four brain components to disk."""
-    global _pipeline  # noqa: PLW0602
     if _pipeline is None:
         return
     try:
@@ -135,7 +134,6 @@ def _save_brain_state() -> None:
 
 def _rehydrate_brain() -> None:
     """Load persisted brain components into the active pipeline (if any)."""
-    global _pipeline  # noqa: PLW0602
     if _pipeline is None:
         return
     try:
@@ -766,12 +764,18 @@ class ManifoldHandler(BaseHTTPRequestHandler):
                 agent_id = path.split("/")[2]
                 self._handle_post_agent_command(agent_id, body)
             elif path == "/rules":
-                self._handle_post_rule(body, _caller)
+                _authed2, _caller2 = _check_auth(self, path)
+                if not _authed2:
+                    return
+                self._handle_post_rule(body, _caller2)
             elif re.match(r"^/rules/[^/]+$", path):
                 # DELETE-like fallback not needed here; handled in do_DELETE
                 _send_error(self, 405, "Use DELETE /rules/{rule_id}")
             elif path == "/federation/join":
-                self._handle_post_federation_join(body, _caller)
+                _authed2, _caller2 = _check_auth(self, path)
+                if not _authed2:
+                    return
+                self._handle_post_federation_join(body, _caller2)
             elif path == "/federation/gossip":
                 self._handle_post_federation_gossip(body)
             elif path == "/task":
