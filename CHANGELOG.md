@@ -1,5 +1,27 @@
 # Changelog
 
+## [1.6.0] — 2026-05-11
+
+### Fixed
+- Brain state now persists across restarts (CognitiveMap, ToolCooccurrenceGraph,
+  PredictiveBrain, MemoryConsolidator) — atexit save + startup rehydration
+
+### Added
+- Bidirectional agent command channel: `queue_command`/`poll_commands` in
+  `AgentRegistry`; `GET /agents/{id}/commands` (long-poll) and
+  `POST /agents/{id}/command` endpoints in server
+- `manifold/sdk.py`: `ManifoldAgentSDK` — stdlib-only drop-in SDK for agent
+  processes (register, heartbeat, command polling)
+- `manifold/policy_rules.py`: `PolicyRule` dataclass + `PolicyRuleEngine` —
+  if/then policy rules with priority ordering, save/load, and pipeline integration
+- `GET /rules`, `POST /rules`, `DELETE /rules/{id}` server endpoints
+- `GET /brain/state` endpoint exposing brain persistence status
+- Federation activation: `GET /federation/status`, `POST /federation/join`,
+  `POST /federation/gossip` endpoints; background org sync thread every 300s
+- `tests/test_brain_persistence.py` — 10 persistence round-trip tests
+- `tests/test_command_channel.py` — 8 command channel tests
+- `tests/test_policy_rules.py` — 10 policy rule engine tests
+
 ## [1.5.9] — 2026-05-08
 
 ### Added

@@ -28,6 +28,7 @@ class AgentRecord:
     task_count: int = 0
     error_count: int = 0
     notes: str = ""
+    _command_queue: list = field(default_factory=list)
 
     def is_stale(self, timeout_seconds: int = 120) -> bool:
         return time.time() - self.last_heartbeat > timeout_seconds
@@ -166,3 +167,47 @@ class AgentRegistry:
                 sum(a.health_score() for a in agents) / max(len(agents), 1), 4
             ),
         }
+
+    def queue_command(
+        self,
+        agent_id: str,
+        command: str,
+        payload: dict | None = None,
+    ) -> str | None:
+        """Queue a command for an agent. Returns command_id or None if not found.
+
+        command: 'pause' | 'resume' | 'redirect' | 'update_policy' | 'message'
+        payload: command-specific data dict.
+        """
+        import uuid
+        with self._lock:
+            rec = self._agents.get(agent_id)
+            if rec is None:
+                return None
+            cmd = {
+                "id": str(uuid.uuid4())[:8],
+                "command": command,
+                "payload": payload or {},
+                "queued_at": time.time(),
+            }
+            rec._command_queue.append(cmd)
+            return cmd["id"]
+
+    def poll_commands(
+        self,
+        agent_id: str,
+        consume: bool = True,
+    ) -> list[dict]:
+        """Return pending commands for an agent.
+
+        If consume=True, clears the queue after returning.
+        Returns empty list if agent not found.
+        """
+        with self._lock:
+            rec = self._agents.get(agent_id)
+            if rec is None:
+                return []
+            cmds = list(rec._command_queue)
+            if consume:
+                rec._command_queue.clear()
+            return cmds

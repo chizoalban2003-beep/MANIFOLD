@@ -105,6 +105,8 @@ from .cognitive_map import CognitiveMap
 from .cooccurrence import ToolCooccurrenceGraph
 from .predictor import PredictiveBrain
 from .consolidator import MemoryConsolidator
+from .policy_rules import PolicyRule, PolicyRuleEngine
+from .federation import FederatedGossipBridge, GlobalReputationLedger, OrgReputationSnapshot
 
 
 # ---------------------------------------------------------------------------
@@ -155,6 +157,21 @@ def _rehydrate_brain() -> None:
 
 
 atexit.register(_save_brain_state)
+
+
+# ---------------------------------------------------------------------------
+# Policy rule engine singleton
+# ---------------------------------------------------------------------------
+
+_RULE_ENGINE = PolicyRuleEngine()
+
+
+# ---------------------------------------------------------------------------
+# Federation singletons
+# ---------------------------------------------------------------------------
+
+_GOSSIP_BRIDGE = FederatedGossipBridge()
+_FEDERATION_LEDGER = _GOSSIP_BRIDGE.ledger
 
 
 # ---------------------------------------------------------------------------
@@ -634,6 +651,22 @@ class ManifoldHandler(BaseHTTPRequestHandler):
                 self._handle_get_brain_state()
                 return
 
+            # GET /agents/{id}/commands  (long-poll for agent commands)
+            if re.match(r"^/agents/[\w-]+/commands$", path):
+                agent_id = path.split("/")[2]
+                self._handle_get_agent_commands(agent_id)
+                return
+
+            # GET /rules  (list policy rules for caller org)
+            if path == "/rules":
+                self._handle_get_rules()
+                return
+
+            # GET /federation/status  (federation health)
+            if path == "/federation/status":
+                self._handle_get_federation_status()
+                return
+
             _send_error(self, 404, f"No route for GET {self.path}")
         except Exception as exc:  # noqa: BLE001
             _send_error(self, 500, str(exc))
@@ -729,10 +762,40 @@ class ManifoldHandler(BaseHTTPRequestHandler):
             elif path.startswith("/agents/") and path.endswith("/resume"):
                 agent_id = path.split("/")[2]
                 self._handle_post_agent_resume(agent_id)
+            elif re.match(r"^/agents/[\w-]+/command$", path):
+                agent_id = path.split("/")[2]
+                self._handle_post_agent_command(agent_id, body)
+            elif path == "/rules":
+                self._handle_post_rule(body, _caller)
+            elif re.match(r"^/rules/[^/]+$", path):
+                # DELETE-like fallback not needed here; handled in do_DELETE
+                _send_error(self, 405, "Use DELETE /rules/{rule_id}")
+            elif path == "/federation/join":
+                self._handle_post_federation_join(body, _caller)
+            elif path == "/federation/gossip":
+                self._handle_post_federation_gossip(body)
             elif path == "/task":
                 self._handle_post_task(body)
             else:
                 _send_error(self, 404, f"No route for POST {self.path}")
+        except Exception as exc:  # noqa: BLE001
+            _send_error(self, 500, str(exc))
+
+    # ------------------------------------------------------------------
+    # DELETE dispatcher
+    # ------------------------------------------------------------------
+
+    def do_DELETE(self) -> None:  # noqa: N802
+        path = self.path.split("?")[0].rstrip("/")
+        try:
+            _authed, _caller = _check_auth(self, path)
+            if not _authed:
+                return
+            if re.match(r"^/rules/[^/]+$", path):
+                rule_id = path.split("/")[2]
+                self._handle_delete_rule(rule_id)
+            else:
+                _send_error(self, 404, f"No route for DELETE {self.path}")
         except Exception as exc:  # noqa: BLE001
             _send_error(self, 500, str(exc))
 
@@ -3830,8 +3893,161 @@ ManifoldHandler._handle_post_task = _handle_post_task  # type: ignore[attr-defin
 
 
 # ---------------------------------------------------------------------------
-# Public entry point
+# Command channel handlers
 # ---------------------------------------------------------------------------
+
+
+def _handle_get_agent_commands(self: "ManifoldHandler", agent_id: str) -> None:
+    """GET /agents/{id}/commands — long-poll for up to 20 seconds.
+
+    Returns immediately when commands are queued; returns empty list after
+    20 seconds with no commands.
+    """
+    deadline = time.time() + 20.0
+    while time.time() < deadline:
+        cmds = _AGENT_REGISTRY.poll_commands(agent_id, consume=True)
+        if cmds:
+            _send_json(self, 200, {"commands": cmds, "agent_id": agent_id})
+            return
+        time.sleep(0.5)
+    _send_json(self, 200, {"commands": [], "agent_id": agent_id})
+
+
+def _handle_post_agent_command(
+    self: "ManifoldHandler", agent_id: str, body: dict
+) -> None:
+    """POST /agents/{id}/command — queue a command for an agent."""
+    command = str(body.get("command", "")).strip()
+    payload = body.get("payload", {})
+    valid = {"pause", "resume", "redirect", "update_policy", "message"}
+    if command not in valid:
+        _send_error(self, 400, f"Invalid command. Must be one of: {sorted(valid)}")
+        return
+    cmd_id = _AGENT_REGISTRY.queue_command(agent_id, command, payload)
+    if cmd_id is None:
+        _send_error(self, 404, f"Agent {agent_id!r} not registered")
+        return
+    _send_json(
+        self,
+        201,
+        {
+            "command_id": cmd_id,
+            "agent_id": agent_id,
+            "command": command,
+            "status": "queued",
+        },
+    )
+
+
+ManifoldHandler._handle_get_agent_commands = _handle_get_agent_commands  # type: ignore[attr-defined]
+ManifoldHandler._handle_post_agent_command = _handle_post_agent_command  # type: ignore[attr-defined]
+
+
+# ---------------------------------------------------------------------------
+# Policy rules handlers
+# ---------------------------------------------------------------------------
+
+
+def _handle_get_rules(self: "ManifoldHandler") -> None:
+    """GET /rules — return all policy rules for the calling org."""
+    _authed, caller = _check_auth(self, "/rules")
+    if not _authed:
+        return
+    org_id = caller.org_id if caller else ""
+    rules = [r.to_dict() for r in _RULE_ENGINE.rules_for_org(org_id)]
+    _send_json(self, 200, {"rules": rules, "org_id": org_id})
+
+
+def _handle_post_rule(self: "ManifoldHandler", body: dict, caller: Any) -> None:
+    """POST /rules — create a new policy rule for the calling org."""
+    import uuid as _uuid
+    org_id = caller.org_id if caller else body.get("org_id", "")
+    name = str(body.get("name", "unnamed rule"))
+    conditions = body.get("conditions", {})
+    action = str(body.get("action", "allow"))
+    priority = int(body.get("priority", 0))
+    rule = PolicyRule(
+        rule_id=str(_uuid.uuid4()),
+        org_id=org_id,
+        name=name,
+        conditions=conditions,
+        action=action,
+        priority=priority,
+    )
+    _RULE_ENGINE.add_rule(rule)
+    _send_json(self, 201, rule.to_dict())
+
+
+def _handle_delete_rule(self: "ManifoldHandler", rule_id: str) -> None:
+    """DELETE /rules/{rule_id} — remove a policy rule."""
+    removed = _RULE_ENGINE.remove_rule(rule_id)
+    if removed:
+        _send_json(self, 200, {"rule_id": rule_id, "status": "deleted"})
+    else:
+        _send_error(self, 404, f"Rule {rule_id!r} not found")
+
+
+ManifoldHandler._handle_get_rules = _handle_get_rules  # type: ignore[attr-defined]
+ManifoldHandler._handle_post_rule = _handle_post_rule  # type: ignore[attr-defined]
+ManifoldHandler._handle_delete_rule = _handle_delete_rule  # type: ignore[attr-defined]
+
+
+# ---------------------------------------------------------------------------
+# Federation handlers
+# ---------------------------------------------------------------------------
+
+
+def _handle_get_federation_status(self: "ManifoldHandler") -> None:
+    """GET /federation/status — return federation health summary."""
+    ledger = _GOSSIP_BRIDGE.ledger
+    known = ledger.known_tools()
+    trust_entries = {t: ledger.global_rate(t) for t in known}
+    contributing_orgs = len(_GOSSIP_BRIDGE.registered_orgs())
+    _send_json(
+        self,
+        200,
+        {
+            "contributing_orgs": contributing_orgs,
+            "known_tools": len(known),
+            "trust_entries": trust_entries,
+        },
+    )
+
+
+def _handle_post_federation_join(
+    self: "ManifoldHandler", body: dict, caller: Any
+) -> None:
+    """POST /federation/join — register calling org with the gossip bridge."""
+    org_id = caller.org_id if caller else body.get("org_id", "")
+    if not org_id:
+        _send_error(self, 400, "org_id required")
+        return
+    _GOSSIP_BRIDGE.register(org_id)
+    _send_json(
+        self,
+        200,
+        {
+            "org_id": org_id,
+            "status": "joined",
+            "contributing_orgs": len(_GOSSIP_BRIDGE.registered_orgs()),
+        },
+    )
+
+
+def _handle_post_federation_gossip(self: "ManifoldHandler", body: dict) -> None:
+    """POST /federation/gossip — ingest a gossip packet."""
+    from .federation import FederatedGossipPacket
+    try:
+        packet = FederatedGossipPacket(**body)
+        _GOSSIP_BRIDGE.contribute_packet(packet)
+        _send_json(self, 200, {"status": "ingested"})
+    except Exception as exc:  # noqa: BLE001
+        _send_error(self, 400, f"Invalid gossip packet: {exc}")
+
+
+ManifoldHandler._handle_get_federation_status = _handle_get_federation_status  # type: ignore[attr-defined]
+ManifoldHandler._handle_post_federation_join = _handle_post_federation_join  # type: ignore[attr-defined]
+ManifoldHandler._handle_post_federation_gossip = _handle_post_federation_gossip  # type: ignore[attr-defined]
 
 
 def run_server(port: int = 8080, *, host: str = "0.0.0.0") -> None:
@@ -3884,6 +4100,23 @@ def run_server(port: int = 8080, *, host: str = "0.0.0.0") -> None:
 
     # Start agent monitor
     _AGENT_MONITOR.start()
+
+    # Start federation background sync thread (every 300 seconds)
+    def _federation_sync_loop() -> None:
+        while True:
+            time.sleep(300)
+            try:
+                for org in _ORG_REGISTRY.all_orgs():
+                    snapshot = _GOSSIP_BRIDGE.export_snapshot(org.org_id)
+                    if snapshot is not None:
+                        _GOSSIP_BRIDGE.contribute_snapshot(snapshot)
+            except Exception:  # noqa: BLE001
+                pass
+
+    _fed_thread = threading.Thread(
+        target=_federation_sync_loop, daemon=True, name="manifold-federation-sync"
+    )
+    _fed_thread.start()
 
     server = HTTPServer((host, port), ManifoldHandler)
     print(f"MANIFOLD server listening on {host}:{port}  (Ctrl-C to stop)")

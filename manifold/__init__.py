@@ -1,6 +1,6 @@
 """Project MANIFOLD simulation package."""
 
-__version__ = "1.5.9"
+__version__ = "1.6.0"
 
 from .simulation import (
     GenerationSummary,

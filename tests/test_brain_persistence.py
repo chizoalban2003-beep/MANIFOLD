@@ -82,21 +82,19 @@ def test_cooccurrence_load_restores_graph(tmp_path: Path) -> None:
 
 
 def _make_brain_with_log() -> PredictiveBrain:
-    from manifold.brain import ManifoldBrain, BrainTask
-    brain = PredictiveBrain(brain=ManifoldBrain())
-    task = BrainTask(prompt="test", domain="finance", stakes=0.6, uncertainty=0.4)
-    brain.predict_and_decide(task, actual_outcome=0.5)
-    brain.predict_and_decide(task)
+    brain = PredictiveBrain()
+    brain._prediction_log.append({"predicted": 0.3, "task": None, "decision": None})
+    brain._prediction_log.append({"predicted": 0.7, "task": None, "decision": None})
+    brain._prediction_errors.append(0.1)
     return brain
 
 
 def test_predictor_save_caps_at_500(tmp_path: Path) -> None:
     """PredictiveBrain.save() caps the log at 500 entries."""
-    from manifold.brain import ManifoldBrain, BrainTask
-    brain = PredictiveBrain(brain=ManifoldBrain())
-    task = BrainTask(prompt="x", domain="general", stakes=0.5, uncertainty=0.5)
-    for _ in range(600):
-        brain.predict_and_decide(task)
+    brain = PredictiveBrain()
+    # Directly populate the log to avoid 600 slow brain.decide() calls
+    for i in range(600):
+        brain._prediction_log.append({"predicted": 0.5, "task": None, "decision": None})
     out = str(tmp_path / "pred.json")
     brain.save(out)
     with open(out) as fh:
