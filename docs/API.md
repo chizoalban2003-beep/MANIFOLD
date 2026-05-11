@@ -318,3 +318,30 @@ curl https://your-host/digest?period=7d
 ```
 
 Returns: `{generated_at, period, version, summary, domains, tools, policy, governance}`
+
+
+---
+
+### GET /
+Landing page. Public. Returns HTML.
+
+---
+
+### GET /signup
+Signup form. Public. Returns HTML.
+
+---
+
+### POST /signup
+Create account. Public.
+
+**Body:** `{ "email": "...", "org_name": "...", "domain": "general" }`
+
+**Response:** HTML page showing the generated API key (shown once only).
+
+---
+
+### GET /connect
+Tool connection guide. Public. Returns HTML with integration snippets for Python, LangChain, Cursor, cURL, and environment variables.
+
+---

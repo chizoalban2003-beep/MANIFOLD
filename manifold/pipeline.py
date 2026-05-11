@@ -9,6 +9,7 @@ from manifold.cooccurrence import ToolCooccurrenceGraph
 from manifold.consolidator import MemoryConsolidator
 from manifold.brain import ManifoldBrain, BrainTask
 from manifold.gridmapper import CellVector
+from manifold.policy_rules import PolicyRuleEngine
 
 
 class ManifoldPipeline:
@@ -23,6 +24,7 @@ class ManifoldPipeline:
         self._cognitive_map = CognitiveMap()
         self._cooccurrence = ToolCooccurrenceGraph()
         self._consolidator = MemoryConsolidator()
+        self._rule_engine = PolicyRuleEngine()
 
     # ------------------------------------------------------------------
     def run(
@@ -34,6 +36,7 @@ class ManifoldPipeline:
         explicit_domain: str | None = None,
         stakes: float = 0.5,
         uncertainty: float = 0.5,
+        org_id: str = "",
     ) -> dict:
         """Execute the full 6-step pipeline and return a result dict."""
 
@@ -44,6 +47,27 @@ class ManifoldPipeline:
         domain = self._encoder_workspace.route_task(prompt, explicit_domain)
         # Override stakes with encoded risk when structured/timeseries data provided
         effective_stakes = encoded.risk if data is not None else stakes
+
+        # Step 2b: policy rule engine — short-circuit if a rule matches
+        rule_context = {
+            "domain": domain,
+            "stakes": effective_stakes,
+            "risk_score": encoded.risk,
+            "prompt": prompt,
+            "org_id": org_id,
+            "tools_used": tools_used or [],
+        }
+        rule_action = self._rule_engine.evaluate(rule_context)
+        if rule_action is not None:
+            return {
+                "action": rule_action,
+                "domain": domain,
+                "risk_score": encoded.risk,
+                "encoded": encoded,
+                "nearest_cells": [],
+                "flagged_tools": [],
+                "rule_applied": True,
+            }
 
         # Step 3: decide
         task = BrainTask(
@@ -81,6 +105,7 @@ class ManifoldPipeline:
                 for r in nearest
             ],
             "flagged_tools": flagged_tools,
+            "rule_applied": False,
         }
 
     # ------------------------------------------------------------------

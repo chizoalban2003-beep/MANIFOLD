@@ -1,0 +1,16 @@
+{
+  "41a97150eed8fbe72283e70c41dd2cf80b37aad7fdcc4e6a64726a092acd9440": {
+    "org_id": "default-admin",
+    "display_name": "Default Admin",
+    "role": "admin",
+    "api_key_hash": "41a97150eed8fbe72283e70c41dd2cf80b37aad7fdcc4e6a64726a092acd9440",
+    "domain": "general",
+    "risk_tolerance": 0.45,
+    "veto_threshold": 0.45,
+    "min_reliability": 0.7,
+    "fallback": "hitl",
+    "allowed_tools": [],
+    "created_at": 1778250161.3898365,
+    "notes": ""
+  }
+}

@@ -1,16 +1,178 @@
 # Changelog
 
+## [1.6.0] — 2026-05-11
+
+### Fixed
+- Brain state now persists across restarts (CognitiveMap, ToolCooccurrenceGraph,
+  PredictiveBrain, MemoryConsolidator) — atexit save + startup rehydration
+
+### Added
+- Bidirectional agent command channel: `queue_command`/`poll_commands` in
+  `AgentRegistry`; `GET /agents/{id}/commands` (long-poll) and
+  `POST /agents/{id}/command` endpoints in server
+- `manifold/sdk.py`: `ManifoldAgentSDK` — stdlib-only drop-in SDK for agent
+  processes (register, heartbeat, command polling)
+- `manifold/policy_rules.py`: `PolicyRule` dataclass + `PolicyRuleEngine` —
+  if/then policy rules with priority ordering, save/load, and pipeline integration
+- `GET /rules`, `POST /rules`, `DELETE /rules/{id}` server endpoints
+- `GET /brain/state` endpoint exposing brain persistence status
+- Federation activation: `GET /federation/status`, `POST /federation/join`,
+  `POST /federation/gossip` endpoints; background org sync thread every 300s
+- `tests/test_brain_persistence.py` — 10 persistence round-trip tests
+- `tests/test_command_channel.py` — 8 command channel tests
+- `tests/test_policy_rules.py` — 10 policy rule engine tests
+
+## [1.5.9] — 2026-05-08
+
+### Added
+- manifold-world/ complete CoC-quality isometric game world
+  - 16×16 terrain with water shimmer+ripples, rock clusters, grass tufts, dirt path textures
+  - All buildings with 5 visual levels: domain houses (multi-floor, windows, flags, torches,
+    satellite structures, domain symbols), calibrator (spinning gear, exhaust pipes, energy rings),
+    MANIFOLD tower (orb, buttresses, orbiting crystals), defence buildings (antenna, radar, rings, gem)
+  - 6 fully animated agents: walk cycles, thought bubbles, progress bars, motion trails, level stars,
+    path lines, selection rings, domain-bounded wandering, task assignment, work, return-home cycle
+  - Particle system: harvest coins, completion stars, levelup sparks, breach fragments
+  - Floating numbers: +tokens, +XP, -HP on every event
+  - Ambient animation: waving flags, torch flames, water shimmer+ripples, resource drip, memory crystals,
+    orbiting sparks around MANIFOLD orb
+  - Long-press drag editor: reposition defence buildings + domain houses, live range preview,
+    valid/invalid drop indicators, ghost at original position
+  - Offline ticking: resources accumulate while app closed (capped at 4 hours)
+  - Construction scaffolding + grow animation on building upgrade
+  - WebSocket live data from MANIFOLD server (/ws) with auto-reconnect
+  - REST polling fallback (/agents endpoint every 30s)
+  - API key setup screen on first launch (or skip to demo mode)
+  - Toast notification queue (max 2 simultaneous, slide in from bottom-right)
+  - GET /world serves world from server (already present in server.py)
+  - PWA manifest meta tags for mobile install
+
+## [1.5.8] — 2026-05-08
+
+### Added
+- MANIFOLD World is now functionally built like Clash of Clans.
+  Every building serves a real governance function. Economy is
+  interconnected. Time is real. Consequences are real.
+- World State Engine: persistent localStorage state (manifold_world_state)
+  for all buildings, resources, agents, upgrades. Auto-saved every 10s.
+- Tower Levels (1-5): gates agent count, zones, calibrators, heroes.
+- Real resource economy: 5 token types (finance_tokens, compute_credits,
+  compliance_tokens, audit_credits, manifold_energy), finite pools,
+  generation rates scale with building level, depletion throttles agents.
+- Calibrator (The Builder): one upgrade at a time, real countdown timers
+  shown above building, scaffolding animation while upgrading, speed-up
+  with manifold_energy.
+- Upgrade system: domain houses and tower upgradeable with costs and timers.
+  Building tap panel shows cost/time/progress and speed-up option.
+- Defence Buildings: 4 functional buildings with real detection ranges —
+  Inject Detector (injection, red), Anomaly Tower (degradation, amber),
+  Gossip Relay (poisoning, purple), Honeypot (one-use trap, green).
+- Attack system: adversarial attacks spawn at map edges, move toward tower,
+  get intercepted by defences matching their type. Breach costs 50 domain
+  tokens and drains that zone's agents.
+- Agent Training: warmup periods tracked in WS state, level-up queue,
+  hero agents (Claude, GPT-4o) with energy bars unlocked at Tower level 4.
+- Base Layout Editor: toggle edit mode to drag-and-drop defence buildings,
+  with real-time range preview and overlap highlighting.
+- Full economy loop: tasks→domain resources, defence→manifold_energy,
+  world_health→governance quality, tower_level→zone activation.
+- Economy summary panel: tap centre to see income/expense/net rates.
+- Web Audio sound effects for harvest, upgrade, attack, breach events.
+
+## [1.5.7] — 2026-05-08
+
+### Added
+- Resource system: token pools per domain (finance/devops/healthcare/legal), fill rate,
+  HUD resource bars with amber warning at <20%, harvest mechanic (click dome when >=80%),
+  agent speed throttle when pool hits 0, floating harvest text, calibration signal to server.
+- Agent levelling: health score maps to level 1-5, coloured star indicators above head
+  (gold/silver/bronze/grey), zone access rules, level-up particle burst + floater text.
+- Agent moods: health score drives speed, bob amplitude, colour brightness, head droop,
+  stressed "!" indicator, sparkle particles at >85% health; mood bar in agent tap panel.
+- Defence events: 4-phase adversarial probe sequence (shockwave, agents flee home,
+  multi-beam governance fire, all-clear); automatic demo timer every 45-90s;
+  triggered by WS governance_event with risk_score > 0.88 + refuse action.
+- Risk weather system: ambient risk level from agent scores drives visual overlays —
+  amber haze (medium), drifting storm clouds (high), lightning flashes (critical).
+- The escalation moment: world freezes, dim overlay, MANIFOLD tower fires beam upward,
+  decision card appears (Approve / Reject), world resumes with outcome applied.
+  Demo timer every 90-150s; WebSocket escalate action also triggers it.
+- Memory landscape: completed tasks spawn persistent crystals in localStorage (max 200),
+  age-based alpha, tap to show label/timestamp tooltip, forms visual history over time.
+- Social links: co-occurrence tracking between busy agents, dotted lines drawn between
+  connected pairs (alpha scales with count), red for paused pairs, solid when collaborating,
+  connections section in agent tap panel.
+- Base growth: building levels 1-5 in localStorage keyed by domain task counts
+  (5/15/35/75 tasks), visual upgrades per level (extra floor, roof, windows, flag, outpost),
+  level-up construction animation with floater text.
+- Achievement system: 8 governance milestones checked after every significant event,
+  slide-in toast notification with icon, full achievement grid in MANIFOLD tower panel.
+- World growth decoration: corner posts at level 4+, animated waving zone flags at level 5.
+- Polish: camera lerp (smooth pan to events), ambient particles per zone (floating upward),
+  particle bursts on task completion + level-up, floater texts, haptics on mobile
+  (vibrate API for task complete / escalation / defence), Web Audio beep on task complete.
+
+
+### Added
+- manifold-world/ — full isometric game world (CoC+Sims style)
+  16×16 grid with domain zones, trees, agent houses, memory crystals,
+  resource nodes, defence sensors, task pillars, the MANIFOLD tower.
+  Touch controls (pan, pinch-zoom) for mobile.
+  WebSocket live connection to MANIFOLD server.
+  Task deployment by tapping domain zones.
+  Agent levelling, resource harvesting, escalation alerts.
+  Mini-map overview. PWA manifest for mobile install.
+- GET /world serves the game world from the MANIFOLD server
+- GET /world/manifest.json serves the PWA manifest
+- GET /ws WebSocket endpoint for real-time world updates
+  Sends agent_update (every 5s), world_stats (every 30s), governance events.
+- Game mechanics: resource system, agent levels, world health bar,
+  notification system, task completion animations, governance beams.
+
+## [1.5.5] — 2026-05-08
+
+### Added
+- manifold/agent_registry.py — AgentRegistry tracking all running agents
+  Register, heartbeat, pause, resume, health scoring, stale detection.
+- manifold/monitor.py — AgentMonitor background loop
+  Proactively marks stale agents, detects unhealthy agents, logs events.
+- manifold/task_router.py — TaskRouter for arbitrary task intake
+  Decomposes complex problems into governed sub-tasks.
+  Routes each to the best available registered agent.
+  Returns an execution plan with governance decisions per sub-task.
+- server.py: 6 new endpoints —
+  GET  /agents                  list all registered agents
+  POST /agents/register         agent announces itself
+  POST /agents/{id}/heartbeat   keep-alive
+  POST /agents/{id}/pause       MANIFOLD pauses a running agent
+  POST /agents/{id}/resume      MANIFOLD resumes a paused agent
+  POST /task                    submit any problem for governed routing
+- 26 new tests. Total: 2305 passing.
+
+### What this enables
+MANIFOLD can now:
+  1. Know which agents are running at any moment
+  2. Proactively detect stale or unhealthy agents
+  3. Pause or redirect a running agent via API
+  4. Receive any complex problem, decompose it into sub-tasks,
+     govern each sub-task, and route to the best available agent
+  This is Mode 3: MANIFOLD as active manager, not just traffic light.
+
 ## [1.5.4] — 2026-05-07
 ### Added
-- GET /report — self-reporting visual dashboard (Chart.js, auto-refreshes every 30s)
-  Shows: decision counts, escalation/refusal rates, action distribution chart,
-  domain breakdown chart, tool health table, consolidated rules panel.
-  No Streamlit. No dependencies. Opens in any browser.
-- GET /digest?period=7d — structured JSON governance summary.
-  Suitable for email alerts, Slack webhooks, Grafana, or any automation.
-  Fields: summary stats, domain breakdown, tool health, policy state,
-  top risky decisions (anonymised), calibration signal.
-- 8 new tests. Total: 2299 passing.
+- GET / — landing page for consumer onboarding
+- GET /signup + POST /signup — self-service account creation with API key delivery
+- GET /connect — tool connection guide with integration snippets
+  (Python/OpenAI SDK, LangChain, Cursor/VS Code, cURL, environment variables)
+- GET /report — live visual governance dashboard (Chart.js, auto-refresh 30s)
+  Action distribution chart, domain breakdown, tool health table,
+  consolidated rules panel. No Streamlit. Works in any browser.
+- GET /digest?period=7d — structured JSON governance summary for
+  automation, Slack alerts, email digests, Grafana, PagerDuty
+- vscode-manifold/ — VS Code extension
+  Commands: "Check selected code for risk", "Open governance dashboard"
+  Auto-check on save (optional). Works with Cursor, Copilot, any VS Code AI.
+- 8 new tests (test_report_digest.py). Total: 2299 passing.
 
 ## [1.5.3] — 2026-05-07
 

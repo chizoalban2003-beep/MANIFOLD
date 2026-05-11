@@ -1,6 +1,8 @@
 """MemoryConsolidator — promotes recurring high-confidence outcome patterns."""
 from __future__ import annotations
 
+import dataclasses
+import json
 from collections import defaultdict
 from dataclasses import dataclass
 
@@ -61,6 +63,34 @@ class MemoryConsolidator:
             self._promoted_keys.add(pkey)
             newly_promoted.append(rule)
         return newly_promoted
+
+    # ------------------------------------------------------------------
+    def save(self, path: str) -> None:
+        """Serialise state to a JSON file at path."""
+        rules = [dataclasses.asdict(r) for r in self._promoted_rules]
+        keys = [list(k) for k in self._promoted_keys]
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump({"promoted_rules": rules, "promoted_keys": keys}, fh)
+
+    # ------------------------------------------------------------------
+    @classmethod
+    def load(cls, path: str) -> "MemoryConsolidator":
+        """Deserialise from a JSON file at path.
+
+        Returns a new instance with restored state.
+        Returns a fresh instance if the file does not exist.
+        """
+        instance = cls()
+        try:
+            with open(path, encoding="utf-8") as fh:
+                data = json.load(fh)
+            for rule_dict in data.get("promoted_rules", []):
+                instance._promoted_rules.append(ConsolidatedRule(**rule_dict))
+            for key in data.get("promoted_keys", []):
+                instance._promoted_keys.add(tuple(key))
+        except FileNotFoundError:
+            pass
+        return instance
 
     # ------------------------------------------------------------------
     def promoted_rules(self) -> list[ConsolidatedRule]:

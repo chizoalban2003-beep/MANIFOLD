@@ -1,6 +1,7 @@
 """PredictiveBrain — wraps ManifoldBrain with regret prediction."""
 from __future__ import annotations
 
+import json
 from typing import Any
 
 
@@ -39,6 +40,57 @@ class PredictiveBrain:
         if not self._prediction_errors:
             return 0.0
         return sum(self._prediction_errors) / len(self._prediction_errors)
+
+    # ------------------------------------------------------------------
+    def save(self, path: str) -> None:
+        """Serialise state to a JSON file at path.
+
+        Only the last 500 log entries are saved to cap file size.
+        Non-serialisable task/decision objects are reduced to their
+        key fields so the log survives a round-trip through JSON.
+        """
+        serialisable_log = []
+        for entry in self._prediction_log[-500:]:
+            task = entry.get("task")
+            decision = entry.get("decision")
+            row: dict = {"predicted": entry.get("predicted")}
+            if task is not None:
+                row["prompt"] = getattr(task, "prompt", "")
+                row["domain"] = getattr(task, "domain", "")
+                row["stakes"] = getattr(task, "stakes", 0.5)
+                row["uncertainty"] = getattr(task, "uncertainty", 0.5)
+            if decision is not None:
+                row["action"] = str(getattr(decision, "action", ""))
+                row["risk_score"] = getattr(decision, "risk_score", 0.0)
+            serialisable_log.append(row)
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump(
+                {
+                    "prediction_log": serialisable_log,
+                    "prediction_errors": self._prediction_errors[-500:],
+                },
+                fh,
+            )
+
+    # ------------------------------------------------------------------
+    @classmethod
+    def load(cls, path: str) -> "PredictiveBrain":
+        """Deserialise from a JSON file at path.
+
+        Returns a new instance with restored state.
+        Returns a fresh instance if the file does not exist.
+        """
+        instance = cls()
+        try:
+            with open(path, encoding="utf-8") as fh:
+                data = json.load(fh)
+            instance._prediction_log = data.get("prediction_log", [])
+            instance._prediction_errors = [
+                float(e) for e in data.get("prediction_errors", [])
+            ]
+        except FileNotFoundError:
+            pass
+        return instance
 
     # ------------------------------------------------------------------
     def calibration_signal(self) -> dict:

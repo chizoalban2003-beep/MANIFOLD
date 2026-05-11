@@ -32,6 +32,7 @@ or as a module::
 
 from __future__ import annotations
 
+import atexit
 import asyncio
 import dataclasses
 import hashlib
@@ -45,6 +46,7 @@ import threading
 import time
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
+from pathlib import Path
 from typing import Any
 
 from .b2b import AgentEconomyLedger, B2BRouter, OrgPolicy
@@ -99,6 +101,75 @@ from .auth import ManifoldAuth
 from .trust_network.registry import ATSRegistry
 from .trust_network.models import ToolRegistration, TrustSignal
 from .pipeline import ManifoldPipeline
+from .cognitive_map import CognitiveMap
+from .cooccurrence import ToolCooccurrenceGraph
+from .predictor import PredictiveBrain
+from .consolidator import MemoryConsolidator
+from .policy_rules import PolicyRule, PolicyRuleEngine
+from .federation import FederatedGossipBridge
+
+
+# ---------------------------------------------------------------------------
+# Brain state persistence
+# ---------------------------------------------------------------------------
+
+_BRAIN_STATE_DIR = Path(
+    os.environ.get("MANIFOLD_STATE_DIR", os.path.expanduser("~/.manifold/brain"))
+)
+
+
+def _save_brain_state() -> None:
+    """Serialise all four brain components to disk."""
+    if _pipeline is None:
+        return
+    try:
+        _BRAIN_STATE_DIR.mkdir(parents=True, exist_ok=True)
+        _pipeline._cognitive_map.save(str(_BRAIN_STATE_DIR / "cognitive_map.json"))
+        _pipeline._cooccurrence.save(str(_BRAIN_STATE_DIR / "cooccurrence.json"))
+        _pipeline._predictor.save(str(_BRAIN_STATE_DIR / "predictor.json"))
+        _pipeline._consolidator.save(str(_BRAIN_STATE_DIR / "consolidator.json"))
+    except Exception as exc:  # noqa: BLE001
+        print(f"[MANIFOLD] Brain state save failed: {exc}")
+
+
+def _rehydrate_brain() -> None:
+    """Load persisted brain components into the active pipeline (if any)."""
+    if _pipeline is None:
+        return
+    try:
+        cmap_path = _BRAIN_STATE_DIR / "cognitive_map.json"
+        cooc_path = _BRAIN_STATE_DIR / "cooccurrence.json"
+        pred_path = _BRAIN_STATE_DIR / "predictor.json"
+        cons_path = _BRAIN_STATE_DIR / "consolidator.json"
+        if cmap_path.exists():
+            _pipeline._cognitive_map = CognitiveMap.load(str(cmap_path))
+        if cooc_path.exists():
+            _pipeline._cooccurrence = ToolCooccurrenceGraph.load(str(cooc_path))
+        if pred_path.exists():
+            _pipeline._predictor = PredictiveBrain.load(str(pred_path))
+        if cons_path.exists():
+            _pipeline._consolidator = MemoryConsolidator.load(str(cons_path))
+        print("[MANIFOLD] Brain state rehydrated from disk")
+    except Exception as exc:  # noqa: BLE001
+        print(f"[MANIFOLD] Brain rehydration skipped: {exc}")
+
+
+atexit.register(_save_brain_state)
+
+
+# ---------------------------------------------------------------------------
+# Policy rule engine singleton
+# ---------------------------------------------------------------------------
+
+_RULE_ENGINE = PolicyRuleEngine()
+
+
+# ---------------------------------------------------------------------------
+# Federation singletons
+# ---------------------------------------------------------------------------
+
+_GOSSIP_BRIDGE = FederatedGossipBridge()
+_FEDERATION_LEDGER = _GOSSIP_BRIDGE.ledger
 
 
 # ---------------------------------------------------------------------------
@@ -202,11 +273,20 @@ _REFUSAL_COUNT: int = 0
 _ats_registry = ATSRegistry()
 
 # Multi-tenancy: OrgRegistry for per-org policy and RBAC
-from .orgs import OrgConfig as _OrgConfig, OrgRegistry, OrgRole as _OrgRole, has_permission as _rbac_check  # noqa: E402
+from .orgs import OrgConfig as _OrgConfig, OrgRegistry, OrgRole as _OrgRole  # noqa: E402
 
 _ORG_REGISTRY = OrgRegistry(
     orgs_file=os.environ.get("MANIFOLD_ORGS_FILE", "orgs.json")
 )
+
+# Agentic layer singletons
+from manifold.agent_registry import AgentRegistry as _AgentRegistry  # noqa: E402
+from manifold.monitor import AgentMonitor as _AgentMonitor  # noqa: E402
+from manifold.task_router import TaskRouter as _TaskRouter  # noqa: E402
+
+_AGENT_REGISTRY = _AgentRegistry(stale_timeout=120)
+_AGENT_MONITOR = _AgentMonitor(_AGENT_REGISTRY, check_interval=30)
+_TASK_ROUTER = _TaskRouter(registry=_AGENT_REGISTRY)
 
 
 # ---------------------------------------------------------------------------
@@ -529,6 +609,62 @@ class ManifoldHandler(BaseHTTPRequestHandler):
                 self._handle_get_digest()
                 return
 
+            # GET /  (landing page)
+            if path == "" or path == "/":
+                self._handle_get_landing()
+                return
+
+            # GET /signup  (signup form)
+            if path == "/signup":
+                self._handle_get_signup()
+                return
+
+            # GET /connect  (tool connection guide)
+            if path == "/connect":
+                self._handle_get_connect()
+                return
+
+            # GET /agents  (list all registered agents)
+            if path == "/agents":
+                self._handle_get_agents()
+                return
+
+            # GET /world  (serve the isometric game world)
+            if path == "/world":
+                self._handle_get_world()
+                return
+
+            # GET /world/manifest.json  (PWA manifest)
+            if path == "/world/manifest.json":
+                self._handle_get_world_manifest()
+                return
+
+            # GET /ws  (WebSocket upgrade)
+            if path == "/ws":
+                self._handle_ws_upgrade()
+                return
+
+            # GET /brain/state  (brain persistence status)
+            if path == "/brain/state":
+                self._handle_get_brain_state()
+                return
+
+            # GET /agents/{id}/commands  (long-poll for agent commands)
+            if re.match(r"^/agents/[\w-]+/commands$", path):
+                agent_id = path.split("/")[2]
+                self._handle_get_agent_commands(agent_id)
+                return
+
+            # GET /rules  (list policy rules for caller org)
+            if path == "/rules":
+                self._handle_get_rules()
+                return
+
+            # GET /federation/status  (federation health)
+            if path == "/federation/status":
+                self._handle_get_federation_status()
+                return
+
             _send_error(self, 404, f"No route for GET {self.path}")
         except Exception as exc:  # noqa: BLE001
             _send_error(self, 500, str(exc))
@@ -611,8 +747,59 @@ class ManifoldHandler(BaseHTTPRequestHandler):
                     return
                 org_id = path.split("/")[2]
                 self._handle_post_org_key(org_id, body, _caller2)
+            elif path == "/signup":
+                self._handle_post_signup(body)
+            elif path == "/agents/register":
+                self._handle_post_agents_register(body)
+            elif path.startswith("/agents/") and path.endswith("/heartbeat"):
+                agent_id = path.split("/")[2]
+                self._handle_post_agent_heartbeat(agent_id, body)
+            elif path.startswith("/agents/") and path.endswith("/pause"):
+                agent_id = path.split("/")[2]
+                self._handle_post_agent_pause(agent_id)
+            elif path.startswith("/agents/") and path.endswith("/resume"):
+                agent_id = path.split("/")[2]
+                self._handle_post_agent_resume(agent_id)
+            elif re.match(r"^/agents/[\w-]+/command$", path):
+                agent_id = path.split("/")[2]
+                self._handle_post_agent_command(agent_id, body)
+            elif path == "/rules":
+                _authed2, _caller2 = _check_auth(self, path)
+                if not _authed2:
+                    return
+                self._handle_post_rule(body, _caller2)
+            elif re.match(r"^/rules/[^/]+$", path):
+                # DELETE-like fallback not needed here; handled in do_DELETE
+                _send_error(self, 405, "Use DELETE /rules/{rule_id}")
+            elif path == "/federation/join":
+                _authed2, _caller2 = _check_auth(self, path)
+                if not _authed2:
+                    return
+                self._handle_post_federation_join(body, _caller2)
+            elif path == "/federation/gossip":
+                self._handle_post_federation_gossip(body)
+            elif path == "/task":
+                self._handle_post_task(body)
             else:
                 _send_error(self, 404, f"No route for POST {self.path}")
+        except Exception as exc:  # noqa: BLE001
+            _send_error(self, 500, str(exc))
+
+    # ------------------------------------------------------------------
+    # DELETE dispatcher
+    # ------------------------------------------------------------------
+
+    def do_DELETE(self) -> None:  # noqa: N802
+        path = self.path.split("?")[0].rstrip("/")
+        try:
+            _authed, _caller = _check_auth(self, path)
+            if not _authed:
+                return
+            if re.match(r"^/rules/[^/]+$", path):
+                rule_id = path.split("/")[2]
+                self._handle_delete_rule(rule_id)
+            else:
+                _send_error(self, 404, f"No route for DELETE {self.path}")
         except Exception as exc:  # noqa: BLE001
             _send_error(self, 500, str(exc))
 
@@ -877,11 +1064,11 @@ class ManifoldHandler(BaseHTTPRequestHandler):
         # Static validation first
         violations = _SANDBOX_VALIDATOR.validate(source)
         if violations:
-            source_hash = _hashlib.md5(source.encode(), usedforsecurity=False).hexdigest()[:8]  # noqa: S324
+            source_hash = hashlib.md5(source.encode(), usedforsecurity=False).hexdigest()[:8]  # noqa: S324
             with _LOCK:
                 _VAULT.append_sandbox_violation(
                     source_hash,
-                    timestamp=_time.time(),
+                    timestamp=time.time(),
                     violations=[v.to_dict() for v in violations],
                     agent_id=agent_id,
                 )
@@ -945,7 +1132,7 @@ class ManifoldHandler(BaseHTTPRequestHandler):
                 vector_id,
                 vector=float_vector,
                 metadata=metadata,
-                timestamp=_time.time(),
+                timestamp=time.time(),
             )
         _EVENT_BUS.publish(TOPIC_VECTOR_ENTRY_ADDED, {"vector_id": vector_id})
         _send_json(self, 200, {"vector_id": vector_id, "dim": len(float_vector)})
@@ -2645,7 +2832,6 @@ def _handle_get_admin(self: "ManifoldHandler") -> None:
 
 def _collect_pipeline_stats() -> dict:
     """Return a dict of live pipeline statistics.  Safe when _pipeline is None."""
-    import html as _html
     from collections import Counter as _Counter
 
     pipeline = _pipeline  # read module-level singleton without creating one
@@ -3080,7 +3266,324 @@ def _handle_get_digest(self: "ManifoldHandler") -> None:
         _send_json(self, 200, response)
     except Exception as exc:  # noqa: BLE001
         _send_json(self, 500, {"error": str(exc)})
-ManifoldHandler._handle_post_run = _handle_post_run  # type: ignore[attr-defined]
+
+
+# ---------------------------------------------------------------------------
+# Consumer app endpoints
+# ---------------------------------------------------------------------------
+
+_CONSUMER_CSS = """
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+  background:#0f1117;color:#e2e8f0;line-height:1.6}
+.wrap{max-width:880px;margin:0 auto;padding:40px 24px}
+h1{font-size:clamp(2rem,5vw,3.5rem);font-weight:800;letter-spacing:-0.03em;
+  background:linear-gradient(135deg,#fff 0%,#a5b4fc 100%);
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent}
+h2{font-size:1.5rem;font-weight:700;margin-bottom:8px}
+.sub{color:#94a3b8;font-size:1.1rem;margin:16px 0 32px}
+.hero{text-align:center;padding:80px 0 60px}
+.btn{display:inline-block;padding:14px 28px;border-radius:8px;
+  font-size:15px;font-weight:600;text-decoration:none;cursor:pointer;
+  border:none;transition:opacity .15s}
+.btn-primary{background:#7F77DD;color:#fff}
+.btn-secondary{background:transparent;color:#7F77DD;
+  border:1px solid #7F77DD;margin-left:12px}
+.btn:hover{opacity:.85}
+.cards{display:flex;flex-wrap:wrap;gap:20px;margin:40px 0}
+.card{flex:1 1 220px;background:#1a1d27;border:1px solid #2a2d3a;
+  border-radius:12px;padding:28px 24px}
+.card-num{font-size:2rem;margin-bottom:8px}
+.card h3{font-size:1rem;font-weight:700;margin-bottom:8px}
+.card p{color:#94a3b8;font-size:.9rem}
+.compat{text-align:center;color:#64748b;font-size:.95rem;
+  padding:32px 0;border-top:1px solid #1e2130;border-bottom:1px solid #1e2130;
+  margin:40px 0}
+.cta{text-align:center;padding:60px 0}
+pre,.code{background:#0a0c14;border:1px solid #2a2d3a;border-radius:8px;
+  padding:14px 16px;font-family:monospace;font-size:13px;
+  color:#a5b4fc;overflow:auto;white-space:pre-wrap}
+label{display:block;font-size:.875rem;color:#94a3b8;margin-bottom:4px}
+input,select{width:100%;padding:10px 12px;background:#1a1d27;
+  border:1px solid #2a2d3a;border-radius:6px;color:#e2e8f0;
+  font-size:14px;margin-bottom:16px}
+input:focus,select:focus{outline:2px solid #7F77DD}
+form{background:#1a1d27;border:1px solid #2a2d3a;border-radius:12px;
+  padding:32px;max-width:520px;margin:0 auto}
+.note{text-align:center;color:#64748b;font-size:.8rem;margin-top:16px}
+footer{text-align:center;padding:40px 0;color:#475569;font-size:.85rem}
+footer a{color:#7F77DD;text-decoration:none}
+a.lnk{color:#7F77DD;text-decoration:none}
+</style>
+"""
+
+_CONSUMER_HEADER = """<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{title}</title>
+""" + _CONSUMER_CSS + "</head><body>"
+
+_CONSUMER_FOOTER = """<footer class="wrap">
+  <a href="/" class="lnk">Home</a> ·
+  <a href="/signup" class="lnk">Signup</a> ·
+  <a href="/connect" class="lnk">Connect</a> ·
+  <a href="/report" class="lnk">Dashboard</a> ·
+  <a href="/digest?period=7d" class="lnk">Digest API</a>
+</footer></body></html>"""
+
+
+def _handle_get_landing(self: "ManifoldHandler") -> None:
+    """GET / — consumer landing page."""
+    html = _CONSUMER_HEADER.format(title="MANIFOLD — AI Governance") + """
+<div class="wrap">
+  <section class="hero">
+    <h1>MANIFOLD</h1>
+    <p class="sub">Stop your AI from doing things it shouldn't.</p>
+    <p style="color:#94a3b8;max-width:560px;margin:0 auto 32px">
+      One line of code. Every AI call governed.<br>
+      Learns from every outcome. Works with any model.
+    </p>
+    <a href="/signup" class="btn btn-primary">Get started free</a>
+    <a href="/report" class="btn btn-secondary">View live demo</a>
+  </section>
+
+  <h2 style="text-align:center;margin-bottom:8px">How it works</h2>
+  <div class="cards">
+    <div class="card">
+      <div class="card-num">🔗</div>
+      <h3>Connect</h3>
+      <p>Point your AI tool at MANIFOLD. One URL change.</p>
+    </div>
+    <div class="card">
+      <div class="card-num">⚖️</div>
+      <h3>Govern</h3>
+      <p>Every call is priced for risk before it executes.</p>
+    </div>
+    <div class="card">
+      <div class="card-num">🧠</div>
+      <h3>Learn</h3>
+      <p>The system tightens its own policies from outcomes.</p>
+    </div>
+  </div>
+
+  <div class="compat">
+    Works with:&nbsp;
+    <strong>GPT-4</strong> &nbsp;·&nbsp;
+    <strong>Claude</strong> &nbsp;·&nbsp;
+    <strong>Gemini</strong> &nbsp;·&nbsp;
+    <strong>LangChain</strong> &nbsp;·&nbsp;
+    <strong>Cursor</strong> &nbsp;·&nbsp;
+    <strong>any OpenAI-compatible tool</strong>
+  </div>
+
+  <section class="cta">
+    <h2>Start governing your AI in 30 seconds</h2>
+    <p class="sub">Free forever for individual use.</p>
+    <a href="/signup" class="btn btn-primary">Get started</a>
+  </section>
+</div>
+""" + _CONSUMER_FOOTER
+    self.send_response(200)
+    self.send_header("Content-Type", "text/html; charset=utf-8")
+    self.end_headers()
+    self.wfile.write(html.encode())
+
+
+def _handle_get_signup(self: "ManifoldHandler") -> None:
+    """GET /signup — signup form page."""
+    html = _CONSUMER_HEADER.format(title="Sign up — MANIFOLD") + """
+<div class="wrap" style="padding-top:60px">
+  <div style="text-align:center;margin-bottom:32px">
+    <h1 style="font-size:2rem">Create your MANIFOLD account</h1>
+    <p class="sub">Free forever for individual use.</p>
+  </div>
+  <form method="POST" action="/signup">
+    <label for="email">Email address</label>
+    <input id="email" name="email" type="email" required
+           placeholder="you@example.com">
+
+    <label for="org_name">Organisation name</label>
+    <input id="org_name" name="org_name" type="text" required
+           placeholder="Acme Corp">
+
+    <label for="domain">Primary domain</label>
+    <select id="domain" name="domain">
+      <option value="general">General</option>
+      <option value="finance">Finance</option>
+      <option value="healthcare">Healthcare</option>
+      <option value="devops">DevOps</option>
+      <option value="legal">Legal</option>
+    </select>
+
+    <button type="submit" class="btn btn-primary" style="width:100%;padding:14px">
+      Create account + get API key
+    </button>
+  </form>
+  <p class="note">No credit card. No installation. API key shown once.</p>
+</div>
+""" + _CONSUMER_FOOTER
+    self.send_response(200)
+    self.send_header("Content-Type", "text/html; charset=utf-8")
+    self.end_headers()
+    self.wfile.write(html.encode())
+
+
+def _handle_post_signup(self: "ManifoldHandler", body: dict) -> None:
+    """POST /signup — create account, show API key once."""
+    import html as _html
+    import re as _re
+
+    email = str(body.get("email", "")).strip()
+    org_name = str(body.get("org_name", "")).strip()
+    domain = str(body.get("domain", "general")).strip() or "general"
+
+    if not email or not org_name:
+        _send_error(self, 400, "email and org_name required")
+        return
+
+    org_id = _re.sub(r"[^a-z0-9-]", "-", org_name.lower())[:32].strip("-") or "org"
+    try:
+        raw_key, _cfg = _ORG_REGISTRY.generate_key(
+            org_id=org_id,
+            display_name=org_name,
+            role=_OrgRole.AGENT,
+            domain=domain,
+            notes=f"signup:{email}",
+        )
+    except Exception as exc:  # noqa: BLE001
+        _send_error(self, 500, f"Could not create account: {exc}")
+        return
+
+    page = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Your MANIFOLD API key</title>
+<style>
+*{{box-sizing:border-box;margin:0;padding:0}}
+body{{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+  background:#0f1117;color:#e2e8f0;
+  display:flex;align-items:center;justify-content:center;
+  min-height:100vh}}
+.card{{background:#1a1d27;border:1px solid #2a2d3a;border-radius:12px;
+  padding:40px;max-width:540px;width:100%;margin:24px}}
+.key{{background:#0a0c14;border:1px solid #3a3d4a;border-radius:8px;
+  padding:16px;font-family:monospace;font-size:14px;
+  word-break:break-all;color:#a5b4fc;margin:16px 0}}
+.warn{{color:#EF9F27;font-size:13px;margin-bottom:24px}}
+.btn{{display:inline-block;background:#7F77DD;color:#fff;
+  padding:12px 24px;border-radius:8px;text-decoration:none;
+  font-size:14px;font-weight:600;margin-top:8px}}
+pre{{background:#0a0c14;padding:14px;border-radius:8px;
+  font-size:12px;overflow:auto;color:#a5b4fc;white-space:pre-wrap}}
+p{{color:#94a3b8}}
+</style>
+</head>
+<body>
+<div class="card">
+  <h2 style="margin-bottom:8px">Your account is ready ✓</h2>
+  <p style="margin-bottom:24px">Organisation: <strong style="color:#e2e8f0">{_html.escape(org_name)}</strong></p>
+  <p style="font-size:14px;color:#e2e8f0;margin-bottom:4px">Your API key</p>
+  <div class="key">{_html.escape(raw_key)}</div>
+  <p class="warn">⚠ Save this key now — it will not be shown again.</p>
+  <p style="font-size:14px;color:#e2e8f0;margin-bottom:12px">
+    Point any OpenAI-compatible agent at MANIFOLD:
+  </p>
+  <pre>import openai
+client = openai.OpenAI(
+    base_url="http://YOUR_HOST/v1",
+    api_key="{_html.escape(raw_key)}"
+)</pre>
+  <a href="/connect" class="btn">Next: connect your tools →</a>
+</div>
+</body>
+</html>"""
+    self.send_response(200)
+    self.send_header("Content-Type", "text/html; charset=utf-8")
+    self.end_headers()
+    self.wfile.write(page.encode())
+
+
+def _handle_get_connect(self: "ManifoldHandler") -> None:
+    """GET /connect — tool connection guide with integration snippets."""
+    html = _CONSUMER_HEADER.format(title="Connect your tools — MANIFOLD") + """
+<div class="wrap" style="padding-top:48px">
+  <h1 style="font-size:2rem;margin-bottom:8px">Connect your AI tools</h1>
+  <p class="sub">Replace <code style="background:#1a1d27;padding:2px 6px;border-radius:4px;color:#a5b4fc">HOST</code>
+  with your MANIFOLD server address and <code style="background:#1a1d27;padding:2px 6px;border-radius:4px;color:#a5b4fc">YOUR_KEY</code>
+  with your API key from <a href="/signup" class="lnk">/signup</a>.</p>
+
+  <div class="cards" style="flex-direction:column">
+
+    <div class="card">
+      <h3 style="margin-bottom:12px">🐍 Python / OpenAI SDK</h3>
+      <pre>import openai
+client = openai.OpenAI(
+    base_url="http://HOST/v1",
+    api_key="YOUR_KEY"
+)</pre>
+    </div>
+
+    <div class="card">
+      <h3 style="margin-bottom:12px">🦜 LangChain</h3>
+      <pre>from langchain_openai import ChatOpenAI
+llm = ChatOpenAI(
+    base_url="http://HOST/v1",
+    api_key="YOUR_KEY"
+)</pre>
+    </div>
+
+    <div class="card">
+      <h3 style="margin-bottom:12px">🖱️ Cursor / VS Code Copilot</h3>
+      <p style="color:#94a3b8;font-size:.9rem;margin-bottom:10px">
+        In <code style="color:#a5b4fc">settings.json</code>:
+      </p>
+      <pre>"github.copilot.advanced": {{
+    "debug.overrideProxyUrl": "http://HOST/v1"
+}}</pre>
+      <p style="color:#94a3b8;font-size:.9rem;margin-top:10px">
+        Or install the
+        <a href="/vscode-extension" class="lnk">MANIFOLD VS Code extension</a>.
+      </p>
+    </div>
+
+    <div class="card">
+      <h3 style="margin-bottom:12px">⚡ cURL / any HTTP client</h3>
+      <pre>curl http://HOST/v1/chat/completions \\
+  -H "Authorization: Bearer YOUR_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{{"model":"gpt-4o","messages":[{{"role":"user","content":"hello"}}]}}'</pre>
+    </div>
+
+    <div class="card">
+      <h3 style="margin-bottom:12px">🌍 Environment variable</h3>
+      <pre>export OPENAI_BASE_URL="http://HOST/v1"
+export OPENAI_API_KEY="YOUR_KEY"
+# All subsequent OpenAI SDK calls are now governed</pre>
+    </div>
+
+  </div>
+
+  <p style="text-align:center;margin-top:32px;color:#64748b">
+    View your governance dashboard →
+    <a href="/report" class="lnk">Live report</a>
+  </p>
+</div>
+""" + _CONSUMER_FOOTER
+    self.send_response(200)
+    self.send_header("Content-Type", "text/html; charset=utf-8")
+    self.end_headers()
+    self.wfile.write(html.encode())
+
+
+ManifoldHandler._handle_get_landing = _handle_get_landing  # type: ignore[attr-defined]
+ManifoldHandler._handle_get_signup = _handle_get_signup  # type: ignore[attr-defined]
+ManifoldHandler._handle_post_signup = _handle_post_signup  # type: ignore[attr-defined]
+ManifoldHandler._handle_get_connect = _handle_get_connect  # type: ignore[attr-defined]
 ManifoldHandler._handle_get_learned = _handle_get_learned  # type: ignore[attr-defined]
 ManifoldHandler._handle_get_v1_models = _handle_get_v1_models  # type: ignore[attr-defined]
 ManifoldHandler._handle_post_v1_chat_completions = _handle_post_v1_chat_completions  # type: ignore[attr-defined]
@@ -3093,8 +3596,462 @@ ManifoldHandler._handle_get_digest = _handle_get_digest  # type: ignore[attr-def
 
 
 # ---------------------------------------------------------------------------
-# Public entry point
+# Agentic layer endpoint handlers
 # ---------------------------------------------------------------------------
+
+
+def _handle_get_agents(self: "ManifoldHandler") -> None:
+    """GET /agents — list all registered agents."""
+    agents = _AGENT_REGISTRY.all_agents()
+    _send_json(self, 200, {
+        "agents": [a.to_dict() for a in agents],
+        "summary": _AGENT_REGISTRY.summary(),
+        "monitor": _AGENT_MONITOR.status(),
+    })
+
+
+def _handle_post_agents_register(self: "ManifoldHandler", body: dict) -> None:
+    """POST /agents/register — agent announces itself."""
+    agent_id = str(body.get("agent_id", "")).strip()
+    name = str(body.get("display_name", "")).strip()
+    caps = body.get("capabilities", [])
+    org_id = str(body.get("org_id", "default")).strip()
+    endpoint = str(body.get("endpoint_url", "")).strip()
+    domain = str(body.get("domain", "general")).strip()
+    if not agent_id or not name:
+        _send_error(self, 400, "agent_id and display_name required")
+        return
+    record = _AGENT_REGISTRY.register(
+        agent_id=agent_id,
+        display_name=name,
+        capabilities=caps if isinstance(caps, list) else [],
+        org_id=org_id,
+        endpoint_url=endpoint,
+        domain=domain,
+    )
+    _send_json(self, 201, record.to_dict())
+
+
+def _handle_post_agent_heartbeat(
+    self: "ManifoldHandler", agent_id: str, body: dict
+) -> None:
+    """POST /agents/{id}/heartbeat — keep-alive."""
+    status = str(body.get("status", "active"))
+    ok = _AGENT_REGISTRY.heartbeat(agent_id, status)
+    if not ok:
+        _send_error(self, 404, f"Agent {agent_id!r} not registered")
+        return
+    _send_json(self, 200, {"agent_id": agent_id, "acknowledged": True})
+
+
+def _handle_post_agent_pause(self: "ManifoldHandler", agent_id: str) -> None:
+    """POST /agents/{id}/pause — MANIFOLD pauses an agent."""
+    ok = _AGENT_REGISTRY.pause(agent_id)
+    if not ok:
+        _send_error(self, 404, f"Agent {agent_id!r} not found")
+        return
+    _send_json(self, 200, {"agent_id": agent_id, "status": "paused"})
+
+
+def _handle_post_agent_resume(self: "ManifoldHandler", agent_id: str) -> None:
+    """POST /agents/{id}/resume — MANIFOLD resumes a paused agent."""
+    ok = _AGENT_REGISTRY.resume(agent_id)
+    if not ok:
+        _send_error(self, 404, f"Agent {agent_id!r} not found")
+        return
+    _send_json(self, 200, {"agent_id": agent_id, "status": "active"})
+
+
+def _handle_post_task(self: "ManifoldHandler", body: dict) -> None:
+    """POST /task — receive any problem, decompose, govern, route."""
+    task = str(body.get("task", "")).strip()
+    stakes = float(body.get("stakes", 0.5))
+    if not task:
+        _send_error(self, 400, "task field required")
+        return
+    plan = _TASK_ROUTER.route(task, stakes_hint=stakes)
+    _send_json(self, 200, plan.to_dict())
+
+
+# ---------------------------------------------------------------------------
+# MANIFOLD World + WebSocket handlers
+# ---------------------------------------------------------------------------
+
+import base64 as _base64
+import socket as _socket
+import struct as _struct
+import os as _os_world
+
+_WORLD_DIR = _os_world.path.join(_os_world.path.dirname(_os_world.path.dirname(_os_world.path.abspath(__file__))), "manifold-world")
+
+
+def _handle_get_world(self: "ManifoldHandler") -> None:
+    """GET /world — serve the isometric game world HTML."""
+    world_file = _os_world.path.join(_WORLD_DIR, "index.html")
+    if not _os_world.path.exists(world_file):
+        _send_error(self, 404, "MANIFOLD World not found")
+        return
+    with open(world_file, "rb") as fh:
+        data = fh.read()
+    self.send_response(200)
+    self.send_header("Content-Type", "text/html; charset=utf-8")
+    self.send_header("Content-Length", str(len(data)))
+    self.end_headers()
+    self.wfile.write(data)
+
+
+def _handle_get_world_manifest(self: "ManifoldHandler") -> None:
+    """GET /world/manifest.json — serve the PWA manifest."""
+    manifest_file = _os_world.path.join(_WORLD_DIR, "manifest.json")
+    if not _os_world.path.exists(manifest_file):
+        _send_error(self, 404, "Manifest not found")
+        return
+    with open(manifest_file, "rb") as fh:
+        data = fh.read()
+    self.send_response(200)
+    self.send_header("Content-Type", "application/json; charset=utf-8")
+    self.send_header("Content-Length", str(len(data)))
+    self.end_headers()
+    self.wfile.write(data)
+
+
+def _ws_send_frame(conn: "_socket.socket", payload: bytes, opcode: int = 0x1) -> None:
+    """Send a single WebSocket text frame."""
+    ln = len(payload)
+    if ln <= 125:
+        header = bytes([0x80 | opcode, ln])
+    elif ln <= 65535:
+        header = bytes([0x80 | opcode, 126]) + _struct.pack(">H", ln)
+    else:
+        header = bytes([0x80 | opcode, 127]) + _struct.pack(">Q", ln)
+    conn.sendall(header + payload)
+
+
+def _ws_read_frame(conn: "_socket.socket") -> "bytes | None":
+    """Read one WebSocket frame, return payload or None on close."""
+    try:
+        raw = b""
+        while len(raw) < 2:
+            chunk = conn.recv(2 - len(raw))
+            if not chunk:
+                return None
+            raw += chunk
+        first, second = raw[0], raw[1]
+        masked = bool(second & 0x80)
+        ln = second & 0x7F
+        if ln == 126:
+            buf = b""
+            while len(buf) < 2:
+                buf += conn.recv(2 - len(buf))
+            ln = _struct.unpack(">H", buf)[0]
+        elif ln == 127:
+            buf = b""
+            while len(buf) < 8:
+                buf += conn.recv(8 - len(buf))
+            ln = _struct.unpack(">Q", buf)[0]
+        mask_key = b""
+        if masked:
+            while len(mask_key) < 4:
+                mask_key += conn.recv(4 - len(mask_key))
+        payload = b""
+        while len(payload) < ln:
+            payload += conn.recv(ln - len(payload))
+        if masked:
+            payload = bytes(payload[i] ^ mask_key[i % 4] for i in range(ln))
+        opcode = first & 0x0F
+        if opcode == 0x8:  # close frame
+            return None
+        return payload
+    except OSError:
+        return None
+
+
+def _handle_get_brain_state(self: "ManifoldHandler") -> None:
+    """GET /brain/state — return brain persistence status."""
+    pipeline = _get_pipeline()
+    cmap_nodes = len(pipeline._cognitive_map._outcome_log)
+    cooc_tools = len(pipeline._cooccurrence._tool_counts)
+    pred_entries = len(pipeline._predictor._prediction_log)
+    rules = len(pipeline._consolidator._promoted_rules)
+    state_dir = str(_BRAIN_STATE_DIR)
+    persisted = (
+        (_BRAIN_STATE_DIR / "cognitive_map.json").exists()
+        or (_BRAIN_STATE_DIR / "cooccurrence.json").exists()
+        or (_BRAIN_STATE_DIR / "predictor.json").exists()
+        or (_BRAIN_STATE_DIR / "consolidator.json").exists()
+    )
+    _send_json(
+        self,
+        200,
+        {
+            "cognitive_map_nodes": cmap_nodes,
+            "cooccurrence_tools": cooc_tools,
+            "prediction_log_entries": pred_entries,
+            "promoted_rules": rules,
+            "state_dir": state_dir,
+            "persisted": persisted,
+        },
+    )
+
+
+def _handle_ws_upgrade(self: "ManifoldHandler") -> None:
+    """GET /ws — WebSocket upgrade + live event loop."""
+    # Only accept Upgrade: websocket requests
+    upgrade = self.headers.get("Upgrade", "").lower()
+    if upgrade != "websocket":
+        _send_error(self, 400, "WebSocket upgrade required")
+        return
+    key = self.headers.get("Sec-WebSocket-Key", "")
+    if not key:
+        _send_error(self, 400, "Sec-WebSocket-Key missing")
+        return
+    # Compute accept hash
+    magic = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
+    accept = _base64.b64encode(
+        hashlib.sha1((key + magic).encode()).digest()
+    ).decode()
+    # Send 101 Switching Protocols
+    self.send_response(101)
+    self.send_header("Upgrade", "websocket")
+    self.send_header("Connection", "Upgrade")
+    self.send_header("Sec-WebSocket-Accept", accept)
+    self.end_headers()
+    self.wfile.flush()
+
+    conn = self.connection
+    conn.settimeout(1.0)
+
+    last_agent_push = 0.0
+    last_stats_push = 0.0
+
+    def _agents_payload() -> bytes:
+        agents = _AGENT_REGISTRY.all_agents()
+        data = {
+            "type": "agent_update",
+            "agents": [
+                {
+                    "id": a.agent_id,
+                    "status": a.status,
+                    "task": a.notes or "active",
+                    "risk": round(1.0 - a.health_score(), 4),
+                    "health": round(a.health_score(), 4),
+                    "tx": float(a.task_count % 16),
+                    "tz": float(a.error_count % 16),
+                }
+                for a in agents
+            ],
+        }
+        return json.dumps(data).encode()
+
+    def _stats_payload() -> bytes:
+        summary = _AGENT_REGISTRY.summary()
+        plans = _TASK_ROUTER.all_plans()
+        data = {
+            "type": "world_stats",
+            "agents_active": summary.get("active", 0),
+            "tasks_running": sum(1 for p in plans if not p.executable and p.blocked_count == 0),
+            "governance_events_today": _REFUSAL_COUNT,
+            "system_health": round(summary.get("avg_health", 1.0), 4),
+        }
+        return json.dumps(data).encode()
+
+    try:
+        while True:
+            now = time.time()
+            # Send agent update every 5 s
+            if now - last_agent_push >= 5.0:
+                _ws_send_frame(conn, _agents_payload())
+                last_agent_push = now
+            # Send world stats every 30 s
+            if now - last_stats_push >= 30.0:
+                _ws_send_frame(conn, _stats_payload())
+                last_stats_push = now
+            # Non-blocking read (timeout=1s)
+            try:
+                frame = _ws_read_frame(conn)
+                if frame is None:
+                    break  # client disconnected
+            except OSError:
+                pass  # timeout, continue
+    except OSError:
+        pass
+    finally:
+        try:
+            conn.close()
+        except OSError:
+            pass
+
+
+ManifoldHandler._handle_get_world = _handle_get_world  # type: ignore[attr-defined]
+ManifoldHandler._handle_get_world_manifest = _handle_get_world_manifest  # type: ignore[attr-defined]
+ManifoldHandler._handle_ws_upgrade = _handle_ws_upgrade  # type: ignore[attr-defined]
+ManifoldHandler._handle_get_brain_state = _handle_get_brain_state  # type: ignore[attr-defined]
+
+
+ManifoldHandler._handle_get_agents = _handle_get_agents  # type: ignore[attr-defined]
+ManifoldHandler._handle_post_agents_register = _handle_post_agents_register  # type: ignore[attr-defined]
+ManifoldHandler._handle_post_agent_heartbeat = _handle_post_agent_heartbeat  # type: ignore[attr-defined]
+ManifoldHandler._handle_post_agent_pause = _handle_post_agent_pause  # type: ignore[attr-defined]
+ManifoldHandler._handle_post_agent_resume = _handle_post_agent_resume  # type: ignore[attr-defined]
+ManifoldHandler._handle_post_task = _handle_post_task  # type: ignore[attr-defined]
+
+
+# ---------------------------------------------------------------------------
+# Command channel handlers
+# ---------------------------------------------------------------------------
+
+
+def _handle_get_agent_commands(self: "ManifoldHandler", agent_id: str) -> None:
+    """GET /agents/{id}/commands — long-poll for up to 20 seconds.
+
+    Returns immediately when commands are queued; returns empty list after
+    20 seconds with no commands.
+    """
+    deadline = time.time() + 20.0
+    while time.time() < deadline:
+        cmds = _AGENT_REGISTRY.poll_commands(agent_id, consume=True)
+        if cmds:
+            _send_json(self, 200, {"commands": cmds, "agent_id": agent_id})
+            return
+        time.sleep(0.5)
+    _send_json(self, 200, {"commands": [], "agent_id": agent_id})
+
+
+def _handle_post_agent_command(
+    self: "ManifoldHandler", agent_id: str, body: dict
+) -> None:
+    """POST /agents/{id}/command — queue a command for an agent."""
+    command = str(body.get("command", "")).strip()
+    payload = body.get("payload", {})
+    valid = {"pause", "resume", "redirect", "update_policy", "message"}
+    if command not in valid:
+        _send_error(self, 400, f"Invalid command. Must be one of: {sorted(valid)}")
+        return
+    cmd_id = _AGENT_REGISTRY.queue_command(agent_id, command, payload)
+    if cmd_id is None:
+        _send_error(self, 404, f"Agent {agent_id!r} not registered")
+        return
+    _send_json(
+        self,
+        201,
+        {
+            "command_id": cmd_id,
+            "agent_id": agent_id,
+            "command": command,
+            "status": "queued",
+        },
+    )
+
+
+ManifoldHandler._handle_get_agent_commands = _handle_get_agent_commands  # type: ignore[attr-defined]
+ManifoldHandler._handle_post_agent_command = _handle_post_agent_command  # type: ignore[attr-defined]
+
+
+# ---------------------------------------------------------------------------
+# Policy rules handlers
+# ---------------------------------------------------------------------------
+
+
+def _handle_get_rules(self: "ManifoldHandler") -> None:
+    """GET /rules — return all policy rules for the calling org."""
+    _authed, caller = _check_auth(self, "/rules")
+    if not _authed:
+        return
+    org_id = caller.org_id if caller else ""
+    rules = [r.to_dict() for r in _RULE_ENGINE.rules_for_org(org_id)]
+    _send_json(self, 200, {"rules": rules, "org_id": org_id})
+
+
+def _handle_post_rule(self: "ManifoldHandler", body: dict, caller: Any) -> None:
+    """POST /rules — create a new policy rule for the calling org."""
+    import uuid as _uuid
+    org_id = caller.org_id if caller else body.get("org_id", "")
+    name = str(body.get("name", "unnamed rule"))
+    conditions = body.get("conditions", {})
+    action = str(body.get("action", "allow"))
+    priority = int(body.get("priority", 0))
+    rule = PolicyRule(
+        rule_id=str(_uuid.uuid4()),
+        org_id=org_id,
+        name=name,
+        conditions=conditions,
+        action=action,
+        priority=priority,
+    )
+    _RULE_ENGINE.add_rule(rule)
+    _send_json(self, 201, rule.to_dict())
+
+
+def _handle_delete_rule(self: "ManifoldHandler", rule_id: str) -> None:
+    """DELETE /rules/{rule_id} — remove a policy rule."""
+    removed = _RULE_ENGINE.remove_rule(rule_id)
+    if removed:
+        _send_json(self, 200, {"rule_id": rule_id, "status": "deleted"})
+    else:
+        _send_error(self, 404, f"Rule {rule_id!r} not found")
+
+
+ManifoldHandler._handle_get_rules = _handle_get_rules  # type: ignore[attr-defined]
+ManifoldHandler._handle_post_rule = _handle_post_rule  # type: ignore[attr-defined]
+ManifoldHandler._handle_delete_rule = _handle_delete_rule  # type: ignore[attr-defined]
+
+
+# ---------------------------------------------------------------------------
+# Federation handlers
+# ---------------------------------------------------------------------------
+
+
+def _handle_get_federation_status(self: "ManifoldHandler") -> None:
+    """GET /federation/status — return federation health summary."""
+    ledger = _GOSSIP_BRIDGE.ledger
+    known = ledger.known_tools()
+    trust_entries = {t: ledger.global_rate(t) for t in known}
+    contributing_orgs = len(_GOSSIP_BRIDGE.registered_orgs())
+    _send_json(
+        self,
+        200,
+        {
+            "contributing_orgs": contributing_orgs,
+            "known_tools": len(known),
+            "trust_entries": trust_entries,
+        },
+    )
+
+
+def _handle_post_federation_join(
+    self: "ManifoldHandler", body: dict, caller: Any
+) -> None:
+    """POST /federation/join — register calling org with the gossip bridge."""
+    org_id = caller.org_id if caller else body.get("org_id", "")
+    if not org_id:
+        _send_error(self, 400, "org_id required")
+        return
+    _GOSSIP_BRIDGE.register(org_id)
+    _send_json(
+        self,
+        200,
+        {
+            "org_id": org_id,
+            "status": "joined",
+            "contributing_orgs": len(_GOSSIP_BRIDGE.registered_orgs()),
+        },
+    )
+
+
+def _handle_post_federation_gossip(self: "ManifoldHandler", body: dict) -> None:
+    """POST /federation/gossip — ingest a gossip packet."""
+    from .federation import FederatedGossipPacket
+    try:
+        packet = FederatedGossipPacket(**body)
+        _GOSSIP_BRIDGE.contribute_packet(packet)
+        _send_json(self, 200, {"status": "ingested"})
+    except Exception as exc:  # noqa: BLE001
+        _send_error(self, 400, f"Invalid gossip packet: {exc}")
+
+
+ManifoldHandler._handle_get_federation_status = _handle_get_federation_status  # type: ignore[attr-defined]
+ManifoldHandler._handle_post_federation_join = _handle_post_federation_join  # type: ignore[attr-defined]
+ManifoldHandler._handle_post_federation_gossip = _handle_post_federation_gossip  # type: ignore[attr-defined]
 
 
 def run_server(port: int = 8080, *, host: str = "0.0.0.0") -> None:
@@ -3142,6 +4099,29 @@ def run_server(port: int = 8080, *, host: str = "0.0.0.0") -> None:
     _worker = ManifoldWorker(pipeline=_get_pipeline(), db=_db)
     _worker.start()
 
+    # Rehydrate brain state from disk (after pipeline is initialised)
+    _rehydrate_brain()
+
+    # Start agent monitor
+    _AGENT_MONITOR.start()
+
+    # Start federation background sync thread (every 300 seconds)
+    def _federation_sync_loop() -> None:
+        while True:
+            time.sleep(300)
+            try:
+                for org in _ORG_REGISTRY.all_orgs():
+                    snapshot = _GOSSIP_BRIDGE.export_snapshot(org.org_id)
+                    if snapshot is not None:
+                        _GOSSIP_BRIDGE.contribute_snapshot(snapshot)
+            except Exception:  # noqa: BLE001
+                pass
+
+    _fed_thread = threading.Thread(
+        target=_federation_sync_loop, daemon=True, name="manifold-federation-sync"
+    )
+    _fed_thread.start()
+
     server = HTTPServer((host, port), ManifoldHandler)
     print(f"MANIFOLD server listening on {host}:{port}  (Ctrl-C to stop)")
     try:
@@ -3152,6 +4132,7 @@ def run_server(port: int = 8080, *, host: str = "0.0.0.0") -> None:
         server.server_close()
         if _worker is not None:
             _worker.stop()
+        _AGENT_MONITOR.stop()
         # Flush DB state back to WAL for portability across container restarts
         async def _shutdown() -> None:
             await _db.flush_to_vault(_VAULT)

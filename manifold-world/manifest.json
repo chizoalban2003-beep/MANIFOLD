@@ -1,0 +1,10 @@
+{
+  "name": "MANIFOLD World",
+  "short_name": "MANIFOLD",
+  "start_url": "/world",
+  "display": "fullscreen",
+  "background_color": "#0a0c14",
+  "theme_color": "#7F77DD",
+  "orientation": "landscape-primary",
+  "icons": []
+}

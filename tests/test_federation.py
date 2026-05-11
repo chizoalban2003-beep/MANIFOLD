@@ -267,3 +267,61 @@ def test_cold_start_returns_brain_memory():
     ledger.ingest_snapshot(OrgReputationSnapshot("org_a", {"t": (0.9, 3)}))
     result = cold_start_from_ledger(ledger)
     assert isinstance(result, BrainMemory)
+
+
+# ---------------------------------------------------------------------------
+# Server endpoint tests (added for v1.6.0 federation activation)
+# ---------------------------------------------------------------------------
+
+
+from unittest.mock import MagicMock, patch  # noqa: E402
+import manifold.server as server_mod  # noqa: E402
+
+
+def _call_server_handler(func_name: str, *args, **kwargs) -> dict:
+    """Call a server handler on a mock handler and capture response."""
+    handler = MagicMock()
+    captured = {}
+
+    def fake_send_json(h, status, data):
+        captured["status"] = status
+        captured["data"] = data
+
+    def fake_send_error(h, status, msg):
+        captured["status"] = status
+        captured["data"] = {"error": msg}
+
+    with (
+        patch.object(server_mod, "_send_json", side_effect=fake_send_json),
+        patch.object(server_mod, "_send_error", side_effect=fake_send_error),
+    ):
+        func = getattr(server_mod, func_name)
+        func(handler, *args, **kwargs)
+
+    return captured
+
+
+def test_server_ledger_accepts_snapshot_increments_contributing_org_count() -> None:
+    """GlobalReputationLedger.ingest_snapshot() increments contributing org count."""
+    ledger = GlobalReputationLedger()
+    snap = OrgReputationSnapshot(org_id="org-server-test", rates={"tool_x": (0.9, 10)})
+    ledger.ingest_snapshot(snap)
+    assert ledger.contributing_org_count("tool_x") == 1
+
+
+def test_get_federation_status_returns_contributing_orgs_key() -> None:
+    """GET /federation/status returns dict with 'contributing_orgs'."""
+    result = _call_server_handler("_handle_get_federation_status")
+    assert result["status"] == 200
+    assert "contributing_orgs" in result["data"]
+    assert "known_tools" in result["data"]
+
+
+def test_post_federation_join_returns_200() -> None:
+    """POST /federation/join returns 200 with status='joined'."""
+    mock_caller = MagicMock()
+    mock_caller.org_id = "fed-join-test-org"
+    result = _call_server_handler("_handle_post_federation_join", {}, mock_caller)
+    assert result["status"] == 200
+    assert result["data"]["status"] == "joined"
+    assert result["data"]["org_id"] == "fed-join-test-org"

@@ -1,6 +1,7 @@
 """CognitiveMap — spatial navigation and outcome memory for ManifoldBrain."""
 from __future__ import annotations
 
+import json
 import math
 from typing import Any
 
@@ -54,6 +55,34 @@ class CognitiveMap:
         self._outcome_log[key].append(
             {"action": action, "success": success, "risk_score": risk_score}
         )
+
+    # ------------------------------------------------------------------
+    def save(self, path: str) -> None:
+        """Serialise state to a JSON file at path."""
+        serialisable = {
+            f"{k[0]},{k[1]}": v for k, v in self._outcome_log.items()
+        }
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump({"outcome_log": serialisable}, fh)
+
+    # ------------------------------------------------------------------
+    @classmethod
+    def load(cls, path: str) -> "CognitiveMap":
+        """Deserialise from a JSON file at path.
+
+        Returns a new instance with restored state.
+        Returns a fresh instance if the file does not exist.
+        """
+        instance = cls()
+        try:
+            with open(path, encoding="utf-8") as fh:
+                data = json.load(fh)
+            for key_str, entries in data.get("outcome_log", {}).items():
+                row_s, col_s = key_str.split(",", 1)
+                instance._outcome_log[(int(row_s), int(col_s))] = entries
+        except FileNotFoundError:
+            pass
+        return instance
 
     # ------------------------------------------------------------------
     def suggest_action(self, query: Any, world: Any, fallback: str = "verify") -> str:

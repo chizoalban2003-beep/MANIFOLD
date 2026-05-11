@@ -1,5 +1,17 @@
 # MANIFOLD Integration Guide
 
+## Consumer quickstart — no code required
+
+1. Open `https://your-manifold-host/signup` in a browser
+2. Enter your email and organisation name
+3. Copy your API key (shown once)
+4. Go to `https://your-manifold-host/connect` for integration instructions
+5. Open `https://your-manifold-host/report` to see your governance dashboard
+
+That's it. Every AI call from your configured tools is now governed.
+
+---
+
 This guide shows how to connect your AI agent to MANIFOLD in three patterns.
 
 ---

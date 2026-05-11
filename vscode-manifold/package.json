@@ -1,0 +1,58 @@
+{
+  "name": "manifold-governance",
+  "displayName": "MANIFOLD AI Governance",
+  "description": "Govern every AI completion before it touches your code.",
+  "version": "1.6.0",
+  "publisher": "manifold-ai",
+  "engines": { "vscode": "^1.85.0" },
+  "categories": ["Other", "Machine Learning"],
+  "activationEvents": ["onStartupFinished"],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "manifold.checkSelection",
+        "title": "MANIFOLD: Check selected code for risk"
+      },
+      {
+        "command": "manifold.openDashboard",
+        "title": "MANIFOLD: Open governance dashboard"
+      }
+    ],
+    "configuration": {
+      "title": "MANIFOLD",
+      "properties": {
+        "manifold.serverUrl": {
+          "type": "string",
+          "default": "http://localhost:8080",
+          "description": "MANIFOLD server URL"
+        },
+        "manifold.apiKey": {
+          "type": "string",
+          "default": "",
+          "description": "Your MANIFOLD API key"
+        },
+        "manifold.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable governance checking"
+        },
+        "manifold.autoCheck": {
+          "type": "boolean",
+          "default": false,
+          "description": "Automatically check completions on save"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "package": "vsce package"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.85.0",
+    "@types/node": "^20.0.0",
+    "typescript": "^5.4.0"
+  }
+}
