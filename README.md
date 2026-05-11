@@ -1,6 +1,6 @@
 # Project MANIFOLD
 
-> **v1.5.3 | 2271 Tests Passing | Production Ready**
+> **v1.6.0 | 2360 Tests Passing | Production Ready**
 >
 > **The Trust Operating System for AI agents.**
 > MANIFOLD prices risk before the agent acts — detecting adversarial
@@ -8,7 +8,7 @@
 > calibrated penalty legislation from observed outcomes.
 
 [![CI](https://github.com/chizoalban2003-beep/MANIFOLD/actions/workflows/manifold-ci.yml/badge.svg)](https://github.com/chizoalban2003-beep/MANIFOLD/actions/workflows/manifold-ci.yml)
-[![Tests](https://img.shields.io/badge/tests-2271%2F2271-brightgreen)]()
+[![Tests](https://img.shields.io/badge/tests-2360%2F2360-brightgreen)]()
 [![Dashboard](https://img.shields.io/badge/dashboard-live%20%2Fdashboard-purple)]()
 [![Python](https://img.shields.io/badge/python-3.12%2B-blue)]()
 [![Zero deps](https://img.shields.io/badge/external%20deps-0-success)]()
@@ -85,6 +85,19 @@ Three numbers close the enterprise sale:
 | `virtual_regret_saved` | High-risk tasks MANIFOLD would have escalated that the naive agent auto-resolved |
 | `gossip_inoculation_speed` | Tasks until all agents routed around the failing tool after its first failure |
 | `hitl_escalations` | Decisions where risk × stakes exceeded threshold and demanded human review |
+
+---
+
+## What's new in v1.6.0
+
+| Feature | Description |
+|---------|-------------|
+| **Brain persistence** | CognitiveMap, ToolCooccurrenceGraph, PredictiveBrain, MemoryConsolidator save on exit and reload on startup |
+| **Agent command channel** | `queue_command`/`poll_commands` in `AgentRegistry`; `GET /agents/{id}/commands` + `POST /agents/{id}/command` |
+| **ManifoldAgentSDK** | `manifold/sdk.py` — stdlib-only drop-in SDK: register, heartbeat, command polling |
+| **PolicyRuleEngine** | `manifold/policy_rules.py` — if/then rules with priority, save/load, pipeline integration; `GET /rules`, `POST /rules`, `DELETE /rules/{id}` |
+| **Federation** | `GET /federation/status`, `POST /federation/join`, `POST /federation/gossip`; background org-sync thread every 300 s |
+| **Isometric World** | `manifold-world/index.html` — CoC-quality 16×16 PWA game world with 6 agents, real economy, WebSocket live data |
 
 ---
 
@@ -705,40 +718,100 @@ penalties dwarf checking costs.
 ## Repository layout
 
 ```text
-deploy_shadow.py        Trust Audit V2 CLI — feeds real or synthetic logs through all 12 phases
-app.py                  Streamlit dashboard (Shadow Mode + all earlier engines)
+deploy_shadow.py        Trust Audit CLI — feeds real or synthetic logs through the full pipeline
+app.py                  Streamlit dashboard (Shadow Mode + all engines)
 pyproject.toml          Package config — install with: pip install -e ".[ui]"
 scripts/
   deploy_oracle.sh      POSIX deploy script: Python 3.12 check, PYTHONPATH, starts server.py
+  validate_encoder.py   Offline encoder validation utility
+manifold-world/
+  index.html            CoC-quality isometric PWA game world (WebSocket + REST client)
+manifold-ts/            TypeScript SDK (ShadowModeWrapper, encoder types, shadow.ts)
+vscode-manifold/        VS Code extension scaffold for MANIFOLD integration
 manifold/
   __main__.py           CLI entry point
-  cli.py                CLI modes for social and path engines
-  brain.py              Phase 1-3: ManifoldBrain, HierarchicalBrain, BrainTask
-  encoder.py            Phase 4-5: PromptEncoder, DualPathEncoder, SemanticBridge
-  transfer.py           Phase 6: ReputationRegistry, WarmStartConfig
-  server.py             Phase 7+25: Zero-dep HTTP daemon; GET /dashboard (live fleet UI)
-  connector.py          Phase 8: ToolConnector, ConnectorRegistry, ShadowModeWrapper
-  hitl.py               Phase 9: HITLGate, TeacherSpike, HITLConfig
-  federation.py         Phase 10: FederatedGossipBridge, GlobalReputationLedger
-  adversarial.py        Phase 11: AdversarialPricingDetector, NashEquilibriumGate
-  autodiscovery.py      Phase 12: AutoRuleDiscovery, PenaltyOptimizer, PolicySynthesizer
-  interceptor.py        Phase 13: ActiveInterceptor, @shield
-  hub.py                Phase 15: CommunityBaseline, ReputationHub
-  recruiter.py          Phase 17: SovereignRecruiter, MarketplaceListing
-  policy.py             Phase 18: ManifoldPolicy, PolicyDomain, DOMAIN_TEMPLATES
-  gitops.py             Phase 19: ManifoldCICheck, CIRiskReport, generate_github_action
-  b2b.py                Phase 20: B2BRouter, AgentEconomyLedger, EconomyEntry
-  crypto.py             Phase 21: PolicySigningKey, OrgPolicySigner, GossipSigner
-  fleet.py              Phase 22: CIBuildHistory, B2BEconomySnapshot, FleetPanelRenderer
-  polyglot.py           Phase 23: ManifoldOpenAPISpec, spec_to_json, spec_to_yaml
-  vault.py              Phase 24: ManifoldVault — thread-safe WAL + state recovery
-  gridmapper.py         Reusable problem-to-grid optimizer
+  cli.py                CLI modes: social, path, brain, trustrouter, brainbench, research, etc.
+  pipeline.py           ManifoldPipeline — 6-module integration (brain→interceptor→hitl→…)
+  sdk.py                ManifoldAgentSDK — stdlib-only SDK for agent processes
+  server.py             Zero-dep HTTP daemon — 40+ REST endpoints, WebSocket (/ws)
+
+  # Core decision layer
+  brain.py              ManifoldBrain, HierarchicalBrain, BrainTask, LearnedPrices
+  live.py               LiveBrain, HierarchicalLiveBrain, GossipBus
+  connector.py          ToolConnector, ConnectorRegistry, ShadowModeWrapper, VirtualRegret
+  interceptor.py        ActiveInterceptor, @shield decorator
+  hitl.py               HITLGate, TeacherSpike, HITLConfig (human-in-the-loop)
+  worker.py             ManifoldWorker (background task runner)
+
+  # Encoding & cognition
+  encoder.py            PromptEncoder, DualPathEncoder, SemanticBridge
+  encoder_v2.py         EncodedTask, encode_prompt, encoder_backend (sentence-transformers fallback)
+  encoders/             encode_any, TimeSeriesEncoder, StructuredEncoder package
+  cognitive_map.py      CognitiveMap — persistent spatial task memory
+  predictor.py          PredictiveBrain — outcome forecasting
+  consolidator.py       MemoryConsolidator, ConsolidatedRule
+  workspace.py          GlobalWorkspace — broadcast/competition across modules
+  cooccurrence.py       ToolCooccurrenceGraph — tool-pair usage tracking
+
+  # Trust, reputation & federation
+  transfer.py           ReputationRegistry, WarmStartConfig, warm_start_memory
+  federation.py         FederatedGossipBridge, GlobalReputationLedger, OrgReputationSnapshot
+  adversarial.py        AdversarialPricingDetector, NashEquilibriumGate, ReputationLaunderingDetector
+  trust_network/        ToolRegistration, TrustSignal, AgentTrustScore, ATSRegistry
+  hub.py                CommunityBaseline, ReputationHub
+  multiagent.py         AgentMessage, AgentPairTrust, MultiAgentBridge
+  anomaly.py            ToolBehaviourWindow, ManifoldAnomalyDetector
+
+  # Agents & orchestration
+  agent_registry.py     AgentRegistry — registration, heartbeat, pause/resume, command channel
+  task_router.py        TaskRouter — Mode 3 intelligent task dispatch
+  monitor.py            AgentMonitor — health tracking
+  recruiter.py          SovereignRecruiter, MarketplaceListing
+
+  # Policy & rules
+  policy.py             ManifoldPolicy, PolicyDomain, DOMAIN_TEMPLATES (healthcare/finance/devops/…)
+  policy_rules.py       PolicyRule, PolicyRuleEngine — if/then rules with priority + save/load
+  autodiscovery.py      AutoRuleDiscovery, PenaltyOptimizer, PolicySynthesizer
+  verify.py             PolicyVerifier, PolicyConflict, VerificationResult
+  privacy.py            PrivacyConfig, PrivacyGuard
+
+  # Auth, multi-tenancy & crypto
+  auth.py               ManifoldAuth — bearer-token authentication
+  orgs.py               OrgRegistry, OrgConfig, OrgRole, RBAC (HMAC-SHA256 key hashing)
+  crypto.py             PolicySigningKey, OrgPolicySigner, GossipSigner, ZKP-ready signing
+  zkp.py                ZKProof, ZKPVerifier, PolicyCommitment
+  multisig.py           Multi-signature endorsement
+
+  # Persistence & data
+  db.py                 ManifoldDB — async SQLite/Postgres with WAL
+  vault.py              ManifoldVault — thread-safe WAL + state recovery
+  vectorfs.py           Vector file system for embedding storage
+
+  # Infrastructure & deployment
+  gitops.py             ManifoldCICheck, CIRiskReport, generate_github_action
+  b2b.py                B2BRouter, AgentEconomyLedger, EconomyEntry, PolicyHandshake
+  fleet.py              CIBuildHistory, B2BEconomySnapshot, FleetPanelRenderer
+  polyglot.py           ManifoldOpenAPISpec, spec_to_json, spec_to_yaml
+  domains/              7 domain packs: healthcare, finance, devops, legal, infrastructure, trading, supply_chain
+
+  # Advanced phases
+  temporal.py           Phase 63: StateForker, ParallelTimeline, TimelineCollapse
+  rosetta.py            Phase 64: ForeignPayloadIngress, EgressTranslator (cross-framework adapter)
+  singularity.py        Phase 65: ASTMutator, SandboxedTestRunner (recursive self-optimisation)
+  mapreduce.py          Phase 60: MapReduceJob, SwarmAggregator, ChunkDistributor
+  registry.py           Phase 62: SwarmRegistry, ToolManifest, ToolEndorsement
+  replay.py             Phase 36: StateRehydrator, VirtualExecution, ReplayReport
+  dag.py                DAG execution engine
+  sandbox.py            Sandboxed code execution
+  calibrator.py         Domain calibration + calibration_report
   simulation.py         Path/teacher MANIFOLD engine
-  social.py             31x31 social-intelligence engine
-tests/                  775 tests covering all 25 phases
+  social.py             31×31 social-intelligence engine
+  gridmapper.py         Reusable problem-to-grid optimizer
+
+tests/                  2360 tests across 101 test files covering all phases
 ```
 
-### Live HTTP Oracle Server (Phase 25)
+### Live HTTP Oracle Server
 
 ```bash
 # Start the server (requires Python 3.12+)
@@ -752,14 +825,70 @@ Endpoints:
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET` | `/dashboard` | Live fleet dashboard (HTML, Tailwind CSS, no JS libs) |
+| `GET` | `/` | Landing page (HTML) |
+| `GET` | `/signup` | Sign-up page |
+| `POST` | `/signup` | Create account |
+| `GET` | `/connect` | Connection info |
+| `GET` | `/dashboard` | Live fleet dashboard |
+| `GET` | `/admin` | Admin overview |
+| `GET` | `/admin/metrics` | Admin metrics |
+| `GET` | `/report` | HTML governance report (Chart.js, 30 s auto-refresh) |
+| `GET` | `/digest` | JSON governance digest (`?period=7d`) |
 | `GET` | `/policy` | Active `ManifoldPolicy` as JSON |
-| `GET` | `/reputation/<id>` | Agent reliability score from `ReputationHub` |
+| `GET` | `/metrics` | Prometheus-format counters |
+| `GET` | `/learned` | Brain persistence status (cognitive_map, cooccurrence, …) |
+| `GET` | `/brain/state` | Brain persistence file status |
+| `GET` | `/agents` | List registered agents |
+| `GET` | `/agents/{id}/commands` | Long-poll command queue for an agent |
+| `GET` | `/rules` | List active `PolicyRule` entries |
+| `GET` | `/federation/status` | Federation health and org list |
+| `GET` | `/world` | Serve `manifold-world/index.html` |
+| `GET` | `/world/manifest.json` | PWA manifest |
+| `GET` | `/ws` | WebSocket (agent_update / world_stats events) |
+| `GET` | `/v1/models` | OpenAI-compatible model list |
+| `GET` | `/feed` | Event feed |
+| `GET` | `/docs` | Auto-generated API docs |
+| `GET` | `/gc/run` | Trigger garbage collection |
+| `GET` | `/doctor/report` | System health report |
+| `GET` | `/registry/list` | List registry entries |
+| `GET` | `/ats/leaderboard` | Agent Trust Score leaderboard |
 | `POST` | `/shield` | Run a `BrainTask` through the `@shield` interceptor |
+| `POST` | `/run` | Authenticated task execution |
 | `POST` | `/b2b/handshake` | B2B policy handshake via `B2BRouter` |
 | `POST` | `/recruit` | Sovereign Recruiter — discover and register tools |
+| `POST` | `/orgs` | Create organisation |
+| `POST` | `/orgs/{id}/keys` | Issue org API key |
+| `POST` | `/orgs/{id}/policy` | Update org policy |
+| `POST` | `/agents/register` | Register a new agent |
+| `POST` | `/agents/{id}/heartbeat` | Agent heartbeat |
+| `POST` | `/agents/{id}/pause` | Pause agent |
+| `POST` | `/agents/{id}/resume` | Resume agent |
+| `POST` | `/agents/{id}/command` | Queue a command for an agent |
+| `POST` | `/task` | Route a task via `TaskRouter` |
+| `POST` | `/rules` | Create a `PolicyRule` |
+| `POST` | `/federation/join` | Join a federation |
+| `POST` | `/federation/gossip` | Receive gossip from federation peer |
+| `POST` | `/v1/chat/completions` | OpenAI-compatible chat completions gateway |
+| `POST` | `/verify_policy` | Formal policy verification |
+| `POST` | `/dag/execute` | Execute a DAG |
+| `POST` | `/multisig/endorse` | Multi-signature endorsement |
+| `POST` | `/sandbox/execute` | Sandboxed code execution |
+| `POST` | `/vector/add` | Add vector embedding |
+| `POST` | `/vector/search` | Nearest-neighbour vector search |
+| `POST` | `/meta/outcome` | Record task outcome for meta-learning |
+| `POST` | `/mapreduce/submit` | Submit a MapReduce job |
+| `POST` | `/registry/publish` | Publish tool to SwarmRegistry |
+| `POST` | `/registry/endorse` | Endorse a registry entry |
+| `POST` | `/zkp/prove` | Generate a zero-knowledge proof |
+| `POST` | `/zkp/verify` | Verify a zero-knowledge proof |
+| `POST` | `/rosetta/ingress` | Ingest foreign-framework payload |
+| `POST` | `/temporal/fork` | Fork a parallel timeline |
+| `POST` | `/ats/register` | Register tool with Agent Trust Score |
+| `POST` | `/ats/signal` | Submit trust signal |
+| `POST` | `/system/shutdown` | Graceful shutdown |
+| `DELETE` | `/rules/{id}` | Delete a `PolicyRule` |
 
-The server replays the Phase 24 **Write-Ahead Log** on startup to restore gossip and economy state across restarts.
+The server replays the **Write-Ahead Log** on startup to restore gossip and economy state across restarts.
 
 ## Why the name still fits
 
