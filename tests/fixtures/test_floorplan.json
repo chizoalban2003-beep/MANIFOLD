@@ -1,0 +1,34 @@
+{
+  "name": "TestHome",
+  "width": 10,
+  "depth": 10,
+  "height": 3,
+  "rooms": [
+    {
+      "name": "Kitchen",
+      "bounds": {"x": [0, 4], "y": [0, 4], "z": [0, 3]},
+      "crna": {"c": 0.3, "r": 0.6, "n": 0.2, "a": 0.8},
+      "tags": ["high_risk_appliances"]
+    },
+    {
+      "name": "Baby Room",
+      "bounds": {"x": [5, 8], "y": [5, 8], "z": [0, 3]},
+      "crna": {"c": 0.2, "r": 0.95, "n": 0.1, "a": 0.7},
+      "tags": ["restricted_hours_2200_0700", "human_present"]
+    }
+  ],
+  "obstacles": [
+    {
+      "type": "wall",
+      "bounds": {"x": [4, 5], "y": [0, 10], "z": [0, 3]},
+      "crna": {"c": 1.0, "r": 0.0, "n": 0.0, "a": 0.0}
+    }
+  ],
+  "paths": [
+    {
+      "name": "Main corridor",
+      "bounds": {"x": [4, 6], "y": [0, 10], "z": [0, 1]},
+      "crna": {"c": 0.1, "r": 0.1, "n": 0.05, "a": 0.0}
+    }
+  ]
+}
