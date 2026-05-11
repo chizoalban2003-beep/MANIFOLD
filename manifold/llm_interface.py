@@ -225,7 +225,7 @@ class ManifoldLLM:
             return data["choices"][0]["message"]["content"]
         except Exception as exc:  # noqa: BLE001
             logging.error("ManifoldLLM._call_model error: %s", exc)
-            return f"[LLM unavailable: {exc}]\nMANIFOLD_ACTION_START\n{{\"type\": \"none\"}}\nMANIFOLD_ACTION_END"
+            return "[LLM unavailable — check server logs]\nMANIFOLD_ACTION_START\n{\"type\": \"none\"}\nMANIFOLD_ACTION_END"
 
     def _parse_response(self, raw: str) -> LLMResponse:
         """Extract plain-text and MANIFOLD_ACTION block from the raw response."""

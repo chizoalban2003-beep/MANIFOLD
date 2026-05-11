@@ -315,8 +315,9 @@ class DocumentIngester:
     @staticmethod
     def _strip_html(html: str) -> str:
         """Remove HTML tags and normalise whitespace."""
-        text = re.sub(r"<style[^>]*>.*?</style>", "", html, flags=re.DOTALL | re.IGNORECASE)
-        text = re.sub(r"<script[^>]*>.*?</script>", "", text, flags=re.DOTALL | re.IGNORECASE)
+        # Use permissive patterns that match optional whitespace before closing >
+        text = re.sub(r"<style[\s>][^<]*</style\s*>", "", html, flags=re.DOTALL | re.IGNORECASE)
+        text = re.sub(r"<script[\s>][^<]*</script\s*>", "", text, flags=re.DOTALL | re.IGNORECASE)
         text = re.sub(r"<[^>]+>", " ", text)
         text = re.sub(r"&amp;", "&", text)
         text = re.sub(r"&lt;", "<", text)
