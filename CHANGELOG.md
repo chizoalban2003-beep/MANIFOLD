@@ -1,5 +1,26 @@
 # Changelog
 
+## [1.7.0] — 2026-05-11
+
+### Added — Real-Time Obstacle Handling + NERVATURA Engine
+- `manifold/cell_update_bus.py` — `CellUpdateBus` pub/sub for live CRNA cell updates
+- `manifold/dynamic_grid.py` — `DynamicGrid`: real-time CRNA overlay with TTL overrides
+- `manifold/health_monitor.py` — `DigitalHealthMonitor`: live API/tool health → cell updates
+- `manifold/planner.py` — `CRNAPlanner`: A* path planning in CRNA space with obstacle avoidance
+- `manifold/nervatura_world.py` — `NERVATURAWorld`: full 3-D CRNA voxel grid engine
+- `manifold_physical/space_ingestion.py` — floor plan JSON → CRNA grid population
+- `manifold_physical/sensor_bridge.py` — physical sensor/robot events → CellUpdateBus
+- `GET /realtime/status` — live bus, grid, health, planner status
+- `GET /plan` — CRNA path planning endpoint
+- `GET /health/tools` — live tool health summary
+- `GET /nervatura/world` + `POST /nervatura/world/init` — world engine endpoints
+- 35 new tests across 8 new test modules (all pass)
+- Integration tests: obstacle blocks path, rate-limit raises C, obstacle clears
+
+### Fixed
+- `pyproject.toml`: removed deprecated `License :: OSI Approved :: MIT License` classifier
+  that prevented `pip install -e .` on setuptools ≥ 76
+
 ## [1.6.0] — 2026-05-11
 
 ### Fixed

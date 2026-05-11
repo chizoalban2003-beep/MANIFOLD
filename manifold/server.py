@@ -107,6 +107,11 @@ from .predictor import PredictiveBrain
 from .consolidator import MemoryConsolidator
 from .policy_rules import PolicyRule, PolicyRuleEngine
 from .federation import FederatedGossipBridge
+from .cell_update_bus import get_bus as _get_bus
+from .dynamic_grid import get_grid as _get_grid
+from .health_monitor import DigitalHealthMonitor as _DigitalHealthMonitor
+from .planner import CRNAPlanner as _CRNAPlanner
+from .nervatura_world import NERVATURAWorld as _NERVATURAWorld
 
 
 # ---------------------------------------------------------------------------
@@ -438,6 +443,12 @@ _TOOL_REGISTRY = SwarmRegistry(event_bus=_EVENT_BUS)
 _ROSETTA_INGRESS = ForeignPayloadIngress()
 _ROSETTA_EGRESS = EgressTranslator()
 
+# v1.7.0: Real-Time Layer singletons
+_DYNAMIC_GRID = _get_grid()          # auto-subscribes to CellUpdateBus
+_HEALTH_MONITOR = _DigitalHealthMonitor()
+_PLANNER = _CRNAPlanner()
+_NERVATURA: "_NERVATURAWorld | None" = None  # initialised via POST /nervatura/world/init
+
 # Thread lock guarding mutable singletons during parallel requests
 _LOCK = threading.Lock()
 
@@ -665,6 +676,26 @@ class ManifoldHandler(BaseHTTPRequestHandler):
                 self._handle_get_federation_status()
                 return
 
+            # GET /realtime/status  (v1.7.0 real-time bus/grid/health/planner)
+            if path == "/realtime/status":
+                self._handle_get_realtime_status()
+                return
+
+            # GET /health/tools  (live tool health summary)
+            if path == "/health/tools":
+                self._handle_get_health_tools()
+                return
+
+            # GET /plan  (CRNA A* path planning)
+            if path == "/plan":
+                self._handle_get_plan()
+                return
+
+            # GET /nervatura/world  (NERVATURAWorld summary)
+            if path == "/nervatura/world":
+                self._handle_get_nervatura_world()
+                return
+
             _send_error(self, 404, f"No route for GET {self.path}")
         except Exception as exc:  # noqa: BLE001
             _send_error(self, 500, str(exc))
@@ -780,6 +811,11 @@ class ManifoldHandler(BaseHTTPRequestHandler):
                 self._handle_post_federation_gossip(body)
             elif path == "/task":
                 self._handle_post_task(body)
+            elif path == "/nervatura/world/init":
+                _authed2, _caller2 = _check_auth(self, path)
+                if not _authed2:
+                    return
+                self._handle_post_nervatura_world_init(body)
             else:
                 _send_error(self, 404, f"No route for POST {self.path}")
         except Exception as exc:  # noqa: BLE001
@@ -4054,6 +4090,95 @@ ManifoldHandler._handle_post_federation_join = _handle_post_federation_join  # t
 ManifoldHandler._handle_post_federation_gossip = _handle_post_federation_gossip  # type: ignore[attr-defined]
 
 
+# ---------------------------------------------------------------------------
+# v1.7.0 — Real-Time Layer handlers
+# ---------------------------------------------------------------------------
+
+
+def _handle_get_realtime_status(self: "ManifoldHandler") -> None:
+    """GET /realtime/status — live bus, grid, health, planner status."""
+    global _NERVATURA  # noqa: PLW0603
+    bus = _get_bus()
+    try:
+        _send_json(self, 200, {
+            "bus_recent_updates": len(bus.recent()),
+            "dynamic_grid_cells": len(_DYNAMIC_GRID.all_cells()),
+            "health_monitor": _HEALTH_MONITOR.status(),
+            "planner_ready": True,
+            "nervatura_world": _NERVATURA.summary() if _NERVATURA is not None else None,
+        })
+    except Exception as exc:  # noqa: BLE001
+        _send_json(self, 500, {"error": str(exc)})
+
+
+def _handle_get_health_tools(self: "ManifoldHandler") -> None:
+    """GET /health/tools — live tool health summary (public)."""
+    try:
+        _send_json(self, 200, _HEALTH_MONITOR.status())
+    except Exception as exc:  # noqa: BLE001
+        _send_json(self, 500, {"error": str(exc)})
+
+
+def _handle_get_plan(self: "ManifoldHandler") -> None:
+    """GET /plan — CRNA A* path planning."""
+    import urllib.parse as _up
+    try:
+        qs = _up.parse_qs(self.path.split("?", 1)[1] if "?" in self.path else "")
+
+        def _parse_coord(key: str, default: list) -> tuple:
+            raw = qs.get(key, [None])[0]
+            if raw:
+                parts = [int(x) for x in raw.split(",")]
+                return tuple(parts)
+            return tuple(default)
+
+        start = _parse_coord("start", [0, 0, 0])
+        target = _parse_coord("target", [5, 5, 0])
+        risk_budget = float(qs.get("risk_budget", ["0.7"])[0])
+        result = _PLANNER.plan(start=start, target=target, risk_budget=risk_budget)
+        _send_json(self, 200, result)
+    except Exception as exc:  # noqa: BLE001
+        _send_json(self, 500, {"error": str(exc)})
+
+
+def _handle_get_nervatura_world(self: "ManifoldHandler") -> None:
+    """GET /nervatura/world — NERVATURAWorld summary."""
+    global _NERVATURA  # noqa: PLW0603
+    try:
+        if _NERVATURA is None:
+            _send_json(self, 200, {"status": "not_initialised",
+                                   "hint": "POST /nervatura/world/init to create a world"})
+        else:
+            _send_json(self, 200, _NERVATURA.summary())
+    except Exception as exc:  # noqa: BLE001
+        _send_json(self, 500, {"error": str(exc)})
+
+
+def _handle_post_nervatura_world_init(self: "ManifoldHandler", body: dict) -> None:
+    """POST /nervatura/world/init — initialise NERVATURAWorld singleton."""
+    global _NERVATURA  # noqa: PLW0603
+    try:
+        width = int(body.get("width", 20))
+        depth = int(body.get("depth", 20))
+        height = int(body.get("height", 5))
+        domain = str(body.get("domain", "general"))
+        _NERVATURA = _NERVATURAWorld(width=width, depth=depth, height=height)
+        _send_json(self, 200, {
+            "status": "ok",
+            "domain": domain,
+            **_NERVATURA.summary(),
+        })
+    except Exception as exc:  # noqa: BLE001
+        _send_json(self, 500, {"error": str(exc)})
+
+
+ManifoldHandler._handle_get_realtime_status = _handle_get_realtime_status  # type: ignore[attr-defined]
+ManifoldHandler._handle_get_health_tools = _handle_get_health_tools  # type: ignore[attr-defined]
+ManifoldHandler._handle_get_plan = _handle_get_plan  # type: ignore[attr-defined]
+ManifoldHandler._handle_get_nervatura_world = _handle_get_nervatura_world  # type: ignore[attr-defined]
+ManifoldHandler._handle_post_nervatura_world_init = _handle_post_nervatura_world_init  # type: ignore[attr-defined]
+
+
 def run_server(port: int = 8080, *, host: str = "0.0.0.0") -> None:
     """Start the MANIFOLD HTTP server and block until interrupted.
 
@@ -4104,6 +4229,9 @@ def run_server(port: int = 8080, *, host: str = "0.0.0.0") -> None:
 
     # Start agent monitor
     _AGENT_MONITOR.start()
+
+    # Start real-time health monitor (v1.7.0)
+    _HEALTH_MONITOR.start()
 
     # Start federation background sync thread (every 300 seconds)
     def _federation_sync_loop() -> None:
