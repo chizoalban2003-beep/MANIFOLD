@@ -1,0 +1,5 @@
+Governance Policy Document
+
+1. All patient health records must be protected.  Any AI operation touching PHI requires approval.
+2. Financial statements require a second review before sending.
+3. Deployment to production must be audited.

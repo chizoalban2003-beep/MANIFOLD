@@ -52,7 +52,7 @@ body{background:#07080f;overflow:hidden;font-family:'Share Tech Mono',monospace;
 <body>
 <canvas id="game-canvas"></canvas>
 <div id="hud-top">
-  <span id="hud-title">◈ MANIFOLD v1.6.0 • World</span>
+  <span id="hud-title">◈ MANIFOLD v1.9.0 • World</span>
   <div id="hud-resources">
     <div class="res-bar"><span>💰</span><div class="res-track"><div class="res-fill" id="rb-finance" style="background:#c87820"></div></div><span id="rv-finance">60</span></div>
     <div class="res-bar"><span>⚙</span><div class="res-track"><div class="res-fill" id="rb-compute" style="background:#185FA5"></div></div><span id="rv-compute">45</span></div>
@@ -61,14 +61,35 @@ body{background:#07080f;overflow:hidden;font-family:'Share Tech Mono',monospace;
     <div class="res-bar"><span>⚡</span><div class="res-track"><div class="res-fill" id="rb-energy" style="background:#8050C8"></div></div><span id="rv-energy">50</span></div>
   </div>
   <div id="hud-health">
-    <span>��</span>
+    <span>💗</span>
     <div id="hud-health-track"><div id="hud-health-fill"></div></div>
     <span id="hud-health-val">100%</span>
   </div>
+  <!-- Plus button — open ingestion panel -->
+  <button id="btn-ingest" onclick="openIngestPanel()" title="Upload file, URL, or type instruction" style="pointer-events:auto;background:#1a1a2e;border:1px solid #AFA9EC44;color:#AFA9EC;width:28px;height:28px;border-radius:50%;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;line-height:1" aria-label="Upload to MANIFOLD">＋</button>
+  <!-- Mic button — voice ingestion -->
+  <button id="btn-mic" onclick="toggleMic()" title="Voice instruction" style="pointer-events:auto;background:#1a1a2e;border:1px solid #AFA9EC44;color:#AFA9EC;width:28px;height:28px;border-radius:50%;font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;line-height:1" aria-label="Voice instruction">🎤</button>
 </div>
 <div id="hud-bottom">◈ MANIFOLD World</div>
 
 <!-- PANELS -->
+<!-- Ingestion panel (ML7 plus button) -->
+<div class="panel-overlay" id="panel-ingest" style="display:none">
+  <div class="panel-box" style="max-width:380px">
+    <h2 style="margin-top:0">📥 Ingest to MANIFOLD</h2>
+    <p style="font-size:10px;color:#888;margin:0 0 12px">Upload a file, paste a URL, or type an instruction to extract governance policies.</p>
+    <div style="display:flex;flex-direction:column;gap:10px">
+      <button class="panel-btn" onclick="ingestByUrl()" style="background:#1a1a3a;border:1px solid #AFA9EC33;color:#AFA9EC;padding:10px;border-radius:6px;cursor:pointer;text-align:left;font-size:11px">🔗 Paste URL<br><span style="color:#666;font-size:9px">Fetch a webpage and extract policies</span></button>
+      <button class="panel-btn" onclick="ingestByText()" style="background:#1a1a3a;border:1px solid #AFA9EC33;color:#AFA9EC;padding:10px;border-radius:6px;cursor:pointer;text-align:left;font-size:11px">✏️ Type instruction<br><span style="color:#666;font-size:9px">Convert plain text to MANIFOLD rules</span></button>
+    </div>
+    <div id="ingest-input-area" style="margin-top:12px;display:none">
+      <textarea id="ingest-input" rows="4" placeholder="Enter URL or governance instruction..." style="width:100%;box-sizing:border-box;background:#0a0a1a;color:#CCC;border:1px solid #333;border-radius:4px;padding:8px;font-size:11px;resize:vertical"></textarea>
+      <button onclick="submitIngest()" style="margin-top:6px;width:100%;background:#534AB7;color:#fff;border:none;border-radius:4px;padding:8px;cursor:pointer;font-size:11px">Submit →</button>
+    </div>
+    <div id="ingest-result" style="margin-top:10px;font-size:10px;color:#AFA9EC;display:none"></div>
+    <button onclick="closeIngestPanel()" style="margin-top:14px;background:none;border:none;color:#666;cursor:pointer;font-size:10px">✕ Close</button>
+  </div>
+</div>
 <div class="panel-overlay" id="panel-agent">
   <div class="panel-box">
     <h2 id="pa-name">Agent</h2>
@@ -1236,6 +1257,92 @@ if(localStorage.getItem('manifold_key')!==null){
   connectWS();
 }
 requestAnimationFrame(gameLoop);
+
+// ---------------------------------------------------------------------------
+// Ingestion panel (ML7) — plus button + mic button
+// ---------------------------------------------------------------------------
+let _ingestMode='text';
+let _micRecorder=null; let _micChunks=[];
+
+function openIngestPanel(){
+  document.getElementById('panel-ingest').style.display='flex';
+  document.getElementById('ingest-input-area').style.display='none';
+  document.getElementById('ingest-result').style.display='none';
+}
+function closeIngestPanel(){
+  document.getElementById('panel-ingest').style.display='none';
+}
+function ingestByUrl(){
+  _ingestMode='url';
+  document.getElementById('ingest-input').placeholder='https://example.com/policy.html';
+  document.getElementById('ingest-input-area').style.display='block';
+}
+function ingestByText(){
+  _ingestMode='text';
+  document.getElementById('ingest-input').placeholder='e.g. "Never allow the AI to access patient records without approval."';
+  document.getElementById('ingest-input-area').style.display='block';
+}
+async function submitIngest(){
+  const val=document.getElementById('ingest-input').value.trim();
+  if(!val){showToast('Please enter a URL or instruction.','#E24B4A');return;}
+  const body=_ingestMode==='url'?{url:val}:{text:val};
+  const apiBase=(localStorage.getItem('manifold_url')||'').replace(/\/$/,'');
+  const apiKey=localStorage.getItem('manifold_key')||'';
+  try{
+    const resp=await fetch((apiBase||'')+'/ingest',{
+      method:'POST',
+      headers:{'Content-Type':'application/json','Authorization':'Bearer '+apiKey},
+      body:JSON.stringify(body)
+    });
+    const data=await resp.json();
+    const extracted=data.items_extracted||0;
+    const applied=data.applied||0;
+    document.getElementById('ingest-result').style.display='block';
+    document.getElementById('ingest-result').textContent=
+      '✓ Extracted '+extracted+' rule'+(extracted===1?'':'s')+', applied '+applied+'.';
+    showToast('Ingested '+extracted+' governance rule'+(extracted===1?'':'s'),'#1D9E75');
+  }catch(e){
+    showToast('Ingest failed: '+e.message,'#E24B4A');
+  }
+}
+
+// Mic button — record audio and POST to /ingest/audio
+async function toggleMic(){
+  const btn=document.getElementById('btn-mic');
+  if(_micRecorder&&_micRecorder.state==='recording'){
+    _micRecorder.stop();
+    btn.style.color='#AFA9EC';
+    return;
+  }
+  if(!navigator.mediaDevices){showToast('Microphone not available','#E24B4A');return;}
+  try{
+    const stream=await navigator.mediaDevices.getUserMedia({audio:true});
+    _micChunks=[];
+    _micRecorder=new MediaRecorder(stream);
+    _micRecorder.ondataavailable=e=>{if(e.data.size>0)_micChunks.push(e.data);};
+    _micRecorder.onstop=async()=>{
+      const blob=new Blob(_micChunks,{type:'audio/wav'});
+      const buf=await blob.arrayBuffer();
+      const b64=btoa(String.fromCharCode(...new Uint8Array(buf)));
+      const apiBase=(localStorage.getItem('manifold_url')||'').replace(/\/$/,'');
+      const apiKey=localStorage.getItem('manifold_key')||'';
+      try{
+        const resp=await fetch((apiBase||'')+'/ingest/audio',{
+          method:'POST',
+          headers:{'Content-Type':'application/json','Authorization':'Bearer '+apiKey},
+          body:JSON.stringify({audio_b64:b64,format:'wav'})
+        });
+        const data=await resp.json();
+        const extracted=data.policies_extracted||0;
+        showToast('Voice: extracted '+extracted+' governance rule'+(extracted===1?'':'s'),'#1D9E75');
+        if(data.transcript)showToast('"'+data.transcript.slice(0,60)+'"','#AFA9EC');
+      }catch(e){showToast('Audio ingest failed: '+e.message,'#E24B4A');}
+    };
+    _micRecorder.start();
+    btn.style.color='#E24B4A';
+    showToast('Recording… tap mic again to stop','#AFA9EC');
+  }catch(e){showToast('Mic error: '+e.message,'#E24B4A');}
+}
 </script>
 </body>
 </html>

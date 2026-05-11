@@ -706,6 +706,16 @@ class ManifoldHandler(BaseHTTPRequestHandler):
                 self._handle_get_physical_status()
                 return
 
+            # GET /llm/history  (last 20 LLM exchanges)
+            if path == "/llm/history":
+                self._handle_get_llm_history()
+                return
+
+            # GET /ingest/history  (last 20 ingestion events)
+            if path == "/ingest/history":
+                self._handle_get_ingest_history()
+                return
+
             _send_error(self, 404, f"No route for GET {self.path}")
         except Exception as exc:  # noqa: BLE001
             _send_error(self, 500, str(exc))
@@ -828,6 +838,18 @@ class ManifoldHandler(BaseHTTPRequestHandler):
                 self._handle_post_nervatura_world_init(body)
             elif path == "/physical/init":
                 self._handle_post_physical_init(body)
+            elif path == "/llm/chat":
+                self._handle_post_llm_chat(body)
+            elif path == "/rules/preset":
+                self._handle_post_rules_preset(body)
+            elif path == "/ingest/document":
+                self._handle_post_ingest_document(body)
+            elif path == "/ingest/image":
+                self._handle_post_ingest_image(body)
+            elif path == "/ingest/audio":
+                self._handle_post_ingest_audio(body)
+            elif path == "/ingest":
+                self._handle_post_ingest(body)
             else:
                 _send_error(self, 404, f"No route for POST {self.path}")
         except Exception as exc:  # noqa: BLE001
@@ -3209,7 +3231,7 @@ def _handle_get_report(self: "ManifoldHandler") -> None:
 # ---------------------------------------------------------------------------
 
 def _handle_get_digest(self: "ManifoldHandler") -> None:
-    """GET /digest?period=7d — structured JSON governance summary."""
+    """GET /digest?period=7d[&format=json|text] — governance summary."""
     from urllib.parse import parse_qs, urlparse
     from datetime import datetime as _dt
 
@@ -3218,6 +3240,23 @@ def _handle_get_digest(self: "ManifoldHandler") -> None:
         period = query.get("period", ["7d"])[0]
         if period not in ("24h", "7d", "30d"):
             period = "7d"
+        fmt = query.get("format", ["json"])[0].lower()
+
+        # Text format via GovernanceReporter
+        if fmt == "text":
+            try:
+                from manifold.governance_reporter import GovernanceReporter  # noqa: PLC0415
+                reporter = GovernanceReporter(pipeline=_pipeline, rule_engine=_RULE_ENGINE)
+                org_id = query.get("org_id", ["default"])[0]
+                text = reporter.weekly_digest(org_id=org_id)
+                self.send_response(200)
+                self.send_header("Content-Type", "text/plain; charset=utf-8")
+                self.end_headers()
+                self.wfile.write(text.encode())
+                return
+            except Exception as exc:  # noqa: BLE001
+                _send_error(self, 500, str(exc))
+                return
 
         stats = _collect_pipeline_stats()
         pipeline = _pipeline
@@ -4260,6 +4299,179 @@ def _handle_post_physical_init(self: "ManifoldHandler", body: dict) -> None:
 ManifoldHandler._handle_get_physical_cameras = _handle_get_physical_cameras  # type: ignore[attr-defined]
 ManifoldHandler._handle_get_physical_status = _handle_get_physical_status  # type: ignore[attr-defined]
 ManifoldHandler._handle_post_physical_init = _handle_post_physical_init  # type: ignore[attr-defined]
+
+
+# ---------------------------------------------------------------------------
+# ML layer — LLM interface, policy translator, governance reporter, ingestion
+# ---------------------------------------------------------------------------
+
+def _handle_get_llm_history(self: "ManifoldHandler") -> None:
+    """GET /llm/history — last 20 LLM chat exchanges."""
+    from manifold.llm_interface import get_llm_history  # noqa: PLC0415
+    _send_json(self, 200, {"history": get_llm_history()})
+
+
+def _handle_post_llm_chat(self: "ManifoldHandler", body: dict) -> None:
+    """POST /llm/chat — send a natural language message to MANIFOLD governance AI."""
+    message = body.get("message") or body.get("user_message") or ""
+    if not message:
+        _send_error(self, 400, "Body must include a 'message' field.")
+        return
+    org_id = body.get("org_id", "default")
+    model_endpoint = body.get("model_endpoint", "http://localhost:8080/v1/chat/completions")
+    api_key = body.get("api_key", "")
+    model = body.get("model", "gpt-4o")
+
+    from manifold.llm_interface import ManifoldLLM  # noqa: PLC0415
+    llm = ManifoldLLM(
+        org_id=org_id,
+        model_endpoint=model_endpoint,
+        api_key=api_key,
+        model=model,
+    )
+    response = llm.chat(message)
+    llm.apply_response(response)
+    _send_json(self, 200, {
+        "reply": response.plain_text,
+        "action_type": response.action_type,
+        "action_payload": response.action_payload,
+        "applied": response.applied,
+        "apply_error": response.apply_error,
+    })
+
+
+def _handle_post_rules_preset(self: "ManifoldHandler", body: dict) -> None:
+    """POST /rules/preset — apply a compliance preset (hipaa/gdpr/sox/iso27001)."""
+    preset = body.get("preset") or body.get("name") or ""
+    if not preset:
+        _send_error(self, 400, "Body must include a 'preset' field.")
+        return
+    org_id = body.get("org_id", "default")
+    from manifold.policy_translator import PolicyTranslator  # noqa: PLC0415
+    try:
+        rules = PolicyTranslator.apply_preset(preset, org_id=org_id)
+    except ValueError as exc:
+        _send_error(self, 400, str(exc))
+        return
+    applied = 0
+    for rule in rules:
+        try:
+            _RULE_ENGINE.add_rule(rule)
+            applied += 1
+        except Exception:  # noqa: BLE001
+            pass
+    _send_json(self, 200, {
+        "preset": preset,
+        "rules_applied": applied,
+        "rule_names": [r.name for r in rules],
+    })
+
+
+def _handle_post_ingest_document(self: "ManifoldHandler", body: dict) -> None:
+    """POST /ingest/document — ingest a URL or text body as governance document."""
+    from manifold.ingestion.document_ingester import DocumentIngester  # noqa: PLC0415
+    org_id = body.get("org_id", "default")
+    di = DocumentIngester(org_id=org_id, apply_rules=True)
+    url = body.get("url") or body.get("source") or ""
+    text = body.get("text") or ""
+    if url:
+        result = di.ingest_url(url)
+    elif text:
+        result = di.ingest_text(text)
+    else:
+        _send_error(self, 400, "Body must include 'url' or 'text' field.")
+        return
+    _send_json(self, 200, result.to_dict())
+
+
+def _handle_post_ingest_image(self: "ManifoldHandler", body: dict) -> None:
+    """POST /ingest/image — ingest image bytes (base64-encoded)."""
+    from manifold.ingestion.image_ingester import ImageIngester  # noqa: PLC0415
+    import base64  # noqa: PLC0415
+    org_id = body.get("org_id", "default")
+    pipeline = body.get("pipeline", "auto")
+    ii = ImageIngester(
+        org_id=org_id,
+        model_endpoint=body.get("model_endpoint", "http://localhost:8080/v1/chat/completions"),
+        api_key=body.get("api_key", ""),
+    )
+    b64data = body.get("image_b64") or body.get("data") or ""
+    if not b64data:
+        _send_error(self, 400, "Body must include 'image_b64' field (base64-encoded image).")
+        return
+    try:
+        image_bytes = base64.b64decode(b64data)
+    except Exception as exc:  # noqa: BLE001
+        _send_error(self, 400, f"Invalid base64 data: {exc}")
+        return
+    result = ii.ingest(image_bytes, pipeline=pipeline)
+    _send_json(self, 200, result.to_dict())
+
+
+def _handle_post_ingest_audio(self: "ManifoldHandler", body: dict) -> None:
+    """POST /ingest/audio — ingest base64-encoded audio."""
+    from manifold.ingestion.audio_ingester import AudioIngester  # noqa: PLC0415
+    import base64  # noqa: PLC0415
+    org_id = body.get("org_id", "default")
+    ai = AudioIngester(
+        org_id=org_id,
+        model_endpoint=body.get("model_endpoint", "http://localhost:8080/v1/chat/completions"),
+        api_key=body.get("api_key", ""),
+        apply_rules=True,
+    )
+    b64data = body.get("audio_b64") or body.get("data") or ""
+    suffix = body.get("format", ".wav")
+    if not suffix.startswith("."):
+        suffix = f".{suffix}"
+    if not b64data:
+        _send_error(self, 400, "Body must include 'audio_b64' field (base64-encoded audio).")
+        return
+    try:
+        audio_bytes = base64.b64decode(b64data)
+    except Exception as exc:  # noqa: BLE001
+        _send_error(self, 400, f"Invalid base64 data: {exc}")
+        return
+    result = ai.ingest_bytes(audio_bytes, suffix=suffix)
+    _send_json(self, 200, result.to_dict())
+
+
+def _handle_post_ingest(self: "ManifoldHandler", body: dict) -> None:
+    """POST /ingest — universal ingestion, auto-detects content type."""
+    from manifold.ingestion.ingestion_router import UniversalIngester  # noqa: PLC0415
+    org_id = body.get("org_id", "default")
+    ui = UniversalIngester(
+        org_id=org_id,
+        model_endpoint=body.get("model_endpoint", "http://localhost:8080/v1/chat/completions"),
+        api_key=body.get("api_key", ""),
+        apply_rules=True,
+    )
+    url = body.get("url") or ""
+    text = body.get("text") or ""
+    if url:
+        result = ui.ingest(url)
+    elif text:
+        result = ui.ingest(text)
+    else:
+        _send_error(self, 400, "Body must include 'url' or 'text' field.")
+        return
+    _send_json(self, 200, result)
+
+
+def _handle_get_ingest_history(self: "ManifoldHandler") -> None:
+    """GET /ingest/history — last 20 ingestion events."""
+    from manifold.ingestion.ingestion_router import get_ingest_history  # noqa: PLC0415
+    _send_json(self, 200, {"history": get_ingest_history()})
+
+
+# Monkey-patch ML handlers onto ManifoldHandler
+ManifoldHandler._handle_get_llm_history = _handle_get_llm_history  # type: ignore[attr-defined]
+ManifoldHandler._handle_post_llm_chat = _handle_post_llm_chat  # type: ignore[attr-defined]
+ManifoldHandler._handle_post_rules_preset = _handle_post_rules_preset  # type: ignore[attr-defined]
+ManifoldHandler._handle_post_ingest_document = _handle_post_ingest_document  # type: ignore[attr-defined]
+ManifoldHandler._handle_post_ingest_image = _handle_post_ingest_image  # type: ignore[attr-defined]
+ManifoldHandler._handle_post_ingest_audio = _handle_post_ingest_audio  # type: ignore[attr-defined]
+ManifoldHandler._handle_post_ingest = _handle_post_ingest  # type: ignore[attr-defined]
+ManifoldHandler._handle_get_ingest_history = _handle_get_ingest_history  # type: ignore[attr-defined]
 
 
 def run_server(port: int = 8080, *, host: str = "0.0.0.0") -> None:

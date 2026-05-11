@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "manifold-ai"
-version = "1.8.0"
+version = "1.9.0"
 description = "The Trust Operating System for AI agents — prices risk, delegates hierarchically, detects adversarial gaming, and writes its own legislation."
 requires-python = ">=3.12"
 license = "MIT"
@@ -23,7 +23,7 @@ dependencies = [
 ]
 
 [tool.setuptools]
-packages = ["manifold", "manifold_physical", "manifold_physical.bridges"]
+packages = ["manifold", "manifold.ingestion", "manifold_physical", "manifold_physical.bridges"]
 py-modules = ["deploy_shadow"]
 
 [project.optional-dependencies]

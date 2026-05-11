@@ -1,5 +1,26 @@
 # Changelog
 
+## [1.9.0] — ManifoldLLM + Universal Policy Ingestion
+
+### Added
+- `POST /llm/chat` — natural language governance configuration via ManifoldLLM
+- `GET /llm/history` — last 20 LLM exchanges
+- `PolicyTranslator` — validates LLM-generated policy dicts + vocabulary mapping
+- `PolicyTranslator.hipaa_preset()` / `gdpr_preset()` / `sox_preset()` / `iso27001_preset()` — industry compliance rule presets
+- `POST /rules/preset` — apply a compliance preset in one call
+- `GovernanceReporter` — plain English governance summaries, weekly digest, escalation explainer, policy simulation
+- `GET /digest?format=text` — plain text weekly digest via GovernanceReporter
+- `DocumentIngester` — ingest PDF, Markdown, CSV, TSV, plain text, and URLs into PolicyRules
+- `POST /ingest/document` — ingest a URL or text body
+- `ImageIngester` — floor plan images → SpaceIngestion CRNA grid; whiteboard images → PolicyRules
+- `POST /ingest/image` — ingest base64-encoded image
+- `AudioIngester` — voice instructions → PolicyRules (Whisper + LLM fallback)
+- `POST /ingest/audio` — ingest base64-encoded audio
+- `UniversalIngester` — auto-detect any input format and route to correct ingester
+- `POST /ingest` — universal endpoint, accepts URL or text
+- `GET /ingest/history` — last 20 ingestion events
+- Model-agnostic: Claude, GPT-4V, Gemini, or local Ollama via MANIFOLD gateway
+
 ## [1.8.0] — MANIFOLD Physical v0.1
 
 ### Added
