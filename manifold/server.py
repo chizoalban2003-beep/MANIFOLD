@@ -696,6 +696,16 @@ class ManifoldHandler(BaseHTTPRequestHandler):
                 self._handle_get_nervatura_world()
                 return
 
+            # GET /physical/cameras  (camera registry status)
+            if path == "/physical/cameras":
+                self._handle_get_physical_cameras()
+                return
+
+            # GET /physical/status  (PhysicalManager status)
+            if path == "/physical/status":
+                self._handle_get_physical_status()
+                return
+
             _send_error(self, 404, f"No route for GET {self.path}")
         except Exception as exc:  # noqa: BLE001
             _send_error(self, 500, str(exc))
@@ -816,6 +826,8 @@ class ManifoldHandler(BaseHTTPRequestHandler):
                 if not _authed2:
                     return
                 self._handle_post_nervatura_world_init(body)
+            elif path == "/physical/init":
+                self._handle_post_physical_init(body)
             else:
                 _send_error(self, 404, f"No route for POST {self.path}")
         except Exception as exc:  # noqa: BLE001
@@ -4177,6 +4189,71 @@ ManifoldHandler._handle_get_health_tools = _handle_get_health_tools  # type: ign
 ManifoldHandler._handle_get_plan = _handle_get_plan  # type: ignore[attr-defined]
 ManifoldHandler._handle_get_nervatura_world = _handle_get_nervatura_world  # type: ignore[attr-defined]
 ManifoldHandler._handle_post_nervatura_world_init = _handle_post_nervatura_world_init  # type: ignore[attr-defined]
+
+
+# ---------------------------------------------------------------------------
+# Physical layer — v1.8.0
+# GET  /physical/cameras   → CameraRegistry status
+# GET  /physical/status    → PhysicalManager.status()
+# POST /physical/init      → initialise PhysicalManager from request body
+# ---------------------------------------------------------------------------
+
+_PHYSICAL_MANAGER: "Any | None" = None  # PhysicalManager singleton
+
+
+def _handle_get_physical_cameras(self: "ManifoldHandler") -> None:
+    """GET /physical/cameras — list all registered camera detectors."""
+    try:
+        from manifold_physical.camera_detector import get_camera_registry
+        registry = get_camera_registry()
+        _send_json(self, 200, {"cameras": registry.status_list()})
+    except Exception as exc:  # noqa: BLE001
+        _send_json(self, 500, {"error": str(exc)})
+
+
+def _handle_get_physical_status(self: "ManifoldHandler") -> None:
+    """GET /physical/status — PhysicalManager status, or empty if not initialised."""
+    global _PHYSICAL_MANAGER  # noqa: PLW0603
+    if _PHYSICAL_MANAGER is None:
+        _send_json(self, 200, {
+            "roomba_connected": False,
+            "mqtt_connected": False,
+            "cameras_running": 0,
+            "agents_registered": 0,
+            "last_obstacle_event": None,
+            "initialised": False,
+        })
+        return
+    try:
+        status = _PHYSICAL_MANAGER.status()
+        status["initialised"] = True
+        _send_json(self, 200, status)
+    except Exception as exc:  # noqa: BLE001
+        _send_json(self, 500, {"error": str(exc)})
+
+
+def _handle_post_physical_init(self: "ManifoldHandler", body: dict) -> None:
+    """POST /physical/init — initialise (or re-initialise) the PhysicalManager."""
+    global _PHYSICAL_MANAGER  # noqa: PLW0603
+    try:
+        # Stop existing manager if present
+        if _PHYSICAL_MANAGER is not None:
+            try:
+                _PHYSICAL_MANAGER.stop_all()
+            except Exception:  # noqa: BLE001
+                pass
+
+        from manifold_physical.physical_manager import PhysicalManager
+        _PHYSICAL_MANAGER = PhysicalManager(config=body)
+        _PHYSICAL_MANAGER.start_all()
+        _send_json(self, 200, {"status": "ok", **_PHYSICAL_MANAGER.status()})
+    except Exception as exc:  # noqa: BLE001
+        _send_json(self, 500, {"error": str(exc)})
+
+
+ManifoldHandler._handle_get_physical_cameras = _handle_get_physical_cameras  # type: ignore[attr-defined]
+ManifoldHandler._handle_get_physical_status = _handle_get_physical_status  # type: ignore[attr-defined]
+ManifoldHandler._handle_post_physical_init = _handle_post_physical_init  # type: ignore[attr-defined]
 
 
 def run_server(port: int = 8080, *, host: str = "0.0.0.0") -> None:

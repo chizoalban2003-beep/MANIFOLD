@@ -1,5 +1,42 @@
 # Changelog
 
+## [1.8.0] — MANIFOLD Physical v0.1
+
+### Added
+- `manifold_physical/bridges/roomba_bridge.py` — `RoombaBridge`: iRobot Roomba
+  governed by MANIFOLD via iRobot REST cloud API. Command poller (every 20 s),
+  sensor poller (every 5 s), bump → obstacle event, `mock_mode` for hardware-free
+  testing.
+- `manifold_physical/bridges/mqtt_bridge.py` — `MQTTBridge`: any MQTT 3.1.1 IoT
+  device as a governed MANIFOLD agent. Minimal MQTT client using stdlib `socket`
+  + `struct` only (zero external deps). `DeviceMapping` dataclass,
+  `HomeAssistantProfile` classmethod for Home Assistant topics.
+- `manifold_physical/camera_detector.py` — `CameraDetector`: YOLOv8 real-time
+  obstacle detection to CRNA grid. Graceful fallback to motion-detection-only
+  mode when `ultralytics` is not installed. `CameraRegistry` singleton.
+  `RaspberryPiConfig` classmethod for Pi 5.
+- `manifold_physical/physical_manager.py` — `PhysicalManager`: unified physical
+  layer manager. `start_all()`, `stop_all()`, `status()`. Initialises from a
+  config dict.
+- `GET /physical/status` — `PhysicalManager.status()` if initialised, else empty
+  shape.
+- `POST /physical/init` — initialise `PhysicalManager` from request body config.
+- `GET /physical/cameras` — `CameraRegistry` status list.
+- `manifold_physical/config_example.json` — complete home config (Roomba + MQTT +
+  camera).
+- `manifold_physical/QUICKSTART.md` — step-by-step guide for first physical
+  deployment (Roomba, Home Assistant, webcam).
+- 16 new tests across `test_roomba_bridge.py`, `test_mqtt_bridge.py`,
+  `test_camera_detector.py`, `test_physical_integration.py`.
+- Full `mock_mode` support — all bridges testable without hardware.
+
+### Changed
+- Version bumped to 1.8.0 in `manifold/__init__.py` and `pyproject.toml`.
+- `manifold_physical/__init__.py` exports `RoombaBridgeFull`, `MQTTBridge`,
+  `DeviceMapping`, `CameraDetector`, `CameraRegistry`, `Detection`,
+  `get_camera_registry`, `PhysicalManager`.
+- `pyproject.toml`: added `manifold_physical.bridges` to `packages`.
+
 ## [1.7.0] — 2026-05-11
 
 ### Added — Real-Time Obstacle Handling + NERVATURA Engine
