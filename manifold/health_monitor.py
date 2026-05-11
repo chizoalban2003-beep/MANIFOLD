@@ -129,7 +129,10 @@ class DigitalHealthMonitor:
         t.start()
 
     def _monitor_loop(self) -> None:
+        # Monitoring is event-driven via record_outcome / record_rate_limit.
+        # This loop is a placeholder for future scheduled endpoint polling.
         while self._running:
+            time.sleep(5)
             time.sleep(5)
 
     def stop(self) -> None:

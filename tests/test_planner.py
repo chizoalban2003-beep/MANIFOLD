@@ -44,8 +44,9 @@ def test_plan_returns_found_false_when_unreachable():
     g = DynamicGrid.__new__(DynamicGrid)
     g._lock = threading.Lock()
     g._cells = {}
-    # Surround (5,5,0) and the target itself with impassable cells
-    for dx, dy in [(1,0), (-1,0), (0,1), (0,-1), (0,0)]:
+    # Surround target (5,5,0) with impassable cells, including the target itself
+    # so the planner cannot reach it regardless of risk_budget.
+    for dx, dy in [(1, 0), (-1, 0), (0, 1), (0, -1), (0, 0)]:
         g.set_base(5 + dx, 5 + dy, 0, c=1.0, r=1.0, n=0.0, a=0.0)
 
     planner = CRNAPlanner()

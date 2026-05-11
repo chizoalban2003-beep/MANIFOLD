@@ -8,6 +8,7 @@ mapping.  Zero external dependencies.
 from __future__ import annotations
 
 import json
+import logging
 import time
 from dataclasses import asdict, dataclass, field
 from typing import Optional
@@ -103,7 +104,7 @@ class NERVATURAWorld:
     def neighbours(self, x: int, y: int, z: int) -> list[NERVATURACell]:
         """Return 6 face-adjacent navigable cells."""
         result = []
-        for dx, dy, dz in [(1,0,0),(-1,0,0),(0,1,0),(0,-1,0),(0,0,1),(0,0,-1)]:
+        for dx, dy, dz in [(1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1)]:
             nb = self._cells.get((x + dx, y + dy, z + dz))
             if nb is not None:
                 result.append(nb)
@@ -131,8 +132,8 @@ class NERVATURAWorld:
                     cell.r = vals.r
                     cell.n = vals.n
                     cell.a = vals.a
-        except Exception:  # noqa: BLE001
-            pass
+        except Exception as exc:  # noqa: BLE001
+            logging.debug("apply_bus_updates: grid sync failed: %s", exc)
 
     # ------------------------------------------------------------------
     # Analytics

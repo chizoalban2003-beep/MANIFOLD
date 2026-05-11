@@ -130,7 +130,7 @@ class CRNAPlanner:
         """
         x, y, z = coord
         result = []
-        for dx, dy, dz in [(1,0,0),(-1,0,0),(0,1,0),(0,-1,0),(0,0,1),(0,0,-1)]:
+        for dx, dy, dz in [(1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1)]:
             nx, ny, nz = x + dx, y + dy, z + dz
             if nx >= 0 and ny >= 0 and nz >= 0:
                 result.append((nx, ny, nz))

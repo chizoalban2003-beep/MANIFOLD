@@ -6,6 +6,7 @@ Zero external dependencies.
 
 from __future__ import annotations
 
+import logging
 import math
 from dataclasses import dataclass
 
@@ -104,8 +105,8 @@ class SensorBridge:
         try:
             from manifold.agent_registry import AgentRegistry as _AR  # noqa: F401
             _cell = (int(math.floor(x)), int(math.floor(y)), int(math.floor(z)))
-        except Exception:  # noqa: BLE001
-            pass
+        except Exception as exc:  # noqa: BLE001
+            logging.debug("handle_robot_position: registry update failed: %s", exc)
 
 
 class RoombaBridge:
