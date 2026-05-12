@@ -11,7 +11,6 @@ It also provides:
 from __future__ import annotations
 
 import uuid
-from typing import Any
 
 from manifold.policy_rules import PolicyRule
 

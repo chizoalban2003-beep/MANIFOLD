@@ -105,9 +105,8 @@ from .cognitive_map import CognitiveMap
 from .cooccurrence import ToolCooccurrenceGraph
 from .predictor import PredictiveBrain
 from .consolidator import MemoryConsolidator
-from .policy_rules import PolicyRule, PolicyRuleEngine
+from .policy_rules import PolicyRuleEngine
 from .federation import FederatedGossipBridge
-from .cell_update_bus import get_bus as _get_bus
 from .dynamic_grid import get_grid as _get_grid
 from .health_monitor import DigitalHealthMonitor as _DigitalHealthMonitor
 from .planner import CRNAPlanner as _CRNAPlanner
@@ -3703,7 +3702,6 @@ def _handle_post_task(self: "ManifoldHandler", body: dict) -> None:
 # MANIFOLD World + WebSocket handlers
 # ---------------------------------------------------------------------------
 
-import base64 as _base64
 import socket as _socket
 import struct as _struct
 import os as _os_world
