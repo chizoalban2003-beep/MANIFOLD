@@ -101,10 +101,10 @@ def handle_get_brain_state(self: "ManifoldHandler") -> None:
         {
             "cognitive_map_nodes": cmap_nodes,
             "cooccurrence_tools": cooc_tools,
-            "prediction_entries": pred_entries,
+            "prediction_log_entries": pred_entries,
             "promoted_rules": rules,
             "state_dir": state_dir,
-            "persisted_to_disk": persisted,
+            "persisted": persisted,
         },
     )
 

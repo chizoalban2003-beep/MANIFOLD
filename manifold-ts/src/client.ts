@@ -263,8 +263,8 @@ export class ManifoldClient {
   /**
    * List all registered agents.
    */
-  listAgents(): Promise<AgentRecord[]> {
-    return this.request<AgentRecord[]>("GET", "/agents");
+  listAgents(): Promise<{ agents: AgentRecord[]; summary: Record<string, unknown>; monitor: Record<string, unknown> }> {
+    return this.request<{ agents: AgentRecord[]; summary: Record<string, unknown>; monitor: Record<string, unknown> }>("GET", "/agents");
   }
 
   /**
@@ -296,8 +296,8 @@ export class ManifoldClient {
    * }
    * ```
    */
-  pollCommands(agentId: string): Promise<AgentCommand[]> {
-    return this.request<AgentCommand[]>(
+  pollCommands(agentId: string): Promise<{ commands: AgentCommand[]; agent_id: string }> {
+    return this.request<{ commands: AgentCommand[]; agent_id: string }>(
       "GET",
       `/agents/${encodeURIComponent(agentId)}/commands`,
     );

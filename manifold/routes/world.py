@@ -57,7 +57,10 @@ def handle_get_world_manifest(self: "ManifoldHandler") -> None:
 
 def handle_ws_upgrade(self: "ManifoldHandler") -> None:
     """GET /ws — WebSocket upgrade + live event loop."""
-    import hashlib, json, time  # noqa: PLC0415, E401
+    import base64  # noqa: PLC0415
+    import hashlib  # noqa: PLC0415
+    import json  # noqa: PLC0415
+    import time  # noqa: PLC0415
     s = _srv()
     upgrade = self.headers.get("Upgrade", "").lower()
     if upgrade != "websocket":
@@ -67,7 +70,6 @@ def handle_ws_upgrade(self: "ManifoldHandler") -> None:
     if not key:
         s._send_error(self, 400, "Sec-WebSocket-Key missing")
         return
-    import base64  # noqa: PLC0415
     magic = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
     accept = base64.b64encode(
         hashlib.sha1((key + magic).encode()).digest()
