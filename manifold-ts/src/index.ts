@@ -60,5 +60,11 @@ export type {
   ToolRegistration,
   TrustSignal,
   AgentTrustScore,
+  AgentRecord,
+  AgentCommand,
+  SubTask,
+  TaskPlan,
+  CRNAValues,
+  WorldStatus,
 } from "./types.js";
 

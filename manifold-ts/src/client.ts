@@ -13,6 +13,8 @@
  */
 
 import type {
+  AgentCommand,
+  AgentRecord,
   AgentTrustScore,
   BrainTask,
   HandshakeResult,
@@ -23,8 +25,10 @@ import type {
   RecruitmentRequest,
   RecruitmentResult,
   ReputationScore,
+  TaskPlan,
   ToolRegistration,
   TrustSignal,
+  WorldStatus,
 } from "./types.js";
 
 const DEFAULT_BASE_URL = "http://localhost:8080";
@@ -230,5 +234,108 @@ export class ManifoldClient {
    */
   submitSignal(signal: TrustSignal): Promise<void> {
     return this.request<void>("POST", "/ats/signal", signal);
+  }
+
+  // -------------------------------------------------------------------------
+  // Agentic layer — agent management and real-time world (v1.9+)
+  // -------------------------------------------------------------------------
+
+  /**
+   * Register an agent with MANIFOLD.
+   *
+   * @param record - Agent record (all fields except agent_id are optional).
+   * @returns The newly registered agent record.
+   *
+   * @example
+   * ```ts
+   * await client.registerAgent({
+   *   agent_id: "finance-bot",
+   *   display_name: "Finance Bot",
+   *   capabilities: ["billing", "analysis"],
+   *   domain: "finance",
+   * });
+   * ```
+   */
+  registerAgent(record: Omit<AgentRecord, "level" | "health" | "status" | "ats">): Promise<AgentRecord> {
+    return this.request<AgentRecord>("POST", "/agents/register", record);
+  }
+
+  /**
+   * List all registered agents.
+   */
+  listAgents(): Promise<AgentRecord[]> {
+    return this.request<AgentRecord[]>("GET", "/agents");
+  }
+
+  /**
+   * Send a heartbeat for an agent to keep it marked active.
+   *
+   * @param agentId - The agent identifier.
+   * @param status  - Current lifecycle status (default: `"active"`).
+   */
+  heartbeat(agentId: string, status: AgentRecord["status"] = "active"): Promise<void> {
+    return this.request<void>(
+      "POST",
+      `/agents/${encodeURIComponent(agentId)}/heartbeat`,
+      { status },
+    );
+  }
+
+  /**
+   * Poll for pending governance commands for an agent.
+   *
+   * The server drains the queue on each call (long-poll style).
+   *
+   * @param agentId - The agent identifier.
+   *
+   * @example
+   * ```ts
+   * const commands = await client.pollCommands("roomba-01");
+   * for (const cmd of commands) {
+   *   if (cmd.command === "pause") robot.stop();
+   * }
+   * ```
+   */
+  pollCommands(agentId: string): Promise<AgentCommand[]> {
+    return this.request<AgentCommand[]>(
+      "GET",
+      `/agents/${encodeURIComponent(agentId)}/commands`,
+    );
+  }
+
+  /**
+   * Queue a governance command for an agent (operator → agent).
+   *
+   * @param agentId - Target agent identifier.
+   * @param command - Command name (e.g. `"pause"`, `"redirect"`).
+   * @param payload - Optional command-specific data.
+   */
+  queueCommand(
+    agentId: string,
+    command: string,
+    payload: Record<string, unknown> = {},
+  ): Promise<{ command_id: string }> {
+    return this.request<{ command_id: string }>(
+      "POST",
+      `/agents/${encodeURIComponent(agentId)}/command`,
+      { command, payload },
+    );
+  }
+
+  /**
+   * Submit a task to the MANIFOLD governance pipeline.
+   *
+   * @param task - The brain task to evaluate.
+   * @returns A {@link TaskPlan} with sub-tasks and routing assignments.
+   */
+  submitTask(task: BrainTask): Promise<TaskPlan> {
+    return this.request<TaskPlan>("POST", "/task", task);
+  }
+
+  /**
+   * Get the current real-time world status (bus, grid, planner, agents).
+   */
+  getWorldStatus(): Promise<WorldStatus> {
+    return this.request<WorldStatus>("GET", "/realtime/status");
   }
 }

@@ -293,3 +293,73 @@ export interface AgentTrustScore {
   adversarial_rate: number;
   contributing_orgs: number;
 }
+
+// ---------------------------------------------------------------------------
+// Agentic layer types — v1.9+
+// ---------------------------------------------------------------------------
+
+/** A registered MANIFOLD agent (physical or digital). */
+export interface AgentRecord {
+  agent_id: string;
+  display_name: string;
+  capabilities: string[];
+  domain: string;
+  /** Governance level [0–5]. */
+  level: number;
+  /** Health score [0, 1]. */
+  health: number;
+  /** Current lifecycle status. */
+  status: "active" | "paused" | "stale" | "offline";
+  /** Latest Agent Trust Score for this agent. */
+  ats?: AgentTrustScore;
+}
+
+/** A governance command queued for an agent. */
+export interface AgentCommand {
+  id: string;
+  command: string;
+  payload: Record<string, unknown>;
+  queued_at: number;
+}
+
+/** A sub-task produced by task decomposition. */
+export interface SubTask {
+  id: string;
+  description: string;
+  domain: string;
+  assigned_agent_id: string | null;
+  stakes: number;
+  status: "pending" | "assigned" | "blocked" | "complete";
+}
+
+/** Task decomposition + routing plan produced by TaskRouter. */
+export interface TaskPlan {
+  plan_id: string;
+  original_prompt: string;
+  sub_tasks: SubTask[];
+  executable: boolean;
+}
+
+/** CRNA (Cost / Risk / Neutrality / Asset) vector for a grid cell. */
+export interface CRNAValues {
+  /** Cost 0–1 */
+  c: number;
+  /** Risk 0–1 */
+  r: number;
+  /** Neutrality 0–1 */
+  n: number;
+  /** Asset 0–1 */
+  a: number;
+}
+
+/** Snapshot of the real-time world state (GET /realtime/status). */
+export interface WorldStatus {
+  /** Number of CellUpdate messages published recently. */
+  bus_recent: number;
+  /** Total active grid cells. */
+  grid_cells: number;
+  /** Whether the CRNA A* planner is ready. */
+  planner_ready: boolean;
+  /** Number of agents currently registered. */
+  agents_registered: number;
+}

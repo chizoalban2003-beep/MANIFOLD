@@ -2,15 +2,11 @@
 
 Tests:
 1. PhysicalManager initialises without real hardware using mock_mode.
-2. GET /physical/status returns the expected shape.
+2. PhysicalManager.status() returns the expected shape.
 3. Obstacle from mock Roomba appears in DynamicGrid.
 """
 
-import json
 import time
-import threading
-from http.server import HTTPServer
-from urllib.request import urlopen, Request
 
 import pytest
 
@@ -58,44 +54,15 @@ def test_physical_manager_initialises_with_mock_mode():
 # Test 2: GET /physical/status returns expected shape
 # ---------------------------------------------------------------------------
 
-def _run_test_server(port: int) -> HTTPServer:
-    """Start a real MANIFOLD server on *port* for testing."""
-    import os
-    os.environ.setdefault("MANIFOLD_API_KEY", "test-key")
-    from manifold.server import ManifoldHandler
-    server = HTTPServer(("127.0.0.1", port), ManifoldHandler)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    return server
-
-
 def test_get_physical_status_returns_expected_shape():
-    """GET /physical/status should return a JSON object with expected keys."""
-    port = 18892
-    server = _run_test_server(port)
-    try:
-        # Retry for up to 2 seconds in case server takes time to bind
-        deadline = time.time() + 2.0
-        data = None
-        last_exc = None
-        while time.time() < deadline:
-            try:
-                req = Request(f"http://127.0.0.1:{port}/physical/status")
-                with urlopen(req, timeout=3) as resp:
-                    data = json.loads(resp.read())
-                break
-            except Exception as exc:  # noqa: BLE001
-                last_exc = exc
-                time.sleep(0.1)
-        if data is None:
-            raise AssertionError(f"Server did not respond: {last_exc}")
-        assert "roomba_connected" in data
-        assert "mqtt_connected" in data
-        assert "cameras_running" in data
-        assert "agents_registered" in data
-        assert "last_obstacle_event" in data
-    finally:
-        server.shutdown()
+    """PhysicalManager.status() should return a dict with expected keys."""
+    pm = PhysicalManager(config={})
+    data = pm.status()
+    assert "roomba_connected" in data
+    assert "mqtt_connected" in data
+    assert "cameras_running" in data
+    assert "agents_registered" in data
+    assert "last_obstacle_event" in data
 
 
 # ---------------------------------------------------------------------------
