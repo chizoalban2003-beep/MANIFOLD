@@ -52,6 +52,11 @@ export interface ManifoldAgentOptions {
    * @default 25000
    */
   pollingTimeoutMs?: number;
+  /**
+   * Back-off delay in milliseconds before retrying after a transient polling error.
+   * @default 5000
+   */
+  pollingBackoffMs?: number;
 }
 
 /**
@@ -87,6 +92,7 @@ export class ManifoldAgentSDK {
   private readonly _heartbeatIntervalMs: number;
   private readonly _timeoutMs: number;
   private readonly _pollingTimeoutMs: number;
+  private readonly _pollingBackoffMs: number;
 
   private readonly _handlers = new Map<string, CommandHandler>();
   private _running = false;
@@ -110,6 +116,7 @@ export class ManifoldAgentSDK {
     this._heartbeatIntervalMs = options.heartbeatIntervalMs ?? 30_000;
     this._timeoutMs = options.timeoutMs ?? 10_000;
     this._pollingTimeoutMs = options.pollingTimeoutMs ?? 25_000;
+    this._pollingBackoffMs = options.pollingBackoffMs ?? 5_000;
   }
 
   // -------------------------------------------------------------------------
@@ -210,6 +217,7 @@ export class ManifoldAgentSDK {
         "POST",
         `/agents/${encodeURIComponent(this.agentId)}/heartbeat`,
         { status },
+        // Use a short 5 s timeout for heartbeats — matches manifold/sdk.py timeout=5.
         5_000,
       );
       return httpStatus === 200;
@@ -308,7 +316,9 @@ export class ManifoldAgentSDK {
       } catch {
         if (signal.aborted) break;
         // Transient error — back off before retrying.
-        await new Promise<void>((resolve) => setTimeout(resolve, 5_000));
+        await new Promise<void>((resolve) =>
+          setTimeout(resolve, this._pollingBackoffMs),
+        );
       }
     }
   }
