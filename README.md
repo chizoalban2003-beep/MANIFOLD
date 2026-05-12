@@ -12,7 +12,7 @@
 > Built on **NERVATURA** — the governed intelligence framework.
 
 [![CI](https://github.com/chizoalban2003-beep/MANIFOLD/actions/workflows/manifold-ci.yml/badge.svg)](https://github.com/chizoalban2003-beep/MANIFOLD/actions/workflows/manifold-ci.yml)
-[![Tests](https://img.shields.io/badge/tests-2383%2F2383-brightgreen)]()
+[![Tests](https://img.shields.io/badge/tests-2433%2F2433-brightgreen)]()
 [![Version](https://img.shields.io/badge/version-1.9.0-blue)]()
 [![Python](https://img.shields.io/badge/python-3.12%2B-blue)]()
 [![Zero deps](https://img.shields.io/badge/external%20deps-0-success)]()

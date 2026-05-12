@@ -2313,35 +2313,8 @@ ReputationHub.observation_weight = lambda self, agent_id: self.baseline.observat
 
 def _handle_post_run(self: "ManifoldHandler", body: dict[str, Any]) -> None:
     """POST /run — execute ManifoldPipeline and return the result."""
-    prompt = body.get("prompt")
-    if not prompt:
-        _send_json(self, 400, {"error": "prompt required"})
-        return
-    try:
-        pipeline = _get_pipeline()
-        result = pipeline.run(
-            prompt=str(prompt),
-            data=body.get("data"),
-            encoder_hint=str(body.get("encoder_hint", "auto")),
-            explicit_domain=body.get("domain") or None,
-            stakes=float(body.get("stakes", 0.5)),
-            uncertainty=float(body.get("uncertainty", 0.5)),
-            tools_used=body.get("tools_used"),
-        )
-        # Serialise to plain JSON-safe dict
-        serialised = {
-            "action": result["action"],
-            "domain": result["domain"],
-            "risk_score": result["risk_score"],
-            "nearest_cells": [
-                {"row": c.get("row", 0), "col": c.get("col", 0), "distance": c.get("distance", 0.0)}
-                for c in result.get("nearest_cells", [])
-            ],
-            "flagged_tools": result.get("flagged_tools", []),
-        }
-        _send_json(self, 200, serialised)
-    except Exception as exc:  # noqa: BLE001
-        _send_json(self, 500, {"error": str(exc)})
+    from manifold.routes.governance import handle_post_run  # noqa: PLC0415
+    return handle_post_run(self, body)
 
 
 def _handle_get_learned(self: "ManifoldHandler") -> None:
@@ -3680,6 +3653,7 @@ ManifoldHandler._handle_post_org_key = _handle_post_org_key  # type: ignore[attr
 ManifoldHandler._handle_get_admin = _handle_get_admin  # type: ignore[attr-defined]
 ManifoldHandler._handle_get_report = _handle_get_report  # type: ignore[attr-defined]
 ManifoldHandler._handle_get_digest = _handle_get_digest  # type: ignore[attr-defined]
+ManifoldHandler._handle_post_run = _handle_post_run  # type: ignore[attr-defined]
 
 
 # ---------------------------------------------------------------------------
@@ -3689,75 +3663,40 @@ ManifoldHandler._handle_get_digest = _handle_get_digest  # type: ignore[attr-def
 
 def _handle_get_agents(self: "ManifoldHandler") -> None:
     """GET /agents — list all registered agents."""
-    agents = _AGENT_REGISTRY.all_agents()
-    _send_json(self, 200, {
-        "agents": [a.to_dict() for a in agents],
-        "summary": _AGENT_REGISTRY.summary(),
-        "monitor": _AGENT_MONITOR.status(),
-    })
+    from manifold.routes.agents import handle_get_agents  # noqa: PLC0415
+    return handle_get_agents(self)
 
 
 def _handle_post_agents_register(self: "ManifoldHandler", body: dict) -> None:
     """POST /agents/register — agent announces itself."""
-    agent_id = str(body.get("agent_id", "")).strip()
-    name = str(body.get("display_name", "")).strip()
-    caps = body.get("capabilities", [])
-    org_id = str(body.get("org_id", "default")).strip()
-    endpoint = str(body.get("endpoint_url", "")).strip()
-    domain = str(body.get("domain", "general")).strip()
-    if not agent_id or not name:
-        _send_error(self, 400, "agent_id and display_name required")
-        return
-    record = _AGENT_REGISTRY.register(
-        agent_id=agent_id,
-        display_name=name,
-        capabilities=caps if isinstance(caps, list) else [],
-        org_id=org_id,
-        endpoint_url=endpoint,
-        domain=domain,
-    )
-    _send_json(self, 201, record.to_dict())
+    from manifold.routes.agents import handle_post_agents_register  # noqa: PLC0415
+    return handle_post_agents_register(self, body)
 
 
 def _handle_post_agent_heartbeat(
     self: "ManifoldHandler", agent_id: str, body: dict
 ) -> None:
     """POST /agents/{id}/heartbeat — keep-alive."""
-    status = str(body.get("status", "active"))
-    ok = _AGENT_REGISTRY.heartbeat(agent_id, status)
-    if not ok:
-        _send_error(self, 404, f"Agent {agent_id!r} not registered")
-        return
-    _send_json(self, 200, {"agent_id": agent_id, "acknowledged": True})
+    from manifold.routes.agents import handle_post_agent_heartbeat  # noqa: PLC0415
+    return handle_post_agent_heartbeat(self, agent_id, body)
 
 
 def _handle_post_agent_pause(self: "ManifoldHandler", agent_id: str) -> None:
     """POST /agents/{id}/pause — MANIFOLD pauses an agent."""
-    ok = _AGENT_REGISTRY.pause(agent_id)
-    if not ok:
-        _send_error(self, 404, f"Agent {agent_id!r} not found")
-        return
-    _send_json(self, 200, {"agent_id": agent_id, "status": "paused"})
+    from manifold.routes.agents import handle_post_agent_pause  # noqa: PLC0415
+    return handle_post_agent_pause(self, agent_id)
 
 
 def _handle_post_agent_resume(self: "ManifoldHandler", agent_id: str) -> None:
     """POST /agents/{id}/resume — MANIFOLD resumes a paused agent."""
-    ok = _AGENT_REGISTRY.resume(agent_id)
-    if not ok:
-        _send_error(self, 404, f"Agent {agent_id!r} not found")
-        return
-    _send_json(self, 200, {"agent_id": agent_id, "status": "active"})
+    from manifold.routes.agents import handle_post_agent_resume  # noqa: PLC0415
+    return handle_post_agent_resume(self, agent_id)
 
 
 def _handle_post_task(self: "ManifoldHandler", body: dict) -> None:
     """POST /task — receive any problem, decompose, govern, route."""
-    task = str(body.get("task", "")).strip()
-    stakes = float(body.get("stakes", 0.5))
-    if not task:
-        _send_error(self, 400, "task field required")
-        return
-    plan = _TASK_ROUTER.route(task, stakes_hint=stakes)
-    _send_json(self, 200, plan.to_dict())
+    from manifold.routes.governance import handle_post_task  # noqa: PLC0415
+    return handle_post_task(self, body)
 
 
 # ---------------------------------------------------------------------------
@@ -3774,32 +3713,14 @@ _WORLD_DIR = _os_world.path.join(_os_world.path.dirname(_os_world.path.dirname(_
 
 def _handle_get_world(self: "ManifoldHandler") -> None:
     """GET /world — serve the isometric game world HTML."""
-    world_file = _os_world.path.join(_WORLD_DIR, "index.html")
-    if not _os_world.path.exists(world_file):
-        _send_error(self, 404, "MANIFOLD World not found")
-        return
-    with open(world_file, "rb") as fh:
-        data = fh.read()
-    self.send_response(200)
-    self.send_header("Content-Type", "text/html; charset=utf-8")
-    self.send_header("Content-Length", str(len(data)))
-    self.end_headers()
-    self.wfile.write(data)
+    from manifold.routes.world import handle_get_world  # noqa: PLC0415
+    return handle_get_world(self)
 
 
 def _handle_get_world_manifest(self: "ManifoldHandler") -> None:
     """GET /world/manifest.json — serve the PWA manifest."""
-    manifest_file = _os_world.path.join(_WORLD_DIR, "manifest.json")
-    if not _os_world.path.exists(manifest_file):
-        _send_error(self, 404, "Manifest not found")
-        return
-    with open(manifest_file, "rb") as fh:
-        data = fh.read()
-    self.send_response(200)
-    self.send_header("Content-Type", "application/json; charset=utf-8")
-    self.send_header("Content-Length", str(len(data)))
-    self.end_headers()
-    self.wfile.write(data)
+    from manifold.routes.world import handle_get_world_manifest  # noqa: PLC0415
+    return handle_get_world_manifest(self)
 
 
 def _ws_send_frame(conn: "_socket.socket", payload: bytes, opcode: int = 0x1) -> None:
@@ -3855,118 +3776,14 @@ def _ws_read_frame(conn: "_socket.socket") -> "bytes | None":
 
 def _handle_get_brain_state(self: "ManifoldHandler") -> None:
     """GET /brain/state — return brain persistence status."""
-    pipeline = _get_pipeline()
-    cmap_nodes = len(pipeline._cognitive_map._outcome_log)
-    cooc_tools = len(pipeline._cooccurrence._tool_counts)
-    pred_entries = len(pipeline._predictor._prediction_log)
-    rules = len(pipeline._consolidator._promoted_rules)
-    state_dir = str(_BRAIN_STATE_DIR)
-    persisted = (
-        (_BRAIN_STATE_DIR / "cognitive_map.json").exists()
-        or (_BRAIN_STATE_DIR / "cooccurrence.json").exists()
-        or (_BRAIN_STATE_DIR / "predictor.json").exists()
-        or (_BRAIN_STATE_DIR / "consolidator.json").exists()
-    )
-    _send_json(
-        self,
-        200,
-        {
-            "cognitive_map_nodes": cmap_nodes,
-            "cooccurrence_tools": cooc_tools,
-            "prediction_log_entries": pred_entries,
-            "promoted_rules": rules,
-            "state_dir": state_dir,
-            "persisted": persisted,
-        },
-    )
+    from manifold.routes.governance import handle_get_brain_state  # noqa: PLC0415
+    return handle_get_brain_state(self)
 
 
 def _handle_ws_upgrade(self: "ManifoldHandler") -> None:
     """GET /ws — WebSocket upgrade + live event loop."""
-    # Only accept Upgrade: websocket requests
-    upgrade = self.headers.get("Upgrade", "").lower()
-    if upgrade != "websocket":
-        _send_error(self, 400, "WebSocket upgrade required")
-        return
-    key = self.headers.get("Sec-WebSocket-Key", "")
-    if not key:
-        _send_error(self, 400, "Sec-WebSocket-Key missing")
-        return
-    # Compute accept hash
-    magic = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
-    accept = _base64.b64encode(
-        hashlib.sha1((key + magic).encode()).digest()
-    ).decode()
-    # Send 101 Switching Protocols
-    self.send_response(101)
-    self.send_header("Upgrade", "websocket")
-    self.send_header("Connection", "Upgrade")
-    self.send_header("Sec-WebSocket-Accept", accept)
-    self.end_headers()
-    self.wfile.flush()
-
-    conn = self.connection
-    conn.settimeout(1.0)
-
-    last_agent_push = 0.0
-    last_stats_push = 0.0
-
-    def _agents_payload() -> bytes:
-        agents = _AGENT_REGISTRY.all_agents()
-        data = {
-            "type": "agent_update",
-            "agents": [
-                {
-                    "id": a.agent_id,
-                    "status": a.status,
-                    "task": a.notes or "active",
-                    "risk": round(1.0 - a.health_score(), 4),
-                    "health": round(a.health_score(), 4),
-                    "tx": float(a.task_count % 16),
-                    "tz": float(a.error_count % 16),
-                }
-                for a in agents
-            ],
-        }
-        return json.dumps(data).encode()
-
-    def _stats_payload() -> bytes:
-        summary = _AGENT_REGISTRY.summary()
-        plans = _TASK_ROUTER.all_plans()
-        data = {
-            "type": "world_stats",
-            "agents_active": summary.get("active", 0),
-            "tasks_running": sum(1 for p in plans if not p.executable and p.blocked_count == 0),
-            "governance_events_today": _REFUSAL_COUNT,
-            "system_health": round(summary.get("avg_health", 1.0), 4),
-        }
-        return json.dumps(data).encode()
-
-    try:
-        while True:
-            now = time.time()
-            # Send agent update every 5 s
-            if now - last_agent_push >= 5.0:
-                _ws_send_frame(conn, _agents_payload())
-                last_agent_push = now
-            # Send world stats every 30 s
-            if now - last_stats_push >= 30.0:
-                _ws_send_frame(conn, _stats_payload())
-                last_stats_push = now
-            # Non-blocking read (timeout=1s)
-            try:
-                frame = _ws_read_frame(conn)
-                if frame is None:
-                    break  # client disconnected
-            except OSError:
-                pass  # timeout, continue
-    except OSError:
-        pass
-    finally:
-        try:
-            conn.close()
-        except OSError:
-            pass
+    from manifold.routes.world import handle_ws_upgrade  # noqa: PLC0415
+    return handle_ws_upgrade(self)
 
 
 ManifoldHandler._handle_get_world = _handle_get_world  # type: ignore[attr-defined]
@@ -3989,45 +3806,17 @@ ManifoldHandler._handle_post_task = _handle_post_task  # type: ignore[attr-defin
 
 
 def _handle_get_agent_commands(self: "ManifoldHandler", agent_id: str) -> None:
-    """GET /agents/{id}/commands — long-poll for up to 20 seconds.
-
-    Returns immediately when commands are queued; returns empty list after
-    20 seconds with no commands.
-    """
-    deadline = time.time() + 20.0
-    while time.time() < deadline:
-        cmds = _AGENT_REGISTRY.poll_commands(agent_id, consume=True)
-        if cmds:
-            _send_json(self, 200, {"commands": cmds, "agent_id": agent_id})
-            return
-        time.sleep(0.5)
-    _send_json(self, 200, {"commands": [], "agent_id": agent_id})
+    """GET /agents/{id}/commands — long-poll for pending commands."""
+    from manifold.routes.agents import handle_get_agent_commands  # noqa: PLC0415
+    return handle_get_agent_commands(self, agent_id)
 
 
 def _handle_post_agent_command(
     self: "ManifoldHandler", agent_id: str, body: dict
 ) -> None:
     """POST /agents/{id}/command — queue a command for an agent."""
-    command = str(body.get("command", "")).strip()
-    payload = body.get("payload", {})
-    valid = {"pause", "resume", "redirect", "update_policy", "message"}
-    if command not in valid:
-        _send_error(self, 400, f"Invalid command. Must be one of: {sorted(valid)}")
-        return
-    cmd_id = _AGENT_REGISTRY.queue_command(agent_id, command, payload)
-    if cmd_id is None:
-        _send_error(self, 404, f"Agent {agent_id!r} not registered")
-        return
-    _send_json(
-        self,
-        201,
-        {
-            "command_id": cmd_id,
-            "agent_id": agent_id,
-            "command": command,
-            "status": "queued",
-        },
-    )
+    from manifold.routes.agents import handle_post_agent_command  # noqa: PLC0415
+    return handle_post_agent_command(self, agent_id, body)
 
 
 ManifoldHandler._handle_get_agent_commands = _handle_get_agent_commands  # type: ignore[attr-defined]
@@ -4041,41 +3830,20 @@ ManifoldHandler._handle_post_agent_command = _handle_post_agent_command  # type:
 
 def _handle_get_rules(self: "ManifoldHandler") -> None:
     """GET /rules — return all policy rules for the calling org."""
-    _authed, caller = _check_auth(self, "/rules")
-    if not _authed:
-        return
-    org_id = caller.org_id if caller else ""
-    rules = [r.to_dict() for r in _RULE_ENGINE.rules_for_org(org_id)]
-    _send_json(self, 200, {"rules": rules, "org_id": org_id})
+    from manifold.routes.governance import handle_get_rules  # noqa: PLC0415
+    return handle_get_rules(self)
 
 
 def _handle_post_rule(self: "ManifoldHandler", body: dict, caller: Any) -> None:
     """POST /rules — create a new policy rule for the calling org."""
-    import uuid as _uuid
-    org_id = caller.org_id if caller else body.get("org_id", "")
-    name = str(body.get("name", "unnamed rule"))
-    conditions = body.get("conditions", {})
-    action = str(body.get("action", "allow"))
-    priority = int(body.get("priority", 0))
-    rule = PolicyRule(
-        rule_id=str(_uuid.uuid4()),
-        org_id=org_id,
-        name=name,
-        conditions=conditions,
-        action=action,
-        priority=priority,
-    )
-    _RULE_ENGINE.add_rule(rule)
-    _send_json(self, 201, rule.to_dict())
+    from manifold.routes.governance import handle_post_rule  # noqa: PLC0415
+    return handle_post_rule(self, body, caller)
 
 
 def _handle_delete_rule(self: "ManifoldHandler", rule_id: str) -> None:
     """DELETE /rules/{rule_id} — remove a policy rule."""
-    removed = _RULE_ENGINE.remove_rule(rule_id)
-    if removed:
-        _send_json(self, 200, {"rule_id": rule_id, "status": "deleted"})
-    else:
-        _send_error(self, 404, f"Rule {rule_id!r} not found")
+    from manifold.routes.governance import handle_delete_rule  # noqa: PLC0415
+    return handle_delete_rule(self, rule_id)
 
 
 ManifoldHandler._handle_get_rules = _handle_get_rules  # type: ignore[attr-defined]
@@ -4090,50 +3858,22 @@ ManifoldHandler._handle_delete_rule = _handle_delete_rule  # type: ignore[attr-d
 
 def _handle_get_federation_status(self: "ManifoldHandler") -> None:
     """GET /federation/status — return federation health summary."""
-    ledger = _GOSSIP_BRIDGE.ledger
-    known = ledger.known_tools()
-    trust_entries = {t: ledger.global_rate(t) for t in known}
-    contributing_orgs = len(_GOSSIP_BRIDGE.registered_orgs())
-    _send_json(
-        self,
-        200,
-        {
-            "contributing_orgs": contributing_orgs,
-            "known_tools": len(known),
-            "trust_entries": trust_entries,
-        },
-    )
+    from manifold.routes.federation import handle_get_federation_status  # noqa: PLC0415
+    return handle_get_federation_status(self)
 
 
 def _handle_post_federation_join(
     self: "ManifoldHandler", body: dict, caller: Any
 ) -> None:
     """POST /federation/join — register calling org with the gossip bridge."""
-    org_id = caller.org_id if caller else body.get("org_id", "")
-    if not org_id:
-        _send_error(self, 400, "org_id required")
-        return
-    _GOSSIP_BRIDGE.register(org_id)
-    _send_json(
-        self,
-        200,
-        {
-            "org_id": org_id,
-            "status": "joined",
-            "contributing_orgs": len(_GOSSIP_BRIDGE.registered_orgs()),
-        },
-    )
+    from manifold.routes.federation import handle_post_federation_join  # noqa: PLC0415
+    return handle_post_federation_join(self, body, caller)
 
 
 def _handle_post_federation_gossip(self: "ManifoldHandler", body: dict) -> None:
     """POST /federation/gossip — ingest a gossip packet."""
-    from .federation import FederatedGossipPacket
-    try:
-        packet = FederatedGossipPacket(**body)
-        _GOSSIP_BRIDGE.contribute_packet(packet)
-        _send_json(self, 200, {"status": "ingested"})
-    except Exception as exc:  # noqa: BLE001
-        _send_error(self, 400, f"Invalid gossip packet: {exc}")
+    from manifold.routes.federation import handle_post_federation_gossip  # noqa: PLC0415
+    return handle_post_federation_gossip(self, body)
 
 
 ManifoldHandler._handle_get_federation_status = _handle_get_federation_status  # type: ignore[attr-defined]
@@ -4148,79 +3888,32 @@ ManifoldHandler._handle_post_federation_gossip = _handle_post_federation_gossip 
 
 def _handle_get_realtime_status(self: "ManifoldHandler") -> None:
     """GET /realtime/status — live bus, grid, health, planner status."""
-    global _NERVATURA  # noqa: PLW0603
-    bus = _get_bus()
-    try:
-        _send_json(self, 200, {
-            "bus_recent_updates": len(bus.recent()),
-            "dynamic_grid_cells": len(_DYNAMIC_GRID.all_cells()),
-            "health_monitor": _HEALTH_MONITOR.status(),
-            "planner_ready": True,
-            "nervatura_world": _NERVATURA.summary() if _NERVATURA is not None else None,
-        })
-    except Exception as exc:  # noqa: BLE001
-        _send_json(self, 500, {"error": str(exc)})
+    from manifold.routes.world import handle_get_realtime_status  # noqa: PLC0415
+    return handle_get_realtime_status(self)
 
 
 def _handle_get_health_tools(self: "ManifoldHandler") -> None:
     """GET /health/tools — live tool health summary (public)."""
-    try:
-        _send_json(self, 200, _HEALTH_MONITOR.status())
-    except Exception as exc:  # noqa: BLE001
-        _send_json(self, 500, {"error": str(exc)})
+    from manifold.routes.world import handle_get_health_tools  # noqa: PLC0415
+    return handle_get_health_tools(self)
 
 
 def _handle_get_plan(self: "ManifoldHandler") -> None:
     """GET /plan — CRNA A* path planning."""
-    import urllib.parse as _up
-    try:
-        qs = _up.parse_qs(self.path.split("?", 1)[1] if "?" in self.path else "")
-
-        def _parse_coord(key: str, default: list) -> tuple:
-            raw = qs.get(key, [None])[0]
-            if raw:
-                parts = [int(x) for x in raw.split(",")]
-                return tuple(parts)
-            return tuple(default)
-
-        start = _parse_coord("start", [0, 0, 0])
-        target = _parse_coord("target", [5, 5, 0])
-        risk_budget = float(qs.get("risk_budget", ["0.7"])[0])
-        result = _PLANNER.plan(start=start, target=target, risk_budget=risk_budget)
-        _send_json(self, 200, result)
-    except Exception as exc:  # noqa: BLE001
-        _send_json(self, 500, {"error": str(exc)})
+    from manifold.routes.governance import handle_get_plan  # noqa: PLC0415
+    return handle_get_plan(self)
 
 
 def _handle_get_nervatura_world(self: "ManifoldHandler") -> None:
     """GET /nervatura/world — NERVATURAWorld summary."""
-    global _NERVATURA  # noqa: PLW0603
-    try:
-        if _NERVATURA is None:
-            _send_json(self, 200, {"status": "not_initialised",
-                                   "hint": "POST /nervatura/world/init to create a world"})
-        else:
-            _send_json(self, 200, _NERVATURA.summary())
-    except Exception as exc:  # noqa: BLE001
-        _send_json(self, 500, {"error": str(exc)})
+    from manifold.routes.physical import handle_get_nervatura_world  # noqa: PLC0415
+    return handle_get_nervatura_world(self)
 
 
 def _handle_post_nervatura_world_init(self: "ManifoldHandler", body: dict) -> None:
     """POST /nervatura/world/init — initialise NERVATURAWorld singleton."""
-    global _NERVATURA  # noqa: PLW0603
-    try:
-        width = int(body.get("width", 20))
-        depth = int(body.get("depth", 20))
-        height = int(body.get("height", 5))
-        domain = str(body.get("domain", "general"))
-        _NERVATURA = _NERVATURAWorld(width=width, depth=depth, height=height)
-        _send_json(self, 200, {
-            "status": "ok",
-            "domain": domain,
-            **_NERVATURA.summary(),
-        })
-    except Exception as exc:  # noqa: BLE001
-        _send_json(self, 500, {"error": str(exc)})
+    from manifold.routes.physical import handle_post_nervatura_world_init  # noqa: PLC0415
+    return handle_post_nervatura_world_init(self, body)
 
 
 ManifoldHandler._handle_get_realtime_status = _handle_get_realtime_status  # type: ignore[attr-defined]
@@ -4243,57 +3936,20 @@ _PHYSICAL_MANAGER_LOCK = threading.Lock()
 
 def _handle_get_physical_cameras(self: "ManifoldHandler") -> None:
     """GET /physical/cameras — list all registered camera detectors."""
-    try:
-        from manifold_physical.camera_detector import get_camera_registry
-        registry = get_camera_registry()
-        _send_json(self, 200, {"cameras": registry.status_list()})
-    except Exception as exc:  # noqa: BLE001
-        _send_json(self, 500, {"error": str(exc)})
+    from manifold.routes.physical import handle_get_physical_cameras  # noqa: PLC0415
+    return handle_get_physical_cameras(self)
 
 
 def _handle_get_physical_status(self: "ManifoldHandler") -> None:
     """GET /physical/status — PhysicalManager status, or empty if not initialised."""
-    global _PHYSICAL_MANAGER  # noqa: PLW0603
-    with _PHYSICAL_MANAGER_LOCK:
-        pm = _PHYSICAL_MANAGER
-    if pm is None:
-        _send_json(self, 200, {
-            "roomba_connected": False,
-            "mqtt_connected": False,
-            "cameras_running": 0,
-            "agents_registered": 0,
-            "last_obstacle_event": None,
-            "initialised": False,
-        })
-        return
-    try:
-        status = pm.status()
-        status["initialised"] = True
-        _send_json(self, 200, status)
-    except Exception as exc:  # noqa: BLE001
-        _send_json(self, 500, {"error": str(exc)})
+    from manifold.routes.physical import handle_get_physical_status  # noqa: PLC0415
+    return handle_get_physical_status(self)
 
 
 def _handle_post_physical_init(self: "ManifoldHandler", body: dict) -> None:
     """POST /physical/init — initialise (or re-initialise) the PhysicalManager."""
-    global _PHYSICAL_MANAGER  # noqa: PLW0603
-    with _PHYSICAL_MANAGER_LOCK:
-        try:
-            # Stop existing manager if present
-            if _PHYSICAL_MANAGER is not None:
-                try:
-                    _PHYSICAL_MANAGER.stop_all()
-                except Exception:  # noqa: BLE001
-                    pass
-
-            from manifold_physical.physical_manager import PhysicalManager
-            _PHYSICAL_MANAGER = PhysicalManager(config=body)
-            _PHYSICAL_MANAGER.start_all()
-            status = _PHYSICAL_MANAGER.status()
-        except Exception as exc:  # noqa: BLE001
-            _send_json(self, 500, {"error": str(exc)})
-            return
-    _send_json(self, 200, {"status": "ok", **status})
+    from manifold.routes.physical import handle_post_physical_init  # noqa: PLC0415
+    return handle_post_physical_init(self, body)
 
 
 ManifoldHandler._handle_get_physical_cameras = _handle_get_physical_cameras  # type: ignore[attr-defined]
@@ -4307,160 +3963,50 @@ ManifoldHandler._handle_post_physical_init = _handle_post_physical_init  # type:
 
 def _handle_get_llm_history(self: "ManifoldHandler") -> None:
     """GET /llm/history — last 20 LLM chat exchanges."""
-    from manifold.llm_interface import get_llm_history  # noqa: PLC0415
-    _send_json(self, 200, {"history": get_llm_history()})
+    from manifold.routes.governance import handle_get_llm_history  # noqa: PLC0415
+    return handle_get_llm_history(self)
 
 
 def _handle_post_llm_chat(self: "ManifoldHandler", body: dict) -> None:
     """POST /llm/chat — send a natural language message to MANIFOLD governance AI."""
-    message = body.get("message") or body.get("user_message") or ""
-    if not message:
-        _send_error(self, 400, "Body must include a 'message' field.")
-        return
-    org_id = body.get("org_id", "default")
-    model_endpoint = body.get("model_endpoint", "http://localhost:8080/v1/chat/completions")
-    api_key = body.get("api_key", "")
-    model = body.get("model", "gpt-4o")
-
-    from manifold.llm_interface import ManifoldLLM  # noqa: PLC0415
-    llm = ManifoldLLM(
-        org_id=org_id,
-        model_endpoint=model_endpoint,
-        api_key=api_key,
-        model=model,
-    )
-    response = llm.chat(message)
-    llm.apply_response(response)
-    _send_json(self, 200, {
-        "reply": response.plain_text,
-        "action_type": response.action_type,
-        "action_payload": response.action_payload,
-        "applied": response.applied,
-        "apply_error": response.apply_error,
-    })
+    from manifold.routes.governance import handle_post_llm_chat  # noqa: PLC0415
+    return handle_post_llm_chat(self, body)
 
 
 def _handle_post_rules_preset(self: "ManifoldHandler", body: dict) -> None:
     """POST /rules/preset — apply a compliance preset (hipaa/gdpr/sox/iso27001)."""
-    preset = body.get("preset") or body.get("name") or ""
-    if not preset:
-        _send_error(self, 400, "Body must include a 'preset' field.")
-        return
-    org_id = body.get("org_id", "default")
-    from manifold.policy_translator import PolicyTranslator  # noqa: PLC0415
-    try:
-        rules = PolicyTranslator.apply_preset(preset, org_id=org_id)
-    except ValueError as exc:
-        _send_error(self, 400, str(exc))
-        return
-    applied = 0
-    for rule in rules:
-        try:
-            _RULE_ENGINE.add_rule(rule)
-            applied += 1
-        except Exception:  # noqa: BLE001
-            pass
-    _send_json(self, 200, {
-        "preset": preset,
-        "rules_applied": applied,
-        "rule_names": [r.name for r in rules],
-    })
+    from manifold.routes.ingestion import handle_post_rules_preset  # noqa: PLC0415
+    return handle_post_rules_preset(self, body)
 
 
 def _handle_post_ingest_document(self: "ManifoldHandler", body: dict) -> None:
     """POST /ingest/document — ingest a URL or text body as governance document."""
-    from manifold.ingestion.document_ingester import DocumentIngester  # noqa: PLC0415
-    org_id = body.get("org_id", "default")
-    di = DocumentIngester(org_id=org_id, apply_rules=True)
-    url = body.get("url") or body.get("source") or ""
-    text = body.get("text") or ""
-    if url:
-        result = di.ingest_url(url)
-    elif text:
-        result = di.ingest_text(text)
-    else:
-        _send_error(self, 400, "Body must include 'url' or 'text' field.")
-        return
-    _send_json(self, 200, result.to_dict())
+    from manifold.routes.ingestion import handle_post_ingest_document  # noqa: PLC0415
+    return handle_post_ingest_document(self, body)
 
 
 def _handle_post_ingest_image(self: "ManifoldHandler", body: dict) -> None:
     """POST /ingest/image — ingest image bytes (base64-encoded)."""
-    from manifold.ingestion.image_ingester import ImageIngester  # noqa: PLC0415
-    import base64  # noqa: PLC0415
-    org_id = body.get("org_id", "default")
-    pipeline = body.get("pipeline", "auto")
-    ii = ImageIngester(
-        org_id=org_id,
-        model_endpoint=body.get("model_endpoint", "http://localhost:8080/v1/chat/completions"),
-        api_key=body.get("api_key", ""),
-    )
-    b64data = body.get("image_b64") or body.get("data") or ""
-    if not b64data:
-        _send_error(self, 400, "Body must include 'image_b64' field (base64-encoded image).")
-        return
-    try:
-        image_bytes = base64.b64decode(b64data)
-    except Exception as exc:  # noqa: BLE001
-        _send_error(self, 400, f"Invalid base64 data: {exc}")
-        return
-    result = ii.ingest(image_bytes, pipeline=pipeline)
-    _send_json(self, 200, result.to_dict())
+    from manifold.routes.ingestion import handle_post_ingest_image  # noqa: PLC0415
+    return handle_post_ingest_image(self, body)
 
 
 def _handle_post_ingest_audio(self: "ManifoldHandler", body: dict) -> None:
     """POST /ingest/audio — ingest base64-encoded audio."""
-    from manifold.ingestion.audio_ingester import AudioIngester  # noqa: PLC0415
-    import base64  # noqa: PLC0415
-    org_id = body.get("org_id", "default")
-    ai = AudioIngester(
-        org_id=org_id,
-        model_endpoint=body.get("model_endpoint", "http://localhost:8080/v1/chat/completions"),
-        api_key=body.get("api_key", ""),
-        apply_rules=True,
-    )
-    b64data = body.get("audio_b64") or body.get("data") or ""
-    suffix = body.get("format", ".wav")
-    if not suffix.startswith("."):
-        suffix = f".{suffix}"
-    if not b64data:
-        _send_error(self, 400, "Body must include 'audio_b64' field (base64-encoded audio).")
-        return
-    try:
-        audio_bytes = base64.b64decode(b64data)
-    except Exception as exc:  # noqa: BLE001
-        _send_error(self, 400, f"Invalid base64 data: {exc}")
-        return
-    result = ai.ingest_bytes(audio_bytes, suffix=suffix)
-    _send_json(self, 200, result.to_dict())
+    from manifold.routes.ingestion import handle_post_ingest_audio  # noqa: PLC0415
+    return handle_post_ingest_audio(self, body)
 
 
 def _handle_post_ingest(self: "ManifoldHandler", body: dict) -> None:
     """POST /ingest — universal ingestion, auto-detects content type."""
-    from manifold.ingestion.ingestion_router import UniversalIngester  # noqa: PLC0415
-    org_id = body.get("org_id", "default")
-    ui = UniversalIngester(
-        org_id=org_id,
-        model_endpoint=body.get("model_endpoint", "http://localhost:8080/v1/chat/completions"),
-        api_key=body.get("api_key", ""),
-        apply_rules=True,
-    )
-    url = body.get("url") or ""
-    text = body.get("text") or ""
-    if url:
-        result = ui.ingest(url)
-    elif text:
-        result = ui.ingest(text)
-    else:
-        _send_error(self, 400, "Body must include 'url' or 'text' field.")
-        return
-    _send_json(self, 200, result)
+    from manifold.routes.ingestion import handle_post_ingest  # noqa: PLC0415
+    return handle_post_ingest(self, body)
 
 
 def _handle_get_ingest_history(self: "ManifoldHandler") -> None:
     """GET /ingest/history — last 20 ingestion events."""
-    from manifold.ingestion.ingestion_router import get_ingest_history  # noqa: PLC0415
-    _send_json(self, 200, {"history": get_ingest_history()})
+    from manifold.routes.ingestion import handle_get_ingest_history  # noqa: PLC0415
+    return handle_get_ingest_history(self)
 
 
 # Monkey-patch ML handlers onto ManifoldHandler
