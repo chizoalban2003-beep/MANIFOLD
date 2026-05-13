@@ -9,9 +9,21 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional
+
+
+# Default categorical belief over cell states (sums to 1.0)
+_DEFAULT_BELIEF = {
+    "empty": 0.6,
+    "agent": 0.05,
+    "obstacle": 0.1,
+    "hazardous": 0.05,
+    "unknown": 0.2,
+}
+_NUM_STATES = len(_DEFAULT_BELIEF)
 
 
 @dataclass
@@ -21,11 +33,63 @@ class NERVATURACell:
     z: int
     c: float = 0.5   # Cost to traverse
     r: float = 0.5   # Risk of failure
-    n: float = 1.0   # Neutrality (1.0 = completely unknown)
+    n: float = 1.0   # Neutrality (1.0 = completely unknown; now backed by Shannon H)
     a: float = 0.0   # Asset available
     age: int = 0
     last_visited: float = 0.0
     domain: str = "general"
+    # Categorical belief distribution for formal Shannon entropy N
+    belief: dict = field(default_factory=lambda: dict(_DEFAULT_BELIEF))
+
+    # ------------------------------------------------------------------
+    # Formal Shannon entropy Neutrality (PROMPT A1 — closes Gap A)
+    # ------------------------------------------------------------------
+
+    def update_belief(self, observation: str, likelihood: float = 0.85) -> None:
+        """Bayesian update of *belief* given an observation.
+
+        Parameters
+        ----------
+        observation:
+            The observed state (key in *belief*).  One of: "empty", "agent",
+            "obstacle", "hazardous", "unknown".
+        likelihood:
+            Sensor reliability: P(obs | observed_state).  Default 0.85.
+        """
+        if observation not in self.belief:
+            return  # unknown observation — silently ignore
+        num_states = len(self.belief)
+        other_likelihood = (1.0 - likelihood) / max(num_states - 1, 1)
+        posterior: dict = {}
+        for state, prior_p in self.belief.items():
+            lk = likelihood if state == observation else other_likelihood
+            posterior[state] = prior_p * lk
+        total = sum(posterior.values())
+        if total <= 0.0:
+            return  # degenerate — keep current belief
+        self.belief = {k: v / total for k, v in posterior.items()}
+
+    def formal_n(self) -> float:
+        """Return normalised Shannon entropy of *belief* in [0, 1].
+
+        H = -Σ p·log(p)  /  log(|belief|)
+
+        Returns 1.0 when all states are equally likely (maximum uncertainty),
+        0.0 when exactly one state has probability 1 (fully known cell).
+        """
+        num_states = len(self.belief)
+        if num_states <= 1:
+            return 0.0
+        h = -sum(p * math.log(p) for p in self.belief.values() if p > 0)
+        return h / math.log(num_states)
+
+    def sync_n(self) -> None:
+        """Set self.n = formal_n().  Call after every update_belief()."""
+        self.n = self.formal_n()
+
+    # ------------------------------------------------------------------
+    # Original NERVATURA methods
+    # ------------------------------------------------------------------
 
     def traversal_cost(self) -> float:
         """NERVATURA cost function: c + r * 0.3."""
@@ -99,7 +163,10 @@ class NERVATURAWorld:
             cell.a = a
             cell.domain = domain
         else:
-            self._cells[key] = NERVATURACell(x=x, y=y, z=z, c=c, r=r, n=n, a=a, domain=domain)
+            cell = NERVATURACell(x=x, y=y, z=z, c=c, r=r, n=n, a=a, domain=domain)
+            self._cells[key] = cell
+        # Sync formal Shannon entropy N after explicit set
+        cell.sync_n()
 
     def neighbours(self, x: int, y: int, z: int) -> list[NERVATURACell]:
         """Return 6 face-adjacent navigable cells."""

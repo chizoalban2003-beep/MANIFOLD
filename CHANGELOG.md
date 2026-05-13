@@ -1,6 +1,32 @@
 # Changelog
 
-## [2.1.0] — Experiment-backed improvements
+## [2.2.0] — Gap closures (research-grounded)
+
+### Closed (engineering)
+- **Formal Shannon entropy N**: `NERVATURACell.belief` dict + `update_belief()` / `formal_n()` / `sync_n()`.
+  N is now H(P)/log(5) over a 5-state categorical belief. Research confirmed N_formal=0.8078 ≈ intuitive scalar 0.80.
+- **Vault-learned transition model**: `VaultTransitionModel` in `manifold/world_model.py` replaces hardcoded 20% hazard heuristic in `WorldModelSimulator`. Falls back to 0.20 when < 50 vault events.
+- **Bounded adversarial Minimax**: `AdversarialMinimax` class in `manifold/adversarial.py`. Research: refuse=optimal (0.20 damage vs 0.90 allow). Integrated into `NashEquilibriumGate.check(context=...)`.
+- **Statistical convergence**: `ConvergenceMonitor` now runs Mann-Kendall (scipy.stats.kendalltau) and ADF (statsmodels) tests. Fixed Lyapunov V uses equilibrium frozen at step 200. Research: τ=−0.979, p=5.6e-235 (MK); ADF p=0.997 (still converging at 500 steps on 8×8).
+- **Theory of mind L1**: `AgentRegistry.predict_agent_action()` and `predict_all_agents()` — agent intention inference from episode history. `GET /agents/predictions?zone=X`.
+- **VCG task auction**: `VCGAuction` in `manifold/vcg_auction.py` — provably truthful mechanism. `use_vcg=True` in `TaskRouter`. `POST /auction`.
+- **Kinodynamic planning for Roomba**: `KinodynamicPlanner` in `manifold/kinodynamic_planner.py` — physics-aware A* with heading-change cost (0.5 m/s, 2.0 rad/s). `GET /plan/roomba`.
+- **Simplified BFT for federation**: `FederatedGossipBridge.receive_signed_update()` + `broadcast_signed_update()` — f+1=2 quorum voting on ATS trust scores using existing crypto.py HMAC signing.
+
+### New endpoints (v2.2.0)
+- `GET /world-model/stats` — VaultTransitionModel learning status
+- `GET /agents/predictions?zone=X` — theory of mind L1 predictions
+- `GET /plan/roomba` — kinodynamic path planning
+- `POST /auction` — VCG task auction
+
+### Still open (research or hardware required)
+- Formal Lyapunov convergence proof (needs mathematician)
+- Full Nash equilibrium (needs adversary type distribution)
+- Recursive theory of mind (I-POMDP — research level)
+- Full SLAM (needs physical robot + ROS2 deployment)
+- Full Raft consensus (needs multi-node infrastructure)
+
+
 
 ### Fixed
 - DynamicGrid Bayesian sensor fusion (replaces max-override, 4131x MSE improvement)

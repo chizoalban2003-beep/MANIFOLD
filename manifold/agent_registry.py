@@ -340,6 +340,108 @@ class AgentRegistry:
         """
         return self.best_agent_for_domain(task_domain)
 
+    # ------------------------------------------------------------------
+    # PROMPT D1 — Theory of mind Level 1: agent intention inference
+    # ------------------------------------------------------------------
+
+    def predict_agent_action(
+        self,
+        observer_id: str,
+        target_id: str,
+        context: dict,
+    ) -> dict:
+        """Predict what *target_id* is likely to do in the given *context*.
+
+        Level 1 theory of mind: MANIFOLD infers the most likely next action of
+        a target agent from that agent's episode history.  No recursive
+        "they think I think" modelling is performed.
+
+        Parameters
+        ----------
+        observer_id:
+            The observing agent's ID (used for logging / future trust filtering).
+        target_id:
+            The agent whose intention we want to predict.
+        context:
+            Dict with keys: ``zone`` (str), ``task_type`` (str),
+            ``current_crna`` (dict).
+
+        Returns
+        -------
+        dict with keys:
+            ``predicted_action`` (str), ``confidence`` (float),
+            ``risk_predicted`` (float), ``basis`` (str)
+        """
+        target = self._agents.get(target_id)
+        if target is None:
+            return {
+                "predicted_action": "unknown",
+                "confidence": 0.0,
+                "risk_predicted": 0.5,
+                "basis": "agent_not_found",
+            }
+
+        zone = context.get("zone", "")
+        task_type = context.get("task_type", "")
+        domain_key = zone or task_type or "general"
+
+        # Find matching episodes by domain/zone
+        matching = [
+            e for e in target.episode_history
+            if e.domain == domain_key or domain_key in e.task_description.lower()
+        ]
+
+        if not matching:
+            # Fall back to ATS as prior — higher ATS predicts "proceed"
+            ats = target.health_score()
+            action = "proceed" if ats >= 0.5 else "wait"
+            return {
+                "predicted_action": action,
+                "confidence": round(ats, 4),
+                "risk_predicted": round(1.0 - ats, 4),
+                "basis": "ats_prior",
+            }
+
+        # Compute most common action from success/failure pattern
+        successes = sum(1 for e in matching if e.success)
+        total = len(matching)
+        success_rate = successes / total if total > 0 else 0.5
+        predicted_action = "proceed" if success_rate >= 0.5 else "wait"
+        avg_risk = sum(e.risk_encountered for e in matching) / total
+        confidence = round(max(success_rate, 1.0 - success_rate), 4)
+
+        return {
+            "predicted_action": predicted_action,
+            "confidence": confidence,
+            "risk_predicted": round(avg_risk, 4),
+            "basis": "episode_history",
+        }
+
+    def predict_all_agents(self, observer_id: str, zone: str) -> list[dict]:
+        """Return intention predictions for every active agent in *zone*.
+
+        Parameters
+        ----------
+        observer_id:
+            The observing agent.
+        zone:
+            Zone name to predict for.
+
+        Returns
+        -------
+        list[dict]
+            One prediction dict per active agent (excluding observer).
+        """
+        context = {"zone": zone, "task_type": zone, "current_crna": {}}
+        results = []
+        for agent in self.active_agents():
+            if agent.agent_id == observer_id:
+                continue
+            prediction = self.predict_agent_action(observer_id, agent.agent_id, context)
+            prediction["agent_id"] = agent.agent_id
+            results.append(prediction)
+        return results
+
 
 # ---------------------------------------------------------------------------
 # EXP7 benchmark

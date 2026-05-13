@@ -495,6 +495,7 @@ class NashEquilibriumGate:
         tool_name: str,
         memory: BrainMemory,
         source_id: str | None = None,
+        context: dict | None = None,
     ) -> AuditTrigger | None:
         """Run all checks for *tool_name* and return an ``AuditTrigger`` or None.
 
@@ -502,6 +503,9 @@ class NashEquilibriumGate:
         1. Laundering (if source_id provided).
         2. Honey-pot.
         3. Z-score implausibility.
+
+        When *context* is provided and a trigger fires, AdversarialMinimax is
+        run to recommend an optimal action (PROMPT B2).
 
         Parameters
         ----------
@@ -511,6 +515,9 @@ class NashEquilibriumGate:
             Current ``BrainMemory``.
         source_id:
             Optional gossip source ID to check for laundering.
+        context:
+            Optional execution context dict (domain, stakes) passed to
+            AdversarialMinimax when a trigger fires.
 
         Returns
         -------
@@ -546,7 +553,7 @@ class NashEquilibriumGate:
         # 3. Z-score plausibility
         z = self.zscore(tool_name, memory)
         if z is not None and z > self.zscore_threshold:
-            return AuditTrigger(
+            trigger = AuditTrigger(
                 tool_name=tool_name,
                 reason=(
                     f"Z-score {z:.2f} exceeds threshold {self.zscore_threshold:.2f}; "
@@ -556,6 +563,17 @@ class NashEquilibriumGate:
                 z_score=z,
                 recommended_action="deploy_audit_scout",
             )
+            if context:
+                minimax = AdversarialMinimax()
+                mm = minimax.minimax(context)
+                trigger = AuditTrigger(
+                    tool_name=trigger.tool_name,
+                    reason=trigger.reason,
+                    trigger_type=trigger.trigger_type,
+                    z_score=trigger.z_score,
+                    recommended_action=mm["optimal_action"],
+                )
+            return trigger
 
         return None
 
@@ -581,3 +599,156 @@ class NashEquilibriumGate:
             if trigger:
                 triggers.append(trigger)
         return triggers
+
+
+# ---------------------------------------------------------------------------
+# AdversarialMinimax (PROMPT B2 — bounded adversary game-theoretic planner)
+# ---------------------------------------------------------------------------
+
+
+class AdversarialMinimax:
+    """Bounded adversarial Minimax planner for MANIFOLD governance decisions.
+
+    Research finding (EXP3 / live Minimax):
+        allow    → worst-case damage 0.90
+        escalate → worst-case damage 0.40
+        refuse   → worst-case damage 0.20 (OPTIMAL)
+
+    This class formalises the game between MANIFOLD (minimiser) and a
+    bounded adversary (maximiser).  The adversary is *bounded* — it can
+    only choose from a known set of attack actions.
+
+    Parameters
+    ----------
+    horizon:
+        Look-ahead depth.  Default 2 (one round of MANIFOLD + adversary).
+    """
+
+    MANIFOLD_ACTIONS = ["allow", "escalate", "refuse", "verify", "stop"]
+    ADVERSARY_ACTIONS = [
+        "inject_risk",
+        "spoof_sensor",
+        "overload_bus",
+        "replay_attack",
+        "timing_attack",
+    ]
+
+    # Base damage matrix: MANIFOLD_action × ADVERSARY_action → damage in [0, 1]
+    _BASE_DAMAGE: dict[str, dict[str, float]] = {
+        "allow": {
+            "inject_risk": 0.90,
+            "spoof_sensor": 0.85,
+            "overload_bus": 0.80,
+            "replay_attack": 0.90,
+            "timing_attack": 0.70,
+        },
+        "escalate": {
+            "inject_risk": 0.40,
+            "spoof_sensor": 0.45,
+            "overload_bus": 0.50,
+            "replay_attack": 0.35,
+            "timing_attack": 0.40,
+        },
+        "refuse": {
+            "inject_risk": 0.20,
+            "spoof_sensor": 0.15,
+            "overload_bus": 0.10,
+            "replay_attack": 0.20,
+            "timing_attack": 0.25,
+        },
+        "verify": {
+            "inject_risk": 0.50,
+            "spoof_sensor": 0.30,
+            "overload_bus": 0.60,
+            "replay_attack": 0.45,
+            "timing_attack": 0.35,
+        },
+        "stop": {
+            "inject_risk": 0.10,
+            "spoof_sensor": 0.10,
+            "overload_bus": 0.05,
+            "replay_attack": 0.10,
+            "timing_attack": 0.10,
+        },
+    }
+
+    # High-stakes domain multipliers on damage
+    _DOMAIN_MULTIPLIERS: dict[str, float] = {
+        "healthcare": 1.5,
+        "medical": 1.5,
+        "finance": 1.3,
+        "physical": 1.2,
+        "baby": 1.5,
+        "general": 1.0,
+    }
+
+    def __init__(self, horizon: int = 2) -> None:
+        self.horizon = horizon
+
+    def damage_estimate(
+        self,
+        m_action: str,
+        a_action: str,
+        context: dict,
+    ) -> float:
+        """Return expected damage when MANIFOLD plays *m_action* and adversary plays *a_action*.
+
+        Context keys used: ``domain`` (str), ``stakes`` (float in [0,1]).
+
+        Parameters
+        ----------
+        m_action:
+            MANIFOLD's governance action.
+        a_action:
+            Adversary's attack action.
+        context:
+            Execution context with optional ``domain`` and ``stakes`` keys.
+        """
+        base = self._BASE_DAMAGE.get(m_action, {}).get(a_action, 0.5)
+        domain = context.get("domain", "general")
+        multiplier = self._DOMAIN_MULTIPLIERS.get(domain, 1.0)
+        stakes = float(context.get("stakes", 0.5))
+        # Stakes amplify damage proportionally
+        damage = base * multiplier * (0.5 + 0.5 * stakes)
+        return min(1.0, damage)
+
+    def minimax(self, context: dict) -> dict:
+        """Run Minimax and return the optimal MANIFOLD action.
+
+        For each MANIFOLD action, compute the worst-case adversary damage.
+        Return the action that minimises worst-case damage.
+
+        Parameters
+        ----------
+        context:
+            Execution context dict (domain, stakes, etc.)
+
+        Returns
+        -------
+        dict with keys:
+            ``optimal_action``, ``minimax_damage``, ``action_damages``,
+            ``adversary_model``
+        """
+        worst_case: dict[str, float] = {}
+        for m_action in self.MANIFOLD_ACTIONS:
+            worst_case[m_action] = max(
+                self.damage_estimate(m_action, a_action, context)
+                for a_action in self.ADVERSARY_ACTIONS
+            )
+
+        optimal_action = min(worst_case, key=lambda k: worst_case[k])
+        return {
+            "optimal_action": optimal_action,
+            "minimax_damage": round(worst_case[optimal_action], 4),
+            "action_damages": {k: round(v, 4) for k, v in worst_case.items()},
+            "adversary_model": "bounded (known action space)",
+        }
+
+    def should_use(self, gate_result: "AuditTrigger") -> bool:
+        """Return True if *gate_result* indicates active adversarial behaviour."""
+        return gate_result is not None and gate_result.trigger_type in {
+            "laundering",
+            "honeypot",
+            "implausible_rep",
+        }
+

@@ -88,17 +88,22 @@ def _world_astar(
 class WorldModelSimulator:
     """Predict the next CRNA state when an agent moves into a cell."""
 
-    def __init__(self, world: NERVATURAWorld) -> None:
+    def __init__(self, world: NERVATURAWorld, vault_path: str | None = None) -> None:
         self._world = world
+        # PROMPT B1: vault-learned transition probabilities (replaces hardcoded 0.20)
+        from manifold.world_model import VaultTransitionModel
+        self._transitions = VaultTransitionModel(vault_path)
+        self._transitions.learn()  # uses available data; falls back to 0.20 if insufficient
 
-    def simulate_step(self, agent_pos: tuple, action: tuple) -> dict:
+    def simulate_step(self, agent_pos: tuple, action: tuple, domain: str = "general") -> dict:
         """Return predicted CRNA state dict after agent takes *action* from *agent_pos*.
 
         Model rules
         -----------
         * Moving into a cell reduces N by 0.1 (exploration reduces neutrality).
-        * If the cell has R > 0.6, there is a ~20% chance of an obstacle event
-          (R spikes further).  Deterministic: uses hash of target cell position.
+        * If the cell has R > 0.5, use vault-learned p_obstacle to determine
+          whether an obstacle event materialises (R spikes further).
+          Deterministic: uses hash of target cell position for reproducibility.
         """
         dx, dy, dz = action
         nx = agent_pos[0] + dx
@@ -114,9 +119,12 @@ class WorldModelSimulator:
         predicted_a = cell.a
         predicted_r = cell.r
 
-        # Deterministic ~20% obstacle event for high-R cells
-        if cell.r > 0.6:
-            if abs(hash((nx, ny, nz))) % 10 < 2:
+        # PROMPT B1: vault-learned obstacle probability (replaces hardcoded 0.20)
+        if cell.r > 0.5:
+            p = self._transitions.predict(domain, cell.r)
+            # Deterministic approximation using hash for reproducibility
+            threshold = int(p * 100)
+            if abs(hash((nx, ny, nz))) % 100 < threshold:
                 predicted_r = min(1.0, cell.r + 0.2)
 
         return {

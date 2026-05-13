@@ -194,11 +194,13 @@ class TaskRouter:
         self,
         brain: ManifoldBrain | None = None,
         registry: AgentRegistry | None = None,
+        use_vcg: bool = False,
     ) -> None:
         self._brain = brain or ManifoldBrain()
         self._registry = registry or AgentRegistry()
         self._workspace = GlobalWorkspace()
         self._plans: dict[str, TaskPlan] = {}
+        self.use_vcg = use_vcg  # PROMPT D2: use VCG auction for agent assignment
 
     def _decompose(self, task: str) -> list[str]:
         """
@@ -253,7 +255,24 @@ class TaskRouter:
     def _best_agent(
         self, domain: str, capabilities_needed: list[str]
     ) -> AgentRecord | None:
-        """Find the best available agent for a sub-task."""
+        """Find the best available agent for a sub-task.
+
+        When ``self.use_vcg`` is True, delegates to VCGAuction (PROMPT D2).
+        """
+        if self.use_vcg:
+            # VCG auction — provably truthful mechanism
+            from manifold.vcg_auction import VCGAuction
+            auction = VCGAuction(self._registry)
+            result = auction.run(
+                task_domain=domain,
+                required_capabilities=capabilities_needed,
+                n_tasks=1,
+            )
+            winner_id = result.assignments.get("task_0")
+            if winner_id:
+                return self._registry.get(winner_id)
+            return None
+
         candidates = self._registry.active_agents()
         if not candidates:
             return None

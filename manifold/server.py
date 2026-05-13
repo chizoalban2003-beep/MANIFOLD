@@ -763,6 +763,21 @@ class ManifoldHandler(BaseHTTPRequestHandler):
                 self._handle_get_nervatura_convergence()
                 return
 
+            # GET /world-model/stats  (PROMPT B1 — VaultTransitionModel learning status)
+            if path == "/world-model/stats":
+                self._handle_get_world_model_stats()
+                return
+
+            # GET /agents/predictions  (PROMPT D1 — theory of mind L1)
+            if path.startswith("/agents/predictions"):
+                self._handle_get_agents_predictions()
+                return
+
+            # GET /plan/roomba  (PROMPT D3 — kinodynamic planning)
+            if path == "/plan/roomba":
+                self._handle_get_plan_roomba()
+                return
+
             _send_error(self, 404, f"No route for GET {self.path}")
         except Exception as exc:  # noqa: BLE001
             _send_error(self, 500, str(exc))
@@ -883,6 +898,8 @@ class ManifoldHandler(BaseHTTPRequestHandler):
                 self._handle_post_federation_gossip(body)
             elif path == "/task":
                 self._handle_post_task(body)
+            elif path == "/auction":
+                self._handle_post_auction(body)
             elif path == "/nervatura/world/init":
                 _authed2, _caller2 = _check_auth(self, path)
                 if not _authed2:
@@ -4301,6 +4318,85 @@ def _handle_get_nervatura_convergence(self: "ManifoldHandler") -> None:
 
 
 ManifoldHandler._handle_get_nervatura_convergence = _handle_get_nervatura_convergence  # type: ignore[attr-defined]
+
+
+# ---------------------------------------------------------------------------
+# v2.2.0 — Gap closure handlers
+# ---------------------------------------------------------------------------
+
+
+def _handle_get_world_model_stats(self: "ManifoldHandler") -> None:
+    """GET /world-model/stats — VaultTransitionModel learning status (PROMPT B1)."""
+    from manifold.world_model import VaultTransitionModel  # noqa: PLC0415
+    model = VaultTransitionModel()
+    result = model.learn()
+    _send_json(self, 200, result)
+
+
+def _handle_get_agents_predictions(self: "ManifoldHandler") -> None:
+    """GET /agents/predictions?zone=X — theory of mind L1 (PROMPT D1)."""
+    from urllib.parse import urlparse, parse_qs  # noqa: PLC0415
+    parsed = urlparse(self.path)
+    params = parse_qs(parsed.query)
+    zone = params.get("zone", ["general"])[0]
+    observer_id = params.get("observer_id", ["manifold"])[0]
+    predictions = _REGISTRY.predict_all_agents(observer_id, zone)
+    _send_json(self, 200, {"zone": zone, "predictions": predictions})
+
+
+def _handle_get_plan_roomba(self: "ManifoldHandler") -> None:
+    """GET /plan/roomba — kinodynamic path planning for Roomba (PROMPT D3)."""
+    import math  # noqa: PLC0415
+    from urllib.parse import urlparse, parse_qs  # noqa: PLC0415
+    from manifold.kinodynamic_planner import KinodynamicPlanner  # noqa: PLC0415
+    parsed = urlparse(self.path)
+    params = parse_qs(parsed.query)
+
+    def _int_param(key: str, default: int) -> int:
+        try:
+            return int(params.get(key, [default])[0])
+        except (ValueError, IndexError):
+            return default
+
+    sx = _int_param("sx", 0)
+    sy = _int_param("sy", 0)
+    sz = _int_param("sz", 0)
+    tx = _int_param("tx", 5)
+    ty = _int_param("ty", 5)
+    tz = _int_param("tz", 0)
+    heading_deg = float(params.get("heading_degrees", [0])[0])
+    risk_budget = float(params.get("risk_budget", [0.7])[0])
+
+    planner = KinodynamicPlanner()
+    result = planner.plan_kinodynamic(
+        start=(sx, sy, sz),
+        target=(tx, ty, tz),
+        initial_theta=math.radians(heading_deg),
+        risk_budget=risk_budget,
+    )
+    _send_json(self, 200, result)
+
+
+def _handle_post_auction(self: "ManifoldHandler", body: dict) -> None:
+    """POST /auction — VCG task auction (PROMPT D2)."""
+    from manifold.vcg_auction import VCGAuction  # noqa: PLC0415
+    task_domain = body.get("task_domain", "general")
+    capabilities = body.get("capabilities", [])
+    n_tasks = int(body.get("n_tasks", 1))
+    auction = VCGAuction(_REGISTRY)
+    result = auction.run(task_domain, capabilities, n_tasks)
+    _send_json(self, 200, {
+        "assignments": result.assignments,
+        "payments": result.payments,
+        "social_welfare": result.social_welfare,
+        "mechanism": result.mechanism,
+    })
+
+
+ManifoldHandler._handle_get_world_model_stats = _handle_get_world_model_stats  # type: ignore[attr-defined]
+ManifoldHandler._handle_get_agents_predictions = _handle_get_agents_predictions  # type: ignore[attr-defined]
+ManifoldHandler._handle_get_plan_roomba = _handle_get_plan_roomba  # type: ignore[attr-defined]
+ManifoldHandler._handle_post_auction = _handle_post_auction  # type: ignore[attr-defined]
 
 
 def run_server(port: int = 8080, *, host: str = "0.0.0.0") -> None:
