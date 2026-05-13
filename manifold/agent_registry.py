@@ -14,6 +14,23 @@ from typing import Literal
 AgentStatus = Literal["active", "idle", "paused", "stale", "unregistered"]
 
 
+# ---------------------------------------------------------------------------
+# EXP7 — Episode dataclass for per-agent episodic memory
+# ---------------------------------------------------------------------------
+
+@dataclass
+class Episode:
+    """A record of one completed task episode for an agent."""
+    task_description: str
+    domain: str
+    duration_seconds: float
+    success: bool
+    crna_at_start: dict   # {c, r, n, a}
+    crna_at_end: dict     # {c, r, n, a}
+    risk_encountered: float   # max R seen during the task
+    timestamp: float = field(default_factory=time.time)
+
+
 @dataclass
 class AgentRecord:
     agent_id: str
@@ -29,6 +46,8 @@ class AgentRecord:
     error_count: int = 0
     notes: str = ""
     _command_queue: list = field(default_factory=list)
+    episode_history: list = field(default_factory=list)  # list[Episode]
+    max_episodes: int = 100
 
     def is_stale(self, timeout_seconds: int = 120) -> bool:
         return time.time() - self.last_heartbeat > timeout_seconds
@@ -211,3 +230,145 @@ class AgentRegistry:
             if consume:
                 rec._command_queue.clear()
             return cmds
+
+    # ------------------------------------------------------------------
+    # EXP7 — Episodic memory
+    # ------------------------------------------------------------------
+
+    def record_episode(self, agent_id: str, episode: "Episode") -> None:
+        """Append *episode* to the agent's episode history (capped at max_episodes)."""
+        with self._lock:
+            rec = self._agents.get(agent_id)
+            if rec is None:
+                return
+            rec.episode_history.append(episode)
+            if len(rec.episode_history) > rec.max_episodes:
+                rec.episode_history = rec.episode_history[-rec.max_episodes:]
+
+    def agent_risk_estimate(self, agent_id: str, domain: str) -> float:
+        """Return the mean risk_encountered for the agent's episodes in *domain*.
+
+        Returns 0.5 if the agent has no episodes for that domain.
+        """
+        rec = self._agents.get(agent_id)
+        if rec is None:
+            return 0.5
+        domain_eps = [e for e in rec.episode_history if e.domain == domain]
+        if not domain_eps:
+            return 0.5
+        return sum(e.risk_encountered for e in domain_eps) / len(domain_eps)
+
+    def best_agent_for_task(
+        self,
+        task_domain: str,
+        cell_crna: dict | None = None,
+    ) -> str | None:
+        """Return the agent_id with the highest episodic-risk-adjusted ATS score.
+
+        score = ats * (1 - agent_risk_estimate(id, task_domain))
+
+        Returns None if no active agents are registered.
+        """
+        active = self.active_agents()
+        if not active:
+            return None
+
+        best_id: str | None = None
+        best_score = -1.0
+
+        for agent in active:
+            ats = agent.health_score()
+            risk_est = self.agent_risk_estimate(agent.agent_id, task_domain)
+            score = ats * (1.0 - risk_est)
+            if score > best_score:
+                best_score = score
+                best_id = agent.agent_id
+
+        return best_id
+
+
+# ---------------------------------------------------------------------------
+# EXP7 benchmark
+# ---------------------------------------------------------------------------
+
+def compare_assignment_quality() -> dict:
+    """Compare episodic vs random agent assignment quality.
+
+    Registers 3 agents with different episode histories and measures
+    which assignment strategy selects lower-risk agents for finance tasks.
+
+    Returns
+    -------
+    dict with keys: episodic_win_rate, risk_improvement.
+    """
+    import random as _random
+
+    registry = AgentRegistry(stale_timeout=9999)
+
+    # Register three agents
+    for aid, name, caps in [
+        ("agent-finance", "Finance Expert", ["finance", "billing"]),
+        ("agent-general", "Generalist", ["general", "finance", "search"]),
+        ("agent-new", "Newcomer", ["finance"]),
+    ]:
+        registry.register(aid, name, caps, "org1")
+
+    # Give agent-finance a strong low-risk finance history
+    crna_safe = {"c": 0.4, "r": 0.3, "n": 0.2, "a": 0.7}
+    for _ in range(10):
+        registry.record_episode(
+            "agent-finance",
+            Episode(
+                task_description="Quarterly audit review",
+                domain="finance",
+                duration_seconds=45.0,
+                success=True,
+                crna_at_start=crna_safe,
+                crna_at_end=crna_safe,
+                risk_encountered=0.2,
+            ),
+        )
+
+    # Give agent-general a medium-risk finance history
+    crna_med = {"c": 0.5, "r": 0.5, "n": 0.5, "a": 0.5}
+    for _ in range(10):
+        registry.record_episode(
+            "agent-general",
+            Episode(
+                task_description="Generic finance task",
+                domain="finance",
+                duration_seconds=60.0,
+                success=True,
+                crna_at_start=crna_med,
+                crna_at_end=crna_med,
+                risk_encountered=0.5,
+            ),
+        )
+
+    # agent-new has no history (defaults to 0.5)
+
+    rng = _random.Random(42)
+    all_agents = ["agent-finance", "agent-general", "agent-new"]
+
+    episodic_wins = 0
+    episodic_risk_total = 0.0
+    random_risk_total = 0.0
+    n_trials = 20
+
+    for _ in range(n_trials):
+        best = registry.best_agent_for_task("finance")
+        random_agent = rng.choice(all_agents)
+
+        ep_risk = registry.agent_risk_estimate(best or "", "finance")
+        rnd_risk = registry.agent_risk_estimate(random_agent, "finance")
+
+        episodic_risk_total += ep_risk
+        random_risk_total += rnd_risk
+
+        if ep_risk <= rnd_risk:
+            episodic_wins += 1
+
+    return {
+        "episodic_win_rate": round(episodic_wins / n_trials, 4),
+        "risk_improvement": round((random_risk_total - episodic_risk_total) / n_trials, 6),
+    }

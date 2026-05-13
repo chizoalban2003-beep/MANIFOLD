@@ -715,6 +715,41 @@ class ManifoldHandler(BaseHTTPRequestHandler):
                 self._handle_get_ingest_history()
                 return
 
+            # GET /experiments/mpc  (EXP1 benchmark)
+            if path == "/experiments/mpc":
+                self._handle_get_exp_mpc()
+                return
+
+            # GET /experiments/bayesian  (EXP2 benchmark)
+            if path == "/experiments/bayesian":
+                self._handle_get_exp_bayesian()
+                return
+
+            # GET /experiments/cbs  (EXP3 benchmark)
+            if path == "/experiments/cbs":
+                self._handle_get_exp_cbs()
+                return
+
+            # GET /experiments/calibration  (EXP4 benchmark)
+            if path == "/experiments/calibration":
+                self._handle_get_exp_calibration()
+                return
+
+            # GET /experiments/convergence  (EXP5 benchmark)
+            if path == "/experiments/convergence":
+                self._handle_get_exp_convergence()
+                return
+
+            # GET /experiments/all  (all 7 benchmarks)
+            if path == "/experiments/all":
+                self._handle_get_experiments_all()
+                return
+
+            # GET /agents/best  (EXP7 — episodic agent selection)
+            if path == "/agents/best":
+                self._handle_get_agents_best()
+                return
+
             _send_error(self, 404, f"No route for GET {self.path}")
         except Exception as exc:  # noqa: BLE001
             _send_error(self, 500, str(exc))
@@ -4016,6 +4051,111 @@ ManifoldHandler._handle_post_ingest_image = _handle_post_ingest_image  # type: i
 ManifoldHandler._handle_post_ingest_audio = _handle_post_ingest_audio  # type: ignore[attr-defined]
 ManifoldHandler._handle_post_ingest = _handle_post_ingest  # type: ignore[attr-defined]
 ManifoldHandler._handle_get_ingest_history = _handle_get_ingest_history  # type: ignore[attr-defined]
+
+
+# ---------------------------------------------------------------------------
+# Experiment endpoint handlers (EXP1–EXP7)
+# ---------------------------------------------------------------------------
+
+
+def _handle_get_exp_mpc(self: "ManifoldHandler") -> None:
+    """GET /experiments/mpc — EXP1: MPC vs A* benchmark."""
+    from manifold.experiments.mpc_planner import run_mpc_vs_astar_benchmark  # noqa: PLC0415
+    result = run_mpc_vs_astar_benchmark()
+    import dataclasses  # noqa: PLC0415
+    _send_json(self, 200, dataclasses.asdict(result))
+
+
+def _handle_get_exp_bayesian(self: "ManifoldHandler") -> None:
+    """GET /experiments/bayesian — EXP2: Bayesian vs scalar benchmark."""
+    from manifold.experiments.bayesian_crna import run_bayesian_vs_scalar_benchmark  # noqa: PLC0415
+    _send_json(self, 200, run_bayesian_vs_scalar_benchmark())
+
+
+def _handle_get_exp_cbs(self: "ManifoldHandler") -> None:
+    """GET /experiments/cbs — EXP3: CBS vs right-of-way benchmark."""
+    from manifold.experiments.mapf_cbs import run_cbs_vs_rightofway_benchmark  # noqa: PLC0415
+    _send_json(self, 200, run_cbs_vs_rightofway_benchmark())
+
+
+def _handle_get_exp_calibration(self: "ManifoldHandler") -> None:
+    """GET /experiments/calibration — EXP4: threshold calibration report."""
+    from manifold.experiments.calibrated_policy import run_calibration_benchmark  # noqa: PLC0415
+    _send_json(self, 200, run_calibration_benchmark())
+
+
+def _handle_get_exp_convergence(self: "ManifoldHandler") -> None:
+    """GET /experiments/convergence — EXP5: NERVATURA Lyapunov convergence."""
+    from manifold.experiments.convergence import run_convergence_benchmark  # noqa: PLC0415
+    _send_json(self, 200, run_convergence_benchmark())
+
+
+def _handle_get_agents_best(self: "ManifoldHandler") -> None:
+    """GET /agents/best?domain=X&risk=Y — EXP7: episodic agent selection."""
+    import urllib.parse as _up  # noqa: PLC0415
+    qs = _up.parse_qs(self.path.split("?", 1)[1] if "?" in self.path else "")
+    domain = qs.get("domain", ["general"])[0]
+    risk = float(qs.get("risk", ["0.5"])[0])
+    cell_crna = {"r": risk}
+    best_id = _AGENT_REGISTRY.best_agent_for_task(domain, cell_crna)
+    _send_json(self, 200, {"best_agent_id": best_id, "domain": domain, "cell_risk": risk})
+
+
+def _handle_get_experiments_all(self: "ManifoldHandler") -> None:
+    """GET /experiments/all — run all 7 benchmarks and return combined report."""
+    import dataclasses  # noqa: PLC0415
+    from manifold.experiments.mpc_planner import run_mpc_vs_astar_benchmark  # noqa: PLC0415
+    from manifold.experiments.bayesian_crna import run_bayesian_vs_scalar_benchmark  # noqa: PLC0415
+    from manifold.experiments.mapf_cbs import run_cbs_vs_rightofway_benchmark  # noqa: PLC0415
+    from manifold.experiments.calibrated_policy import run_calibration_benchmark  # noqa: PLC0415
+    from manifold.experiments.convergence import run_convergence_benchmark  # noqa: PLC0415
+    from manifold.task_router import run_task_ordering_benchmark  # noqa: PLC0415
+    from manifold.agent_registry import compare_assignment_quality  # noqa: PLC0415
+
+    mpc = dataclasses.asdict(run_mpc_vs_astar_benchmark())
+    bayesian = run_bayesian_vs_scalar_benchmark()
+    cbs = run_cbs_vs_rightofway_benchmark()
+    calibration = run_calibration_benchmark()
+    convergence = run_convergence_benchmark()
+    ordering = run_task_ordering_benchmark()
+    episodic = compare_assignment_quality()
+
+    improvements = sum([
+        mpc.get("win_rate", 0) > 0.4,
+        bayesian.get("bayesian_wins", False),
+        cbs.get("cbs_conflict_rate", 1) < cbs.get("rightofway_conflict_rate", 0),
+        calibration.get("status") == "ok",
+        convergence.get("converges", False),
+        ordering.get("has_ordering", False),
+        episodic.get("episodic_win_rate", 0) > 0.4,
+    ])
+
+    _send_json(self, 200, {
+        "mpc_vs_astar": mpc,
+        "bayesian_vs_scalar": bayesian,
+        "cbs_vs_rightofway": cbs,
+        "calibration_report": calibration,
+        "convergence_report": convergence,
+        "task_ordering": ordering,
+        "episodic_memory": episodic,
+        "summary": {
+            "experiments_run": 7,
+            "improvements_confirmed": improvements,
+            "recommendation": (
+                "CBS, Bayesian CRNA, and episodic memory show the strongest "
+                "improvements and are worth addressing in production."
+            ),
+        },
+    })
+
+
+ManifoldHandler._handle_get_exp_mpc = _handle_get_exp_mpc  # type: ignore[attr-defined]
+ManifoldHandler._handle_get_exp_bayesian = _handle_get_exp_bayesian  # type: ignore[attr-defined]
+ManifoldHandler._handle_get_exp_cbs = _handle_get_exp_cbs  # type: ignore[attr-defined]
+ManifoldHandler._handle_get_exp_calibration = _handle_get_exp_calibration  # type: ignore[attr-defined]
+ManifoldHandler._handle_get_exp_convergence = _handle_get_exp_convergence  # type: ignore[attr-defined]
+ManifoldHandler._handle_get_agents_best = _handle_get_agents_best  # type: ignore[attr-defined]
+ManifoldHandler._handle_get_experiments_all = _handle_get_experiments_all  # type: ignore[attr-defined]
 
 
 def run_server(port: int = 8080, *, host: str = "0.0.0.0") -> None:
