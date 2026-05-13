@@ -20,8 +20,7 @@ import time
 import urllib.error
 import urllib.request
 from collections import deque
-from dataclasses import dataclass, field
-from typing import Any
+from dataclasses import dataclass
 
 _SYSTEM_PROMPT = """
 You are MANIFOLD Governance AI, an expert at configuring AI governance systems.

@@ -35,6 +35,8 @@
 export { ManifoldClient, ManifoldApiError } from "./client.js";
 export { createShield, ShieldVetoError } from "./shield.js";
 export { ShadowModeWrapper, ShadowVetoError } from "./shadow.js";
+export { ManifoldAgentSDK } from "./agent.js";
+export type { ManifoldAgentOptions, CommandHandler } from "./agent.js";
 export type {
   BrainTask,
   BrainAction,

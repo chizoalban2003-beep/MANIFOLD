@@ -11,7 +11,7 @@ import threading
 import time
 from collections import deque
 from pathlib import Path
-from typing import Any
+
 
 _HISTORY: deque[dict] = deque(maxlen=20)
 _HISTORY_LOCK = threading.Lock()
