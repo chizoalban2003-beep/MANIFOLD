@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.0.0] — v2.0.0 Release
+
+### Added
+- `ManifoldPlugin` universal plugin standard (`manifold/plugin.py`) — `ManifoldPlugin` ABC + `PluginRegistry`
+- `ManifoldAgentSDK` TypeScript class (`manifold-ts/src/agent.ts`) — register, heartbeat, command polling, start/stop lifecycle
+- `scripts/demo.py` — one-command demo for the full MANIFOLD stack
+- `manifold/routes/` — thin route modules splitting `server.py` into `agents`, `governance`, `federation`, `ingestion`, `physical`, `world`
+- pyflakes CI gate in `.github/workflows/manifold-ci.yml` — zero-warning policy enforced on every push
+- Full test suite (including `tests/test_db.py`) now runs in CI via `pip install -e ".[dev,db]"`
+- `aiosqlite>=0.19` added to `[dev]` and `[db]` optional dependencies in `pyproject.toml`
+- 16 unused imports removed across 9 Python files
+
 ## [1.9.0] — ManifoldLLM + Universal Policy Ingestion
 
 ### Added
