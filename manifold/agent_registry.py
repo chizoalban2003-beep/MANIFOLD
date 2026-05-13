@@ -235,15 +235,19 @@ class AgentRegistry:
     # EXP7 — Episodic memory
     # ------------------------------------------------------------------
 
-    def record_episode(self, agent_id: str, episode: "Episode") -> None:
-        """Append *episode* to the agent's episode history (capped at max_episodes)."""
+    def record_episode(self, agent_id: str, episode: "Episode") -> bool:
+        """Append *episode* to the agent's episode history (capped at max_episodes).
+
+        Returns ``True`` on success, ``False`` if the agent does not exist.
+        """
         with self._lock:
             rec = self._agents.get(agent_id)
             if rec is None:
-                return
+                return False
             rec.episode_history.append(episode)
             if len(rec.episode_history) > rec.max_episodes:
                 rec.episode_history = rec.episode_history[-rec.max_episodes:]
+        return True
 
     def agent_risk_estimate(self, agent_id: str, domain: str) -> float:
         """Return the mean risk_encountered for the agent's episodes in *domain*.
@@ -258,6 +262,72 @@ class AgentRegistry:
             return 0.5
         return sum(e.risk_encountered for e in domain_eps) / len(domain_eps)
 
+    def domain_risk_estimate(self, agent_id: str, domain: str) -> float:
+        """Return a recency-weighted risk estimate for *agent_id* in *domain*.
+
+        Recent episodes (last 10) get 2× weight to reflect skill improvement
+        or environmental drift.  Returns 0.5 (neutral) if no history exists.
+        """
+        rec = self._agents.get(agent_id)
+        if rec is None:
+            return 0.5
+        domain_eps = [e for e in rec.episode_history if e.domain == domain]
+        if not domain_eps:
+            return 0.5
+        old_eps = domain_eps[:-10] if len(domain_eps) > 10 else []
+        recent_eps = domain_eps[-10:]
+        total_weight = len(old_eps) + 2 * len(recent_eps)
+        if total_weight == 0:
+            return 0.5
+        weighted_sum = (
+            sum(e.risk_encountered for e in old_eps)
+            + 2.0 * sum(e.risk_encountered for e in recent_eps)
+        )
+        return weighted_sum / total_weight
+
+    def agent_task_score(self, agent_id: str, domain: str) -> float:
+        """Episodic-aware trust score for task assignment.
+
+        score = health_score * (1 − domain_risk_estimate)
+        """
+        rec = self._agents.get(agent_id)
+        if rec is None:
+            return 0.0
+        ats = rec.health_score()
+        return ats * (1.0 - self.domain_risk_estimate(agent_id, domain))
+
+    def best_agent_for_domain(
+        self,
+        domain: str,
+        required_capabilities: list | None = None,
+    ) -> str | None:
+        """Return the agent_id with the highest ``agent_task_score`` for *domain*.
+
+        Filters by *required_capabilities* when provided.  Falls back to
+        highest ATS if no agent has domain history.  Returns ``None`` when
+        no active agents are available.
+        """
+        active = self.active_agents()
+        if not active:
+            return None
+
+        if required_capabilities:
+            capable = [
+                a for a in active
+                if all(c in a.capabilities for c in required_capabilities)
+            ]
+            if capable:
+                active = capable
+
+        best_id: str | None = None
+        best_score = -1.0
+        for agent in active:
+            score = self.agent_task_score(agent.agent_id, domain)
+            if score > best_score:
+                best_score = score
+                best_id = agent.agent_id
+        return best_id
+
     def best_agent_for_task(
         self,
         task_domain: str,
@@ -265,26 +335,10 @@ class AgentRegistry:
     ) -> str | None:
         """Return the agent_id with the highest episodic-risk-adjusted ATS score.
 
-        score = ats * (1 - agent_risk_estimate(id, task_domain))
-
+        Delegates to ``best_agent_for_domain`` for backwards compatibility.
         Returns None if no active agents are registered.
         """
-        active = self.active_agents()
-        if not active:
-            return None
-
-        best_id: str | None = None
-        best_score = -1.0
-
-        for agent in active:
-            ats = agent.health_score()
-            risk_est = self.agent_risk_estimate(agent.agent_id, task_domain)
-            score = ats * (1.0 - risk_est)
-            if score > best_score:
-                best_score = score
-                best_id = agent.agent_id
-
-        return best_id
+        return self.best_agent_for_domain(task_domain)
 
 
 # ---------------------------------------------------------------------------

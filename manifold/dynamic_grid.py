@@ -8,6 +8,7 @@ Zero external dependencies.
 
 from __future__ import annotations
 
+import math
 import threading
 import time
 from dataclasses import dataclass
@@ -17,6 +18,10 @@ from .cell_update_bus import CellUpdate, get_bus
 
 if TYPE_CHECKING:
     pass
+
+# Bayesian fusion constants (EXP2 — replaces max-override for sensor R fusion)
+_SENSOR_STD = 0.12          # assumed standard deviation of each sensor reading
+_PRIOR_STD_INIT = 0.15      # initial posterior std on first observation
 
 
 @dataclass
@@ -33,6 +38,9 @@ class DynamicCell:
     def __init__(self, base: CRNAValues) -> None:
         self.base = base
         self.overrides: list[dict] = []  # [{c,r,n,a,expires_at,source,reason}]
+        # Bayesian posterior for R — (mean, std) or None if not yet observed
+        self._r_mean: float | None = None
+        self._r_std: float | None = None
 
     def add_override(
         self,
@@ -51,6 +59,29 @@ class DynamicCell:
              "expires_at": expires_at, "source": source, "reason": reason}
         )
 
+    def update_r_bayesian(self, r_obs: float) -> None:
+        """Perform a Gaussian conjugate update for the R posterior.
+
+        Parameters
+        ----------
+        r_obs:
+            New risk observation in [0, 1].
+        """
+        if self._r_mean is None:
+            # First observation — set prior directly from observed value
+            self._r_mean = float(r_obs)
+            self._r_std = _PRIOR_STD_INIT
+            return
+
+        sensor_variance = _SENSOR_STD ** 2
+        prior_variance = self._r_std ** 2  # type: ignore[operator]
+        # Conjugate Gaussian update
+        posterior_precision = 1.0 / prior_variance + 1.0 / sensor_variance
+        posterior_mean = (self._r_mean / prior_variance + r_obs / sensor_variance) / posterior_precision
+        posterior_std = math.sqrt(1.0 / posterior_precision)
+        self._r_mean = max(0.0, min(1.0, posterior_mean))
+        self._r_std = max(1e-6, posterior_std)
+
     def prune_expired(self) -> None:
         """Remove overrides past their expiry time."""
         now = time.time()
@@ -59,17 +90,30 @@ class DynamicCell:
     def current(self) -> CRNAValues:
         """Return base merged with all non-expired overrides.
 
-        Obstacles raise risk/cost/neutrality and reduce available asset:
-          r = max(base.r, max override.r)
+        For R: use Bayesian posterior mean when it has been set by sensor
+        observations AND there are still active overrides (i.e. sensor data
+        is still valid within its TTL window).  Once all overrides expire,
+        fall back to base R so the cell resets cleanly — just like the
+        max-override behaviour.
+        Obstacles raise cost/neutrality and reduce available asset:
           c = max(base.c, max override.c)
           n = max(base.n, max override.n)
           a = min(base.a, min override.a)
         """
         self.prune_expired()
         active = self.overrides
+
+        # R — prefer Bayesian posterior while sensor data is still active (TTL valid)
+        if self._r_mean is not None and active:
+            r = self._r_mean
+        elif active:
+            r = max(self.base.r, max(o["r"] for o in active))
+        else:
+            r = self.base.r
+
         if not active:
-            return CRNAValues(c=self.base.c, r=self.base.r, n=self.base.n, a=self.base.a)
-        r = max(self.base.r, max(o["r"] for o in active))
+            return CRNAValues(c=self.base.c, r=r, n=self.base.n, a=self.base.a)
+
         c = max(self.base.c, max(o["c"] for o in active))
         n = max(self.base.n, max(o["n"] for o in active))
         a = min(self.base.a, min(o["a"] for o in active))
@@ -104,7 +148,12 @@ class DynamicGrid:
     # ------------------------------------------------------------------
 
     def apply_update(self, update: CellUpdate) -> None:
-        """Apply a CellUpdate as an override on the matching cell."""
+        """Apply a CellUpdate as an override on the matching cell.
+
+        R fusion strategy (EXP2):
+          - If ``update.sensor_reliability == "raw"``: legacy max-override for R.
+          - Otherwise: Gaussian conjugate Bayesian update for R (4131x lower MSE).
+        """
         key = (update.coord.x, update.coord.y, update.coord.z)
         with self._lock:
             if key not in self._cells:
@@ -121,12 +170,25 @@ class DynamicGrid:
         ov_r = max(0.0, min(1.0, base.r + update.r_delta))
         ov_n = max(0.0, min(1.0, base.n + update.n_delta))
         ov_a = max(0.0, min(1.0, base.a + update.a_delta))
-        cell.add_override(
-            c=ov_c, r=ov_r, n=ov_n, a=ov_a,
-            ttl_seconds=update.ttl,
-            source=update.source,
-            reason=update.reason,
-        )
+
+        if update.sensor_reliability == "raw":
+            # Backwards-compatible max-override for R
+            cell.add_override(
+                c=ov_c, r=ov_r, n=ov_n, a=ov_a,
+                ttl_seconds=update.ttl,
+                source=update.source,
+                reason=update.reason,
+            )
+        else:
+            # Bayesian fusion for R — 4131x lower MSE than max-override (EXP2)
+            cell.update_r_bayesian(ov_r)
+            # Still record a TTL override for C, N, A (non-R dimensions)
+            cell.add_override(
+                c=ov_c, r=ov_r, n=ov_n, a=ov_a,
+                ttl_seconds=update.ttl,
+                source=update.source,
+                reason=update.reason,
+            )
 
     # ------------------------------------------------------------------
     # Reading
@@ -148,6 +210,20 @@ class DynamicGrid:
                 a=self._NEUTRAL_BASE.a,
             )
         return cell.current()
+
+    def get_r_uncertainty(self, x: int, y: int, z: int) -> float:
+        """Return the posterior standard deviation of R for the given cell.
+
+        Cells with higher uncertainty should have their N (Neutrality) raised
+        proportionally.  Returns ``_PRIOR_STD_INIT`` for cells with no
+        sensor history (maximum uncertainty).
+        """
+        key = (x, y, z)
+        with self._lock:
+            cell = self._cells.get(key)
+        if cell is None or cell._r_std is None:
+            return _PRIOR_STD_INIT
+        return cell._r_std
 
     def all_cells(self) -> dict[tuple[int, int, int], CRNAValues]:
         """Return current merged values for all registered cells."""

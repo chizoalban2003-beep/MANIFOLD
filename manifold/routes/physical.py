@@ -99,6 +99,13 @@ def handle_post_nervatura_world_init(self: "ManifoldHandler", body: dict) -> Non
         height = int(body.get("height", 5))
         domain = str(body.get("domain", "general"))
         s._NERVATURA = s._NERVATURAWorld(width=width, depth=depth, height=height)
+        # PROMPT 6: start ConvergenceMonitor now that world is initialised
+        try:
+            from manifold.convergence_monitor import ConvergenceMonitor  # noqa: PLC0415
+            s._CONVERGENCE_MONITOR = ConvergenceMonitor(s._NERVATURA, window=50)
+            s._CONVERGENCE_MONITOR.start(interval_seconds=30.0)
+        except Exception:  # noqa: BLE001
+            pass
         s._send_json(self, 200, {
             "status": "ok",
             "domain": domain,

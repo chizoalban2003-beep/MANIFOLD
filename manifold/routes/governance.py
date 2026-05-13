@@ -153,7 +153,7 @@ def handle_delete_rule(self: "ManifoldHandler", rule_id: str) -> None:
 
 
 def handle_get_plan(self: "ManifoldHandler") -> None:
-    """GET /plan — CRNA A* path planning."""
+    """GET /plan — CRNA A* path planning (MPC for high-stakes/physical domains)."""
     import urllib.parse as _up  # noqa: PLC0415
     s = _srv()
     try:
@@ -169,7 +169,10 @@ def handle_get_plan(self: "ManifoldHandler") -> None:
         start = _parse_coord("start", [0, 0, 0])
         target = _parse_coord("target", [5, 5, 0])
         risk_budget = float(qs.get("risk_budget", ["0.7"])[0])
-        result = s._PLANNER.plan(start=start, target=target, risk_budget=risk_budget)
+        stakes = float(qs.get("stakes", ["0.5"])[0])
+        domain = qs.get("domain", ["general"])[0]
+        planner = s._choose_planner(stakes=stakes, domain=domain)
+        result = planner.plan(start=start, target=target, risk_budget=risk_budget)
         s._send_json(self, 200, result)
     except Exception as exc:  # noqa: BLE001
         s._send_json(self, 500, {"error": str(exc)})

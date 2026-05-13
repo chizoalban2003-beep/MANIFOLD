@@ -29,6 +29,8 @@ class SubTask:
     status: str = "pending"  # pending|assigned|blocked|complete
     reason: str = ""
     depends_on: list = field(default_factory=list)  # list of sub-task index strings
+    execution_mode: str = "sequential"  # "sequential" or "parallel"
+    parallel_group: int = 0  # tasks with same group ID run together
 
 
 # ---------------------------------------------------------------------------
@@ -162,6 +164,8 @@ class TaskPlan:
                     "status": s.status,
                     "reason": s.reason,
                     "depends_on": s.depends_on,
+                    "execution_mode": s.execution_mode,
+                    "parallel_group": s.parallel_group,
                 }
                 for s in self.sub_tasks
             ],
@@ -201,15 +205,50 @@ class TaskRouter:
         Split a complex task string into concrete sub-tasks.
         Uses sentence boundaries and common connectors.
         Returns list of non-empty sub-task strings.
+
+        .. deprecated::
+            Replaced by :meth:`_decompose_two_level`.  Kept for backward
+            compatibility with callers that expect a flat list.
         """
-        parts = re.split(
-            r"(?:[,;]?\s+(?:and|then|also|next|after that|finally)\s+)|"
-            r"(?:\.\s+)|(?:\n+)",
-            task,
-            flags=re.IGNORECASE,
-        )
-        cleaned = [p.strip().rstrip(".,;") for p in parts if len(p.strip()) > 8]
-        return cleaned if cleaned else [task]
+        slots = self._decompose_two_level(task)
+        flat = []
+        for slot in slots:
+            flat.extend(slot)
+        return flat if flat else [task]
+
+    # EXP6 — two-level decomposition: sequential slots → parallel sub-tasks
+    _SEQUENTIAL_PATTERN = re.compile(
+        r"(?:[,;]?\s+(?:then|after(?:\s+that)?|next|once|when\s+\S+\s+is\s+(?:complete|done|finished)|"
+        r"following|subsequently|finally|first|second|third|lastly)\s+)|"
+        r"(?:\.\s+)|(?:\n+)",
+        re.IGNORECASE,
+    )
+
+    _PARALLEL_PATTERN = re.compile(
+        r"\s+(?:and|while|simultaneously|in\s+parallel|also|at\s+the\s+same\s+time|"
+        r"concurrently|meanwhile)\s+",
+        re.IGNORECASE,
+    )
+
+    def _decompose_two_level(self, task: str) -> list[list[str]]:
+        """Return a list of sequential slots, each slot a list of parallel sub-tasks.
+
+        Step 1: split on SEQUENTIAL_WORDS → sequential slots.
+        Step 2: for each slot, split on PARALLEL_WORDS → parallel sub-tasks.
+        """
+        # Step 1: sequential split
+        seq_parts = self._SEQUENTIAL_PATTERN.split(task)
+        slots: list[list[str]] = []
+        for seq_part in seq_parts:
+            seq_part = seq_part.strip()
+            if not seq_part:
+                continue
+            # Step 2: parallel split within this sequential slot
+            par_parts = self._PARALLEL_PATTERN.split(seq_part)
+            cleaned = [p.strip().rstrip(".,;") for p in par_parts if len(p.strip()) > 4]
+            if cleaned:
+                slots.append(cleaned)
+        return slots if slots else [[task]]
 
     def _best_agent(
         self, domain: str, capabilities_needed: list[str]
@@ -233,57 +272,62 @@ class TaskRouter:
         Main entry point. Receive a complex task, return a TaskPlan.
         """
         task_id = hashlib.sha256(f"{task}{time.time()}".encode()).hexdigest()[:12]
-        sub_texts = self._decompose(task)
+        slots = self._decompose_two_level(task)
         sub_tasks: list[SubTask] = []
+        index = 0
 
-        for i, sub_text in enumerate(sub_texts):
-            domain, _ = self._workspace.route(sub_text)
-            encoded = encode_prompt(sub_text, force_keyword=True)
-            stakes = max(stakes_hint * 0.8, encoded.risk)
-            brain_task = BrainTask(
-                prompt=sub_text,
-                domain=domain,
-                stakes=stakes,
-                uncertainty=stakes,  # higher stakes -> higher epistemic uncertainty
-            )
-            decision = self._brain.decide(brain_task)
-            caps_needed = [domain, "general"]
-            agent = None
-            status = "blocked"
-            reason = ""
-
-            if decision.action in ("refuse", "stop"):
-                status = "blocked"
-                reason = f"Governance refused: risk={decision.risk_score:.3f}"
-            elif decision.action == "escalate":
-                status = "blocked"
-                reason = "Escalation required -- human review needed"
-            else:
-                agent = self._best_agent(domain, caps_needed)
-                if agent:
-                    status = "assigned"
-                    reason = f"Assigned to {agent.agent_id}"
-                else:
-                    status = "pending"
-                    reason = "No agent available -- register an agent or execute manually"
-
-            sub_tasks.append(
-                SubTask(
-                    index=i,
+        for group_id, slot in enumerate(slots):
+            for sub_text in slot:
+                domain, _ = self._workspace.route(sub_text)
+                encoded = encode_prompt(sub_text, force_keyword=True)
+                stakes = max(stakes_hint * 0.8, encoded.risk)
+                brain_task = BrainTask(
                     prompt=sub_text,
                     domain=domain,
-                    stakes=round(stakes, 4),
-                    risk_score=round(decision.risk_score, 4),
-                    action=decision.action,
-                    assigned_to=agent.agent_id if agent else None,
-                    status=status,
-                    reason=reason,
+                    stakes=stakes,
+                    uncertainty=stakes,
                 )
-            )
+                decision = self._brain.decide(brain_task)
+                caps_needed = [domain, "general"]
+                agent = None
+                status = "blocked"
+                reason = ""
+
+                if decision.action in ("refuse", "stop"):
+                    status = "blocked"
+                    reason = f"Governance refused: risk={decision.risk_score:.3f}"
+                elif decision.action == "escalate":
+                    status = "blocked"
+                    reason = "Escalation required -- human review needed"
+                else:
+                    agent = self._best_agent(domain, caps_needed)
+                    if agent:
+                        status = "assigned"
+                        reason = f"Assigned to {agent.agent_id}"
+                    else:
+                        status = "pending"
+                        reason = "No agent available -- register an agent or execute manually"
+
+                sub_tasks.append(
+                    SubTask(
+                        index=index,
+                        prompt=sub_text,
+                        domain=domain,
+                        stakes=round(stakes, 4),
+                        risk_score=round(decision.risk_score, 4),
+                        action=decision.action,
+                        assigned_to=agent.agent_id if agent else None,
+                        status=status,
+                        reason=reason,
+                        execution_mode="parallel" if len(slot) > 1 else "sequential",
+                        parallel_group=group_id,
+                    )
+                )
+                index += 1
 
         # EXP6: Analyse temporal ordering from the original task text
         dep_graph, par_groups, has_ordering = self._analyse_dependencies(
-            task, sub_tasks
+            task, sub_tasks, slots
         )
 
         blocked = sum(1 for s in sub_tasks if s.status == "blocked")
@@ -311,12 +355,29 @@ class TaskRouter:
         re.IGNORECASE,
     )
 
+    _PARALLEL_KEYWORDS = re.compile(
+        r"\b(and|while|simultaneously|in\s+parallel|also|at\s+the\s+same\s+time|"
+        r"concurrently|meanwhile)\b",
+        re.IGNORECASE,
+    )
+
     def _analyse_dependencies(
         self,
         original_task: str,
         sub_tasks: list,
+        slots: list | None = None,
     ) -> tuple:
-        """Detect sequential ordering from dependency keywords in the original task.
+        """Detect sequential and parallel ordering from the task structure.
+
+        Parameters
+        ----------
+        original_task:
+            The original task string (used for keyword detection).
+        sub_tasks:
+            Flat list of SubTask objects.
+        slots:
+            Two-level structure from ``_decompose_two_level``.  When provided,
+            dependencies are wired precisely per-slot rather than by keywords.
 
         Returns
         -------
@@ -325,11 +386,28 @@ class TaskRouter:
         graph = DependencyGraph()
         n = len(sub_tasks)
 
-        # Check if the original task contains dependency-indicating words
-        has_ordering = bool(self._ORDERING_KEYWORDS.search(original_task))
+        has_sequential = bool(self._ORDERING_KEYWORDS.search(original_task))
+        has_parallel = bool(self._PARALLEL_KEYWORDS.search(original_task))
+        has_ordering = has_sequential or has_parallel
 
-        if has_ordering and n > 1:
-            # Assume sequential ordering: each sub-task depends on the previous
+        if slots is not None and len(slots) > 1:
+            # Wire sequential dependencies between slots
+            # All sub-tasks in slot[k] must complete before any in slot[k+1]
+            prev_indices: list[int] = []
+            cursor = 0
+            for slot in slots:
+                slot_indices = list(range(cursor, cursor + len(slot)))
+                for next_idx in slot_indices:
+                    for prev_idx in prev_indices:
+                        from_id = str(sub_tasks[prev_idx].index)
+                        to_id = str(sub_tasks[next_idx].index)
+                        graph.add_edge(from_id, to_id)
+                        if from_id not in sub_tasks[next_idx].depends_on:
+                            sub_tasks[next_idx].depends_on.append(from_id)
+                prev_indices = slot_indices
+                cursor += len(slot)
+        elif has_sequential and n > 1 and slots is None:
+            # Fallback: assume fully sequential ordering
             for i in range(n - 1):
                 from_id = str(sub_tasks[i].index)
                 to_id = str(sub_tasks[i + 1].index)
@@ -337,7 +415,17 @@ class TaskRouter:
                 sub_tasks[i + 1].depends_on = [from_id]
 
         dep_dict = graph.to_dict()
-        par_groups = graph.parallel_groups() if has_ordering else []
+
+        # Build parallel_groups: each slot's task IDs form one parallel group
+        if slots is not None:
+            par_groups: list = []
+            cursor = 0
+            for slot in slots:
+                group = [str(sub_tasks[cursor + j].index) for j in range(len(slot))]
+                par_groups.append(group)
+                cursor += len(slot)
+        else:
+            par_groups = graph.parallel_groups() if has_ordering else []
 
         return dep_dict, par_groups, has_ordering
 

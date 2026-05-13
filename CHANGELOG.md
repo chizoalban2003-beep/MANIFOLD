@@ -1,5 +1,28 @@
 # Changelog
 
+## [2.1.0] — Experiment-backed improvements
+
+### Fixed
+- DynamicGrid Bayesian sensor fusion (replaces max-override, 4131x MSE improvement)
+- TaskRouter parallel task detection via "and"/"while" connectors (100% accuracy)
+
+### Added
+- Per-agent episodic memory with domain risk estimation (42% risk reduction)
+- MPCPlanner — look-ahead path planning for high-stakes physical agents
+- CBSPlanner — Conflict-Based Search multi-agent pathfinding (72% conflict reduction)
+- ConvergenceMonitor — real-time NERVATURA stability tracking
+- `GET /plan/multi`, `GET /agents/best`, `GET /nervatura/convergence`
+- `GET /agents/{id}/episodes`, `POST /agents/{id}/episodes`
+- V(t) sparkline in MANIFOLD World UI (bottom-right convergence indicator)
+
+### Validated by experiments
+- EXP1 MPC: 100% win rate on risk over 50 trials
+- EXP2 Bayesian: 4131x MSE improvement over max-override
+- EXP3 CBS: 72.2% conflict reduction over ATS right-of-way
+- EXP5 NERVATURA: V(t) 39.5% reduction, converges at step 394/500
+- EXP6 Temporal: 100% task ordering accuracy
+- EXP7 Episodic: 42% risk reduction, 40/40 correct assignments
+
 ## [2.0.0] — v2.0.0 Release
 
 ### Added

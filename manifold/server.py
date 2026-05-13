@@ -109,7 +109,7 @@ from .policy_rules import PolicyRuleEngine
 from .federation import FederatedGossipBridge
 from .dynamic_grid import get_grid as _get_grid
 from .health_monitor import DigitalHealthMonitor as _DigitalHealthMonitor
-from .planner import CRNAPlanner as _CRNAPlanner
+from .planner import CRNAPlanner as _CRNAPlanner, MPCPlanner as _MPCPlanner
 from .nervatura_world import NERVATURAWorld as _NERVATURAWorld
 
 
@@ -446,7 +446,9 @@ _ROSETTA_EGRESS = EgressTranslator()
 _DYNAMIC_GRID = _get_grid()          # auto-subscribes to CellUpdateBus
 _HEALTH_MONITOR = _DigitalHealthMonitor()
 _PLANNER = _CRNAPlanner()
+_MPC_PLANNER = _MPCPlanner()         # look-ahead planner for high-stakes paths (PROMPT 4)
 _NERVATURA: "_NERVATURAWorld | None" = None  # initialised via POST /nervatura/world/init
+_CONVERGENCE_MONITOR: "Any | None" = None    # initialised after _NERVATURA (PROMPT 6)
 
 # Thread lock guarding mutable singletons during parallel requests
 _LOCK = threading.Lock()
@@ -750,6 +752,17 @@ class ManifoldHandler(BaseHTTPRequestHandler):
                 self._handle_get_agents_best()
                 return
 
+            # GET /agents/{id}/episodes  (EXP7 — last 20 episodes for agent)
+            if re.match(r"^/agents/[\w-]+/episodes$", path):
+                agent_id = path.split("/")[2]
+                self._handle_get_agent_episodes(agent_id)
+                return
+
+            # GET /nervatura/convergence  (PROMPT 6 — live V(t) convergence report)
+            if path == "/nervatura/convergence":
+                self._handle_get_nervatura_convergence()
+                return
+
             _send_error(self, 404, f"No route for GET {self.path}")
         except Exception as exc:  # noqa: BLE001
             _send_error(self, 500, str(exc))
@@ -848,6 +861,11 @@ class ManifoldHandler(BaseHTTPRequestHandler):
             elif re.match(r"^/agents/[\w-]+/command$", path):
                 agent_id = path.split("/")[2]
                 self._handle_post_agent_command(agent_id, body)
+            elif re.match(r"^/agents/[\w-]+/episodes$", path):
+                agent_id = path.split("/")[2]
+                self._handle_post_agent_episode(agent_id, body)
+            elif path == "/plan/multi":
+                self._handle_post_plan_multi(body)
             elif path == "/rules":
                 _authed2, _caller2 = _check_auth(self, path)
                 if not _authed2:
@@ -4156,6 +4174,133 @@ ManifoldHandler._handle_get_exp_calibration = _handle_get_exp_calibration  # typ
 ManifoldHandler._handle_get_exp_convergence = _handle_get_exp_convergence  # type: ignore[attr-defined]
 ManifoldHandler._handle_get_agents_best = _handle_get_agents_best  # type: ignore[attr-defined]
 ManifoldHandler._handle_get_experiments_all = _handle_get_experiments_all  # type: ignore[attr-defined]
+
+
+# ---------------------------------------------------------------------------
+# Episodic memory endpoints — v2.1.0 (PROMPT 3)
+# GET  /agents/{id}/episodes  → last 20 episodes
+# POST /agents/{id}/episodes  → record episode
+# ---------------------------------------------------------------------------
+
+def _handle_get_agent_episodes(self: "ManifoldHandler", agent_id: str) -> None:
+    """GET /agents/{id}/episodes — last 20 episodes for agent."""
+    rec = _AGENT_REGISTRY.get(agent_id)
+    if rec is None:
+        _send_error(self, 404, f"Agent {agent_id!r} not found")
+        return
+    episodes = rec.episode_history[-20:]
+    _send_json(self, 200, {
+        "agent_id": agent_id,
+        "episode_count": len(rec.episode_history),
+        "episodes": [
+            {
+                "task_description": e.task_description,
+                "domain": e.domain,
+                "success": e.success,
+                "risk_encountered": e.risk_encountered,
+                "duration_seconds": e.duration_seconds,
+                "timestamp": e.timestamp,
+            }
+            for e in episodes
+        ],
+    })
+
+
+def _handle_post_agent_episode(self: "ManifoldHandler", agent_id: str, body: dict) -> None:
+    """POST /agents/{id}/episodes — record a task episode for an agent."""
+    from manifold.agent_registry import Episode as _Episode  # noqa: PLC0415
+    try:
+        ep = _Episode(
+            task_description=str(body.get("task_description", "")),
+            domain=str(body.get("domain", "general")),
+            success=bool(body.get("success", True)),
+            risk_encountered=float(body.get("risk_encountered", 0.5)),
+            duration_seconds=float(body.get("duration_seconds", 0.0)),
+            crna_at_start=body.get("crna_at_start") or {},
+            crna_at_end=body.get("crna_at_end") or {},
+        )
+    except (TypeError, ValueError) as exc:
+        _send_error(self, 400, f"Invalid episode data: {exc}")
+        return
+    recorded = _AGENT_REGISTRY.record_episode(agent_id, ep)
+    if not recorded:
+        _send_error(self, 404, f"Agent {agent_id!r} not found")
+        return
+    _send_json(self, 201, {"agent_id": agent_id, "status": "recorded"})
+
+
+ManifoldHandler._handle_get_agent_episodes = _handle_get_agent_episodes  # type: ignore[attr-defined]
+ManifoldHandler._handle_post_agent_episode = _handle_post_agent_episode  # type: ignore[attr-defined]
+
+
+# ---------------------------------------------------------------------------
+# Planner helpers — v2.1.0 (PROMPT 4)
+# ---------------------------------------------------------------------------
+
+def _choose_planner(stakes: float = 0.5, domain: str = "general") -> "_CRNAPlanner | _MPCPlanner":
+    """Select planner based on request context.
+
+    Uses MPCPlanner when stakes > 0.6 or domain contains "physical", "baby",
+    or "medical" (high-stakes domains where extra caution justifies the 3x
+    compute overhead).
+    """
+    high_stakes_domains = ("physical", "baby", "medical")
+    if stakes > 0.6 or any(kw in domain.lower() for kw in high_stakes_domains):
+        return _MPC_PLANNER
+    return _PLANNER
+
+
+# ---------------------------------------------------------------------------
+# Multi-agent CBS planning — v2.1.0 (PROMPT 5)
+# POST /plan/multi  → CBSPlanner.plan_all()
+# ---------------------------------------------------------------------------
+
+def _handle_post_plan_multi(self: "ManifoldHandler", body: dict) -> None:
+    """POST /plan/multi — CBS multi-agent path planning."""
+    from manifold.multi_agent_planner import CBSPlanner  # noqa: PLC0415
+    agents_raw = body.get("agents", [])
+    if not isinstance(agents_raw, list) or len(agents_raw) < 2:
+        _send_error(self, 400, "Body must include 'agents' list with >= 2 entries")
+        return
+    agent_tasks = []
+    for entry in agents_raw:
+        start = entry.get("start")
+        target = entry.get("target")
+        if start is not None:
+            start = tuple(start) if isinstance(start, list) else start
+        if target is not None:
+            target = tuple(target) if isinstance(target, list) else target
+        agent_tasks.append({
+            "id": str(entry.get("id", "")),
+            "start": start,
+            "target": target,
+        })
+    grid_size = int(body.get("grid_size", 10))
+    planner = CBSPlanner(grid_size=grid_size)
+    result = planner.plan_all(agent_tasks)
+    _send_json(self, 200, result)
+
+
+ManifoldHandler._handle_post_plan_multi = _handle_post_plan_multi  # type: ignore[attr-defined]
+
+
+# ---------------------------------------------------------------------------
+# NERVATURA convergence monitor — v2.1.0 (PROMPT 6)
+# GET /nervatura/convergence  → convergence_report()
+# ---------------------------------------------------------------------------
+
+def _handle_get_nervatura_convergence(self: "ManifoldHandler") -> None:
+    """GET /nervatura/convergence — live NERVATURA V(t) convergence report."""
+    if _CONVERGENCE_MONITOR is None:
+        _send_json(self, 200, {
+            "health": "unknown",
+            "message": "NERVATURAWorld not yet initialised. POST /nervatura/world/init first.",
+        })
+        return
+    _send_json(self, 200, _CONVERGENCE_MONITOR.convergence_report())
+
+
+ManifoldHandler._handle_get_nervatura_convergence = _handle_get_nervatura_convergence  # type: ignore[attr-defined]
 
 
 def run_server(port: int = 8080, *, host: str = "0.0.0.0") -> None:
