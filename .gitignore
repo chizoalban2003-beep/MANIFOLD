@@ -32,3 +32,4 @@ __pycache__/
 .coverage
 htmlcov/
 manifold-ts/dist/
+manifold_data/
