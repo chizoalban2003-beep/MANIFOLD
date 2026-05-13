@@ -4340,7 +4340,7 @@ def _handle_get_agents_predictions(self: "ManifoldHandler") -> None:
     params = parse_qs(parsed.query)
     zone = params.get("zone", ["general"])[0]
     observer_id = params.get("observer_id", ["manifold"])[0]
-    predictions = _REGISTRY.predict_all_agents(observer_id, zone)
+    predictions = _AGENT_REGISTRY.predict_all_agents(observer_id, zone)
     _send_json(self, 200, {"zone": zone, "predictions": predictions})
 
 
@@ -4383,7 +4383,7 @@ def _handle_post_auction(self: "ManifoldHandler", body: dict) -> None:
     task_domain = body.get("task_domain", "general")
     capabilities = body.get("capabilities", [])
     n_tasks = int(body.get("n_tasks", 1))
-    auction = VCGAuction(_REGISTRY)
+    auction = VCGAuction(_AGENT_REGISTRY)
     result = auction.run(task_domain, capabilities, n_tasks)
     _send_json(self, 200, {
         "assignments": result.assignments,

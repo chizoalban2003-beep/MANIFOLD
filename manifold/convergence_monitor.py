@@ -225,7 +225,7 @@ class ConvergenceMonitor:
         if len(v_values) >= 4:
             try:
                 from scipy.stats import kendalltau  # type: ignore[import-untyped]
-                tau, p_val = kendalltau(list(range(len(v_values))), v_values)
+                tau, p_val = kendalltau(range(len(v_values)), v_values)
                 mk_tau = round(float(tau), 6)
                 mk_p = float(p_val)
                 trend_significant = (mk_p < 0.05 and mk_tau < 0)

@@ -25,6 +25,7 @@ class VaultTransitionModel:
     """
 
     FALLBACK_P = 0.20  # original heuristic — used when data is insufficient
+    OBSTACLE_OUTCOMES = frozenset({"blocked", "escalated", "obstacle"})
 
     def __init__(self, vault_path: str | None = None) -> None:
         self._vault_path = vault_path or os.path.join(os.getcwd(), "manifold_data")
@@ -96,7 +97,7 @@ class VaultTransitionModel:
             for r_bucket, outcomes in bucket_map.items():
                 n = len(outcomes)
                 blocked = sum(
-                    1 for o in outcomes if o in {"blocked", "escalated", "obstacle"}
+                    1 for o in outcomes if o in self.OBSTACLE_OUTCOMES
                 )
                 table[domain][r_bucket] = blocked / n if n > 0 else self.FALLBACK_P
 
