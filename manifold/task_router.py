@@ -115,7 +115,6 @@ class DependencyGraph:
                 # Cycle — put all remaining in their own groups
                 for n in sorted(remaining):
                     levels[n] = max(levels.values(), default=0) + 1
-                    remaining = set()
                 break
 
         if not levels:
