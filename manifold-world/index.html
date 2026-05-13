@@ -1343,6 +1343,64 @@ async function toggleMic(){
     showToast('Recording… tap mic again to stop','#AFA9EC');
   }catch(e){showToast('Mic error: '+e.message,'#E24B4A');}
 }
+
+// ── NERVATURA Convergence Sparkline (PROMPT 6 / EXP5) ────────────────────
+var _vHistory=[];
+function _updateConvergenceSparkline(data){
+  var box=document.getElementById('convergence-box');
+  if(!box)return;
+  var health=data.health||'unknown';
+  var vCur=data.v_current;
+  if(vCur!=null)_vHistory.push(vCur);
+  if(_vHistory.length>20)_vHistory=_vHistory.slice(-20);
+  var label=health==='converging'?'CONVERGING ↓':health==='stable'?'STABLE →':'DIVERGING ↑';
+  var colour=health==='converging'?'#1D9E75':health==='stable'?'#AFA9EC':'#E24B4A';
+  var sparkline=_vHistory.length>1?_buildSparklineSVG(_vHistory,colour):'';
+  box.innerHTML='<span style="color:'+colour+';font-weight:700;font-size:10px">'+label+'</span>'
+    +sparkline
+    +(vCur!=null?'<span style="color:#ccc;font-size:9px;margin-left:4px">V='+vCur.toFixed(3)+'</span>':'');
+}
+function _buildSparklineSVG(vals,colour){
+  var w=60,h=18;
+  var mn=Math.min.apply(null,vals),mx=Math.max.apply(null,vals);
+  var range=mx-mn||1;
+  var pts=vals.map(function(v,i){
+    var x=Math.round(i*(w-1)/(vals.length-1));
+    var y=Math.round(h-1-(v-mn)/range*(h-1));
+    return x+','+y;
+  }).join(' ');
+  return '<svg width="'+w+'" height="'+h+'" viewBox="0 0 '+w+' '+h+'" style="vertical-align:middle;margin:0 2px">'
+    +'<polyline points="'+pts+'" fill="none" stroke="'+colour+'" stroke-width="1.5"/>'
+    +'</svg>';
+}
+async function _pollConvergence(){
+  var apiBase=(localStorage.getItem('manifold_url')||'').replace(/\/$/,'');
+  var apiKey=localStorage.getItem('manifold_key')||'';
+  try{
+    var resp=await fetch((apiBase||'')+'/nervatura/convergence',{
+      headers:{'Authorization':'Bearer '+apiKey}
+    });
+    if(resp.ok){var d=await resp.json();_updateConvergenceSparkline(d);}
+  }catch(e){}
+}
+// Poll every 30 seconds
+setInterval(_pollConvergence,30000);
+// Initial poll after 2 seconds (wait for API key to be set)
+setTimeout(_pollConvergence,2000);
 </script>
+
+<!-- Convergence sparkline widget (bottom-right of world panel) -->
+<style>
+#convergence-box{
+  position:fixed;bottom:12px;right:14px;
+  background:rgba(20,20,40,0.88);border:1px solid #333;
+  border-radius:6px;padding:4px 8px;
+  display:flex;align-items:center;gap:4px;
+  z-index:9999;font-family:monospace;
+}
+</style>
+<div id="convergence-box" title="NERVATURA V(t) convergence — EXP5">
+  <span style="color:#666;font-size:10px">V(t) loading…</span>
+</div>
 </body>
 </html>

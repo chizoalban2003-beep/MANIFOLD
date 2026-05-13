@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "manifold-ai"
-version = "2.0.0"
+version = "2.2.0"
 description = "The Trust Operating System for AI agents — prices risk, delegates hierarchically, detects adversarial gaming, and writes its own legislation."
 requires-python = ">=3.12"
 license = "MIT"
@@ -29,7 +29,7 @@ py-modules = ["deploy_shadow"]
 [project.optional-dependencies]
 ui = ["streamlit>=1.40"]
 dashboard = ["streamlit>=1.40"]
-dev = ["pytest>=9.0", "pytest-asyncio>=0.23", "aiosqlite>=0.19"]
+dev = ["pytest>=9.0", "pytest-asyncio>=0.23", "aiosqlite>=0.19", "statsmodels>=0.14"]
 db = ["aiosqlite>=0.19"]
 db-pg = ["aiosqlite>=0.19", "asyncpg>=0.29"]
 embeddings = ["sentence-transformers>=2.7.0"]

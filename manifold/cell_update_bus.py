@@ -36,6 +36,7 @@ class CellUpdate:
     ttl: float = 30.0      # seconds until this update expires
     timestamp: float = field(default_factory=time.time)
     reason: str = ""       # human-readable: 'cat detected', 'api_rate_limit'
+    sensor_reliability: str = ""  # "raw" → max-override; else → Bayesian fusion
 
 
 class CellUpdateBus:

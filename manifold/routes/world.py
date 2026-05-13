@@ -156,12 +156,18 @@ def handle_get_realtime_status(self: "ManifoldHandler") -> None:
     s = _srv()
     try:
         bus = s._get_bus()
+        convergence_warning = None
+        if s._CONVERGENCE_MONITOR is not None:
+            report = s._CONVERGENCE_MONITOR.convergence_report()
+            if report.get("health") == "diverging":
+                convergence_warning = report.get("recommendation", "NERVATURA diverging")
         s._send_json(self, 200, {
             "bus_recent_updates": len(bus.recent()),
             "dynamic_grid_cells": len(s._DYNAMIC_GRID.all_cells()),
             "health_monitor": s._HEALTH_MONITOR.status(),
             "planner_ready": True,
             "nervatura_world": s._NERVATURA.summary() if s._NERVATURA is not None else None,
+            "convergence_warning": convergence_warning,
         })
     except Exception as exc:  # noqa: BLE001
         s._send_json(self, 500, {"error": str(exc)})

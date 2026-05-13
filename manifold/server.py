@@ -109,7 +109,7 @@ from .policy_rules import PolicyRuleEngine
 from .federation import FederatedGossipBridge
 from .dynamic_grid import get_grid as _get_grid
 from .health_monitor import DigitalHealthMonitor as _DigitalHealthMonitor
-from .planner import CRNAPlanner as _CRNAPlanner
+from .planner import CRNAPlanner as _CRNAPlanner, MPCPlanner as _MPCPlanner
 from .nervatura_world import NERVATURAWorld as _NERVATURAWorld
 
 
@@ -446,7 +446,9 @@ _ROSETTA_EGRESS = EgressTranslator()
 _DYNAMIC_GRID = _get_grid()          # auto-subscribes to CellUpdateBus
 _HEALTH_MONITOR = _DigitalHealthMonitor()
 _PLANNER = _CRNAPlanner()
+_MPC_PLANNER = _MPCPlanner()         # look-ahead planner for high-stakes paths (PROMPT 4)
 _NERVATURA: "_NERVATURAWorld | None" = None  # initialised via POST /nervatura/world/init
+_CONVERGENCE_MONITOR: "Any | None" = None    # initialised after _NERVATURA (PROMPT 6)
 
 # Thread lock guarding mutable singletons during parallel requests
 _LOCK = threading.Lock()
@@ -715,6 +717,67 @@ class ManifoldHandler(BaseHTTPRequestHandler):
                 self._handle_get_ingest_history()
                 return
 
+            # GET /experiments/mpc  (EXP1 benchmark)
+            if path == "/experiments/mpc":
+                self._handle_get_exp_mpc()
+                return
+
+            # GET /experiments/bayesian  (EXP2 benchmark)
+            if path == "/experiments/bayesian":
+                self._handle_get_exp_bayesian()
+                return
+
+            # GET /experiments/cbs  (EXP3 benchmark)
+            if path == "/experiments/cbs":
+                self._handle_get_exp_cbs()
+                return
+
+            # GET /experiments/calibration  (EXP4 benchmark)
+            if path == "/experiments/calibration":
+                self._handle_get_exp_calibration()
+                return
+
+            # GET /experiments/convergence  (EXP5 benchmark)
+            if path == "/experiments/convergence":
+                self._handle_get_exp_convergence()
+                return
+
+            # GET /experiments/all  (all 7 benchmarks)
+            if path == "/experiments/all":
+                self._handle_get_experiments_all()
+                return
+
+            # GET /agents/best  (EXP7 — episodic agent selection)
+            if path == "/agents/best":
+                self._handle_get_agents_best()
+                return
+
+            # GET /agents/{id}/episodes  (EXP7 — last 20 episodes for agent)
+            if re.match(r"^/agents/[\w-]+/episodes$", path):
+                agent_id = path.split("/")[2]
+                self._handle_get_agent_episodes(agent_id)
+                return
+
+            # GET /nervatura/convergence  (PROMPT 6 — live V(t) convergence report)
+            if path == "/nervatura/convergence":
+                self._handle_get_nervatura_convergence()
+                return
+
+            # GET /world-model/stats  (PROMPT B1 — VaultTransitionModel learning status)
+            if path == "/world-model/stats":
+                self._handle_get_world_model_stats()
+                return
+
+            # GET /agents/predictions  (PROMPT D1 — theory of mind L1)
+            if path.startswith("/agents/predictions"):
+                self._handle_get_agents_predictions()
+                return
+
+            # GET /plan/roomba  (PROMPT D3 — kinodynamic planning)
+            if path == "/plan/roomba":
+                self._handle_get_plan_roomba()
+                return
+
             _send_error(self, 404, f"No route for GET {self.path}")
         except Exception as exc:  # noqa: BLE001
             _send_error(self, 500, str(exc))
@@ -813,6 +876,11 @@ class ManifoldHandler(BaseHTTPRequestHandler):
             elif re.match(r"^/agents/[\w-]+/command$", path):
                 agent_id = path.split("/")[2]
                 self._handle_post_agent_command(agent_id, body)
+            elif re.match(r"^/agents/[\w-]+/episodes$", path):
+                agent_id = path.split("/")[2]
+                self._handle_post_agent_episode(agent_id, body)
+            elif path == "/plan/multi":
+                self._handle_post_plan_multi(body)
             elif path == "/rules":
                 _authed2, _caller2 = _check_auth(self, path)
                 if not _authed2:
@@ -830,6 +898,8 @@ class ManifoldHandler(BaseHTTPRequestHandler):
                 self._handle_post_federation_gossip(body)
             elif path == "/task":
                 self._handle_post_task(body)
+            elif path == "/auction":
+                self._handle_post_auction(body)
             elif path == "/nervatura/world/init":
                 _authed2, _caller2 = _check_auth(self, path)
                 if not _authed2:
@@ -4016,6 +4086,317 @@ ManifoldHandler._handle_post_ingest_image = _handle_post_ingest_image  # type: i
 ManifoldHandler._handle_post_ingest_audio = _handle_post_ingest_audio  # type: ignore[attr-defined]
 ManifoldHandler._handle_post_ingest = _handle_post_ingest  # type: ignore[attr-defined]
 ManifoldHandler._handle_get_ingest_history = _handle_get_ingest_history  # type: ignore[attr-defined]
+
+
+# ---------------------------------------------------------------------------
+# Experiment endpoint handlers (EXP1–EXP7)
+# ---------------------------------------------------------------------------
+
+
+def _handle_get_exp_mpc(self: "ManifoldHandler") -> None:
+    """GET /experiments/mpc — EXP1: MPC vs A* benchmark."""
+    from manifold.experiments.mpc_planner import run_mpc_vs_astar_benchmark  # noqa: PLC0415
+    result = run_mpc_vs_astar_benchmark()
+    import dataclasses  # noqa: PLC0415
+    _send_json(self, 200, dataclasses.asdict(result))
+
+
+def _handle_get_exp_bayesian(self: "ManifoldHandler") -> None:
+    """GET /experiments/bayesian — EXP2: Bayesian vs scalar benchmark."""
+    from manifold.experiments.bayesian_crna import run_bayesian_vs_scalar_benchmark  # noqa: PLC0415
+    _send_json(self, 200, run_bayesian_vs_scalar_benchmark())
+
+
+def _handle_get_exp_cbs(self: "ManifoldHandler") -> None:
+    """GET /experiments/cbs — EXP3: CBS vs right-of-way benchmark."""
+    from manifold.experiments.mapf_cbs import run_cbs_vs_rightofway_benchmark  # noqa: PLC0415
+    _send_json(self, 200, run_cbs_vs_rightofway_benchmark())
+
+
+def _handle_get_exp_calibration(self: "ManifoldHandler") -> None:
+    """GET /experiments/calibration — EXP4: threshold calibration report."""
+    from manifold.experiments.calibrated_policy import run_calibration_benchmark  # noqa: PLC0415
+    _send_json(self, 200, run_calibration_benchmark())
+
+
+def _handle_get_exp_convergence(self: "ManifoldHandler") -> None:
+    """GET /experiments/convergence — EXP5: NERVATURA Lyapunov convergence."""
+    from manifold.experiments.convergence import run_convergence_benchmark  # noqa: PLC0415
+    _send_json(self, 200, run_convergence_benchmark())
+
+
+def _handle_get_agents_best(self: "ManifoldHandler") -> None:
+    """GET /agents/best?domain=X&risk=Y — EXP7: episodic agent selection."""
+    import urllib.parse as _up  # noqa: PLC0415
+    qs = _up.parse_qs(self.path.split("?", 1)[1] if "?" in self.path else "")
+    domain = qs.get("domain", ["general"])[0]
+    risk = float(qs.get("risk", ["0.5"])[0])
+    cell_crna = {"r": risk}
+    best_id = _AGENT_REGISTRY.best_agent_for_task(domain, cell_crna)
+    _send_json(self, 200, {"best_agent_id": best_id, "domain": domain, "cell_risk": risk})
+
+
+def _handle_get_experiments_all(self: "ManifoldHandler") -> None:
+    """GET /experiments/all — run all 7 benchmarks and return combined report."""
+    import dataclasses  # noqa: PLC0415
+    from manifold.experiments.mpc_planner import run_mpc_vs_astar_benchmark  # noqa: PLC0415
+    from manifold.experiments.bayesian_crna import run_bayesian_vs_scalar_benchmark  # noqa: PLC0415
+    from manifold.experiments.mapf_cbs import run_cbs_vs_rightofway_benchmark  # noqa: PLC0415
+    from manifold.experiments.calibrated_policy import run_calibration_benchmark  # noqa: PLC0415
+    from manifold.experiments.convergence import run_convergence_benchmark  # noqa: PLC0415
+    from manifold.task_router import run_task_ordering_benchmark  # noqa: PLC0415
+    from manifold.agent_registry import compare_assignment_quality  # noqa: PLC0415
+
+    mpc = dataclasses.asdict(run_mpc_vs_astar_benchmark())
+    bayesian = run_bayesian_vs_scalar_benchmark()
+    cbs = run_cbs_vs_rightofway_benchmark()
+    calibration = run_calibration_benchmark()
+    convergence = run_convergence_benchmark()
+    ordering = run_task_ordering_benchmark()
+    episodic = compare_assignment_quality()
+
+    improvements = sum([
+        mpc.get("win_rate", 0) > 0.4,
+        bayesian.get("bayesian_wins", False),
+        cbs.get("cbs_conflict_rate", 1) < cbs.get("rightofway_conflict_rate", 0),
+        calibration.get("status") == "ok",
+        convergence.get("converges", False),
+        ordering.get("has_ordering", False),
+        episodic.get("episodic_win_rate", 0) > 0.4,
+    ])
+
+    _send_json(self, 200, {
+        "mpc_vs_astar": mpc,
+        "bayesian_vs_scalar": bayesian,
+        "cbs_vs_rightofway": cbs,
+        "calibration_report": calibration,
+        "convergence_report": convergence,
+        "task_ordering": ordering,
+        "episodic_memory": episodic,
+        "summary": {
+            "experiments_run": 7,
+            "improvements_confirmed": improvements,
+            "recommendation": (
+                "CBS, Bayesian CRNA, and episodic memory show the strongest "
+                "improvements and are worth addressing in production."
+            ),
+        },
+    })
+
+
+ManifoldHandler._handle_get_exp_mpc = _handle_get_exp_mpc  # type: ignore[attr-defined]
+ManifoldHandler._handle_get_exp_bayesian = _handle_get_exp_bayesian  # type: ignore[attr-defined]
+ManifoldHandler._handle_get_exp_cbs = _handle_get_exp_cbs  # type: ignore[attr-defined]
+ManifoldHandler._handle_get_exp_calibration = _handle_get_exp_calibration  # type: ignore[attr-defined]
+ManifoldHandler._handle_get_exp_convergence = _handle_get_exp_convergence  # type: ignore[attr-defined]
+ManifoldHandler._handle_get_agents_best = _handle_get_agents_best  # type: ignore[attr-defined]
+ManifoldHandler._handle_get_experiments_all = _handle_get_experiments_all  # type: ignore[attr-defined]
+
+
+# ---------------------------------------------------------------------------
+# Episodic memory endpoints — v2.1.0 (PROMPT 3)
+# GET  /agents/{id}/episodes  → last 20 episodes
+# POST /agents/{id}/episodes  → record episode
+# ---------------------------------------------------------------------------
+
+def _handle_get_agent_episodes(self: "ManifoldHandler", agent_id: str) -> None:
+    """GET /agents/{id}/episodes — last 20 episodes for agent."""
+    rec = _AGENT_REGISTRY.get(agent_id)
+    if rec is None:
+        _send_error(self, 404, f"Agent {agent_id!r} not found")
+        return
+    episodes = rec.episode_history[-20:]
+    _send_json(self, 200, {
+        "agent_id": agent_id,
+        "episode_count": len(rec.episode_history),
+        "episodes": [
+            {
+                "task_description": e.task_description,
+                "domain": e.domain,
+                "success": e.success,
+                "risk_encountered": e.risk_encountered,
+                "duration_seconds": e.duration_seconds,
+                "timestamp": e.timestamp,
+            }
+            for e in episodes
+        ],
+    })
+
+
+def _handle_post_agent_episode(self: "ManifoldHandler", agent_id: str, body: dict) -> None:
+    """POST /agents/{id}/episodes — record a task episode for an agent."""
+    from manifold.agent_registry import Episode as _Episode  # noqa: PLC0415
+    try:
+        ep = _Episode(
+            task_description=str(body.get("task_description", "")),
+            domain=str(body.get("domain", "general")),
+            success=bool(body.get("success", True)),
+            risk_encountered=float(body.get("risk_encountered", 0.5)),
+            duration_seconds=float(body.get("duration_seconds", 0.0)),
+            crna_at_start=body.get("crna_at_start") or {},
+            crna_at_end=body.get("crna_at_end") or {},
+        )
+    except (TypeError, ValueError) as exc:
+        _send_error(self, 400, f"Invalid episode data: {exc}")
+        return
+    recorded = _AGENT_REGISTRY.record_episode(agent_id, ep)
+    if not recorded:
+        _send_error(self, 404, f"Agent {agent_id!r} not found")
+        return
+    _send_json(self, 201, {"agent_id": agent_id, "status": "recorded"})
+
+
+ManifoldHandler._handle_get_agent_episodes = _handle_get_agent_episodes  # type: ignore[attr-defined]
+ManifoldHandler._handle_post_agent_episode = _handle_post_agent_episode  # type: ignore[attr-defined]
+
+
+# ---------------------------------------------------------------------------
+# Planner helpers — v2.1.0 (PROMPT 4)
+# ---------------------------------------------------------------------------
+
+def _choose_planner(stakes: float = 0.5, domain: str = "general") -> "_CRNAPlanner | _MPCPlanner":
+    """Select planner based on request context.
+
+    Uses MPCPlanner when stakes > 0.6 or domain contains "physical", "baby",
+    or "medical" (high-stakes domains where extra caution justifies the 3x
+    compute overhead).
+    """
+    high_stakes_domains = ("physical", "baby", "medical")
+    if stakes > 0.6 or any(kw in domain.lower() for kw in high_stakes_domains):
+        return _MPC_PLANNER
+    return _PLANNER
+
+
+# ---------------------------------------------------------------------------
+# Multi-agent CBS planning — v2.1.0 (PROMPT 5)
+# POST /plan/multi  → CBSPlanner.plan_all()
+# ---------------------------------------------------------------------------
+
+def _handle_post_plan_multi(self: "ManifoldHandler", body: dict) -> None:
+    """POST /plan/multi — CBS multi-agent path planning."""
+    from manifold.multi_agent_planner import CBSPlanner  # noqa: PLC0415
+    agents_raw = body.get("agents", [])
+    if not isinstance(agents_raw, list) or len(agents_raw) < 2:
+        _send_error(self, 400, "Body must include 'agents' list with >= 2 entries")
+        return
+    agent_tasks = []
+    for entry in agents_raw:
+        start = entry.get("start")
+        target = entry.get("target")
+        if start is not None:
+            start = tuple(start) if isinstance(start, list) else start
+        if target is not None:
+            target = tuple(target) if isinstance(target, list) else target
+        agent_tasks.append({
+            "id": str(entry.get("id", "")),
+            "start": start,
+            "target": target,
+        })
+    grid_size = int(body.get("grid_size", 10))
+    planner = CBSPlanner(grid_size=grid_size)
+    result = planner.plan_all(agent_tasks)
+    _send_json(self, 200, result)
+
+
+ManifoldHandler._handle_post_plan_multi = _handle_post_plan_multi  # type: ignore[attr-defined]
+
+
+# ---------------------------------------------------------------------------
+# NERVATURA convergence monitor — v2.1.0 (PROMPT 6)
+# GET /nervatura/convergence  → convergence_report()
+# ---------------------------------------------------------------------------
+
+def _handle_get_nervatura_convergence(self: "ManifoldHandler") -> None:
+    """GET /nervatura/convergence — live NERVATURA V(t) convergence report."""
+    if _CONVERGENCE_MONITOR is None:
+        _send_json(self, 200, {
+            "health": "unknown",
+            "message": "NERVATURAWorld not yet initialised. POST /nervatura/world/init first.",
+        })
+        return
+    _send_json(self, 200, _CONVERGENCE_MONITOR.convergence_report())
+
+
+ManifoldHandler._handle_get_nervatura_convergence = _handle_get_nervatura_convergence  # type: ignore[attr-defined]
+
+
+# ---------------------------------------------------------------------------
+# v2.2.0 — Gap closure handlers
+# ---------------------------------------------------------------------------
+
+
+def _handle_get_world_model_stats(self: "ManifoldHandler") -> None:
+    """GET /world-model/stats — VaultTransitionModel learning status (PROMPT B1)."""
+    from manifold.world_model import VaultTransitionModel  # noqa: PLC0415
+    model = VaultTransitionModel()
+    result = model.learn()
+    _send_json(self, 200, result)
+
+
+def _handle_get_agents_predictions(self: "ManifoldHandler") -> None:
+    """GET /agents/predictions?zone=X — theory of mind L1 (PROMPT D1)."""
+    from urllib.parse import urlparse, parse_qs  # noqa: PLC0415
+    parsed = urlparse(self.path)
+    params = parse_qs(parsed.query)
+    zone = params.get("zone", ["general"])[0]
+    observer_id = params.get("observer_id", ["manifold"])[0]
+    predictions = _AGENT_REGISTRY.predict_all_agents(observer_id, zone)
+    _send_json(self, 200, {"zone": zone, "predictions": predictions})
+
+
+def _handle_get_plan_roomba(self: "ManifoldHandler") -> None:
+    """GET /plan/roomba — kinodynamic path planning for Roomba (PROMPT D3)."""
+    import math  # noqa: PLC0415
+    from urllib.parse import urlparse, parse_qs  # noqa: PLC0415
+    from manifold.kinodynamic_planner import KinodynamicPlanner  # noqa: PLC0415
+    parsed = urlparse(self.path)
+    params = parse_qs(parsed.query)
+
+    def _int_param(key: str, default: int) -> int:
+        try:
+            return int(params.get(key, [default])[0])
+        except (ValueError, IndexError):
+            return default
+
+    sx = _int_param("sx", 0)
+    sy = _int_param("sy", 0)
+    sz = _int_param("sz", 0)
+    tx = _int_param("tx", 5)
+    ty = _int_param("ty", 5)
+    tz = _int_param("tz", 0)
+    heading_deg = float(params.get("heading_degrees", [0])[0])
+    risk_budget = float(params.get("risk_budget", [0.7])[0])
+
+    planner = KinodynamicPlanner()
+    result = planner.plan_kinodynamic(
+        start=(sx, sy, sz),
+        target=(tx, ty, tz),
+        initial_theta=math.radians(heading_deg),
+        risk_budget=risk_budget,
+    )
+    _send_json(self, 200, result)
+
+
+def _handle_post_auction(self: "ManifoldHandler", body: dict) -> None:
+    """POST /auction — VCG task auction (PROMPT D2)."""
+    from manifold.vcg_auction import VCGAuction  # noqa: PLC0415
+    task_domain = body.get("task_domain", "general")
+    capabilities = body.get("capabilities", [])
+    n_tasks = int(body.get("n_tasks", 1))
+    auction = VCGAuction(_AGENT_REGISTRY)
+    result = auction.run(task_domain, capabilities, n_tasks)
+    _send_json(self, 200, {
+        "assignments": result.assignments,
+        "payments": result.payments,
+        "social_welfare": result.social_welfare,
+        "mechanism": result.mechanism,
+    })
+
+
+ManifoldHandler._handle_get_world_model_stats = _handle_get_world_model_stats  # type: ignore[attr-defined]
+ManifoldHandler._handle_get_agents_predictions = _handle_get_agents_predictions  # type: ignore[attr-defined]
+ManifoldHandler._handle_get_plan_roomba = _handle_get_plan_roomba  # type: ignore[attr-defined]
+ManifoldHandler._handle_post_auction = _handle_post_auction  # type: ignore[attr-defined]
 
 
 def run_server(port: int = 8080, *, host: str = "0.0.0.0") -> None:

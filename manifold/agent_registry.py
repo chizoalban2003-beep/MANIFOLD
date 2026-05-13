@@ -14,6 +14,23 @@ from typing import Literal
 AgentStatus = Literal["active", "idle", "paused", "stale", "unregistered"]
 
 
+# ---------------------------------------------------------------------------
+# EXP7 — Episode dataclass for per-agent episodic memory
+# ---------------------------------------------------------------------------
+
+@dataclass
+class Episode:
+    """A record of one completed task episode for an agent."""
+    task_description: str
+    domain: str
+    duration_seconds: float
+    success: bool
+    crna_at_start: dict   # {c, r, n, a}
+    crna_at_end: dict     # {c, r, n, a}
+    risk_encountered: float   # max R seen during the task
+    timestamp: float = field(default_factory=time.time)
+
+
 @dataclass
 class AgentRecord:
     agent_id: str
@@ -29,6 +46,8 @@ class AgentRecord:
     error_count: int = 0
     notes: str = ""
     _command_queue: list = field(default_factory=list)
+    episode_history: list = field(default_factory=list)  # list[Episode]
+    max_episodes: int = 100
 
     def is_stale(self, timeout_seconds: int = 120) -> bool:
         return time.time() - self.last_heartbeat > timeout_seconds
@@ -211,3 +230,301 @@ class AgentRegistry:
             if consume:
                 rec._command_queue.clear()
             return cmds
+
+    # ------------------------------------------------------------------
+    # EXP7 — Episodic memory
+    # ------------------------------------------------------------------
+
+    def record_episode(self, agent_id: str, episode: "Episode") -> bool:
+        """Append *episode* to the agent's episode history (capped at max_episodes).
+
+        Returns ``True`` on success, ``False`` if the agent does not exist.
+        """
+        with self._lock:
+            rec = self._agents.get(agent_id)
+            if rec is None:
+                return False
+            rec.episode_history.append(episode)
+            if len(rec.episode_history) > rec.max_episodes:
+                rec.episode_history = rec.episode_history[-rec.max_episodes:]
+        return True
+
+    def agent_risk_estimate(self, agent_id: str, domain: str) -> float:
+        """Return the mean risk_encountered for the agent's episodes in *domain*.
+
+        Returns 0.5 if the agent has no episodes for that domain.
+        """
+        rec = self._agents.get(agent_id)
+        if rec is None:
+            return 0.5
+        domain_eps = [e for e in rec.episode_history if e.domain == domain]
+        if not domain_eps:
+            return 0.5
+        return sum(e.risk_encountered for e in domain_eps) / len(domain_eps)
+
+    def domain_risk_estimate(self, agent_id: str, domain: str) -> float:
+        """Return a recency-weighted risk estimate for *agent_id* in *domain*.
+
+        Recent episodes (last 10) get 2× weight to reflect skill improvement
+        or environmental drift.  Returns 0.5 (neutral) if no history exists.
+        """
+        rec = self._agents.get(agent_id)
+        if rec is None:
+            return 0.5
+        domain_eps = [e for e in rec.episode_history if e.domain == domain]
+        if not domain_eps:
+            return 0.5
+        old_eps = domain_eps[:-10] if len(domain_eps) > 10 else []
+        recent_eps = domain_eps[-10:]
+        total_weight = len(old_eps) + 2 * len(recent_eps)
+        if total_weight == 0:
+            return 0.5
+        weighted_sum = (
+            sum(e.risk_encountered for e in old_eps)
+            + 2.0 * sum(e.risk_encountered for e in recent_eps)
+        )
+        return weighted_sum / total_weight
+
+    def agent_task_score(self, agent_id: str, domain: str) -> float:
+        """Episodic-aware trust score for task assignment.
+
+        score = health_score * (1 − domain_risk_estimate)
+        """
+        rec = self._agents.get(agent_id)
+        if rec is None:
+            return 0.0
+        ats = rec.health_score()
+        return ats * (1.0 - self.domain_risk_estimate(agent_id, domain))
+
+    def best_agent_for_domain(
+        self,
+        domain: str,
+        required_capabilities: list | None = None,
+    ) -> str | None:
+        """Return the agent_id with the highest ``agent_task_score`` for *domain*.
+
+        Filters by *required_capabilities* when provided.  Falls back to
+        highest ATS if no agent has domain history.  Returns ``None`` when
+        no active agents are available.
+        """
+        active = self.active_agents()
+        if not active:
+            return None
+
+        if required_capabilities:
+            capable = [
+                a for a in active
+                if all(c in a.capabilities for c in required_capabilities)
+            ]
+            if capable:
+                active = capable
+
+        best_id: str | None = None
+        best_score = -1.0
+        for agent in active:
+            score = self.agent_task_score(agent.agent_id, domain)
+            if score > best_score:
+                best_score = score
+                best_id = agent.agent_id
+        return best_id
+
+    def best_agent_for_task(
+        self,
+        task_domain: str,
+        cell_crna: dict | None = None,
+    ) -> str | None:
+        """Return the agent_id with the highest episodic-risk-adjusted ATS score.
+
+        Delegates to ``best_agent_for_domain`` for backwards compatibility.
+        Returns None if no active agents are registered.
+        """
+        return self.best_agent_for_domain(task_domain)
+
+    # ------------------------------------------------------------------
+    # PROMPT D1 — Theory of mind Level 1: agent intention inference
+    # ------------------------------------------------------------------
+
+    def predict_agent_action(
+        self,
+        observer_id: str,
+        target_id: str,
+        context: dict,
+    ) -> dict:
+        """Predict what *target_id* is likely to do in the given *context*.
+
+        Level 1 theory of mind: MANIFOLD infers the most likely next action of
+        a target agent from that agent's episode history.  No recursive
+        "they think I think" modelling is performed.
+
+        Parameters
+        ----------
+        observer_id:
+            The observing agent's ID (used for logging / future trust filtering).
+        target_id:
+            The agent whose intention we want to predict.
+        context:
+            Dict with keys: ``zone`` (str), ``task_type`` (str),
+            ``current_crna`` (dict).
+
+        Returns
+        -------
+        dict with keys:
+            ``predicted_action`` (str), ``confidence`` (float),
+            ``risk_predicted`` (float), ``basis`` (str)
+        """
+        target = self._agents.get(target_id)
+        if target is None:
+            return {
+                "predicted_action": "unknown",
+                "confidence": 0.0,
+                "risk_predicted": 0.5,
+                "basis": "agent_not_found",
+            }
+
+        zone = context.get("zone", "")
+        task_type = context.get("task_type", "")
+        domain_key = zone or task_type or "general"
+
+        # Find matching episodes by domain/zone
+        matching = [
+            e for e in target.episode_history
+            if e.domain == domain_key or domain_key in e.task_description.lower()
+        ]
+
+        if not matching:
+            # Fall back to ATS as prior — higher ATS predicts "proceed"
+            ats = target.health_score()
+            action = "proceed" if ats >= 0.5 else "wait"
+            return {
+                "predicted_action": action,
+                "confidence": round(ats, 4),
+                "risk_predicted": round(1.0 - ats, 4),
+                "basis": "ats_prior",
+            }
+
+        # Compute most common action from success/failure pattern
+        successes = sum(1 for e in matching if e.success)
+        total = len(matching)
+        success_rate = successes / total if total > 0 else 0.5
+        predicted_action = "proceed" if success_rate >= 0.5 else "wait"
+        avg_risk = sum(e.risk_encountered for e in matching) / total
+        confidence = round(max(success_rate, 1.0 - success_rate), 4)
+
+        return {
+            "predicted_action": predicted_action,
+            "confidence": confidence,
+            "risk_predicted": round(avg_risk, 4),
+            "basis": "episode_history",
+        }
+
+    def predict_all_agents(self, observer_id: str, zone: str) -> list[dict]:
+        """Return intention predictions for every active agent in *zone*.
+
+        Parameters
+        ----------
+        observer_id:
+            The observing agent.
+        zone:
+            Zone name to predict for.
+
+        Returns
+        -------
+        list[dict]
+            One prediction dict per active agent (excluding observer).
+        """
+        context = {"zone": zone, "task_type": zone, "current_crna": {}}
+        results = []
+        for agent in self.active_agents():
+            if agent.agent_id == observer_id:
+                continue
+            prediction = self.predict_agent_action(observer_id, agent.agent_id, context)
+            prediction["agent_id"] = agent.agent_id
+            results.append(prediction)
+        return results
+
+
+# ---------------------------------------------------------------------------
+# EXP7 benchmark
+# ---------------------------------------------------------------------------
+
+def compare_assignment_quality() -> dict:
+    """Compare episodic vs random agent assignment quality.
+
+    Registers 3 agents with different episode histories and measures
+    which assignment strategy selects lower-risk agents for finance tasks.
+
+    Returns
+    -------
+    dict with keys: episodic_win_rate, risk_improvement.
+    """
+    import random as _random
+
+    registry = AgentRegistry(stale_timeout=9999)
+
+    # Register three agents
+    for aid, name, caps in [
+        ("agent-finance", "Finance Expert", ["finance", "billing"]),
+        ("agent-general", "Generalist", ["general", "finance", "search"]),
+        ("agent-new", "Newcomer", ["finance"]),
+    ]:
+        registry.register(aid, name, caps, "org1")
+
+    # Give agent-finance a strong low-risk finance history
+    crna_safe = {"c": 0.4, "r": 0.3, "n": 0.2, "a": 0.7}
+    for _ in range(10):
+        registry.record_episode(
+            "agent-finance",
+            Episode(
+                task_description="Quarterly audit review",
+                domain="finance",
+                duration_seconds=45.0,
+                success=True,
+                crna_at_start=crna_safe,
+                crna_at_end=crna_safe,
+                risk_encountered=0.2,
+            ),
+        )
+
+    # Give agent-general a medium-risk finance history
+    crna_med = {"c": 0.5, "r": 0.5, "n": 0.5, "a": 0.5}
+    for _ in range(10):
+        registry.record_episode(
+            "agent-general",
+            Episode(
+                task_description="Generic finance task",
+                domain="finance",
+                duration_seconds=60.0,
+                success=True,
+                crna_at_start=crna_med,
+                crna_at_end=crna_med,
+                risk_encountered=0.5,
+            ),
+        )
+
+    # agent-new has no history (defaults to 0.5)
+
+    rng = _random.Random(42)
+    all_agents = ["agent-finance", "agent-general", "agent-new"]
+
+    episodic_wins = 0
+    episodic_risk_total = 0.0
+    random_risk_total = 0.0
+    n_trials = 20
+
+    for _ in range(n_trials):
+        best = registry.best_agent_for_task("finance")
+        random_agent = rng.choice(all_agents)
+
+        ep_risk = registry.agent_risk_estimate(best or "", "finance")
+        rnd_risk = registry.agent_risk_estimate(random_agent, "finance")
+
+        episodic_risk_total += ep_risk
+        random_risk_total += rnd_risk
+
+        if ep_risk <= rnd_risk:
+            episodic_wins += 1
+
+    return {
+        "episodic_win_rate": round(episodic_wins / n_trials, 4),
+        "risk_improvement": round((random_risk_total - episodic_risk_total) / n_trials, 6),
+    }

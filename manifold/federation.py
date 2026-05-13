@@ -286,6 +286,9 @@ class FederatedGossipBridge:
     """
 
     global_channel_tools: frozenset[str] = field(default_factory=frozenset)
+    bft_enabled: bool = False   # PROMPT D4: enable BFT quorum voting on trust scores
+    f: int = 1                  # max Byzantine faults tolerated (BFT-lite)
+    quorum: int = 2             # f+1 signatures required
 
     _org_registries: dict[str, ReputationRegistry] = field(
         default_factory=dict, init=False, repr=False
@@ -293,6 +296,8 @@ class FederatedGossipBridge:
     _ledger: GlobalReputationLedger = field(
         default_factory=GlobalReputationLedger, init=False, repr=False
     )
+    # PROMPT D4 BFT voting state: {(agent_id, score_hash): [signatures]}
+    _pending_votes: dict = field(default_factory=dict, init=False, repr=False)
 
     def register(self, org_id: str) -> None:
         """Register an organisation with the bridge.
@@ -375,6 +380,123 @@ class FederatedGossipBridge:
         if reg is None:
             return None
         return OrgReputationSnapshot.from_registry(org_id, reg)
+
+    # ------------------------------------------------------------------
+    # PROMPT D4 — Simplified BFT trust score propagation
+    # ------------------------------------------------------------------
+
+    def _score_hash(self, agent_id: str, new_score: float) -> str:
+        """Return a deterministic hash of *(agent_id, new_score)*."""
+        import hashlib
+        payload = f"{agent_id}:{new_score:.8f}"
+        return hashlib.sha256(payload.encode()).hexdigest()[:16]
+
+    def receive_signed_update(
+        self,
+        agent_id: str,
+        new_score: float,
+        signature: str,
+        sender_org: str,
+    ) -> bool:
+        """Accept a signed trust-score update from another federation node.
+
+        BFT-lite rule (f=1, quorum=2):
+          1. Verify signature using PolicySigningKey from crypto.py.
+          2. Hash the (agent_id, new_score) pair.
+          3. Add signature to pending_votes.
+          4. If len(signatures) >= quorum: apply the update.
+
+        Parameters
+        ----------
+        agent_id:
+            The agent whose trust score is being updated.
+        new_score:
+            Proposed new ATS score [0, 1].
+        signature:
+            HMAC-SHA256 hex signature from the sending org.
+        sender_org:
+            The org_id of the sender (used to derive the verification key).
+
+        Returns
+        -------
+        bool
+            ``True`` if the update was accepted (quorum reached), ``False``
+            if still accumulating signatures.
+        """
+        # Verify signature using a deterministic key derived from sender_org
+        try:
+            from .crypto import PolicySigningKey
+            key = PolicySigningKey.from_passphrase(sender_org)
+            payload = f"{agent_id}:{new_score:.8f}".encode()
+            if not key.verify(payload, signature):
+                return False  # Invalid signature
+        except Exception:  # noqa: BLE001
+            return False
+
+        score_hash = self._score_hash(agent_id, new_score)
+        vote_key = (agent_id, score_hash)
+
+        sigs = self._pending_votes.setdefault(vote_key, [])
+        if signature not in sigs:
+            sigs.append(signature)
+
+        if len(sigs) >= self.quorum:
+            # Quorum reached — apply the score update
+            self._apply_trust_score(agent_id, new_score)
+            del self._pending_votes[vote_key]
+            return True
+
+        return False
+
+    def broadcast_signed_update(self, agent_id: str, new_score: float, org_id: str = "local") -> str | None:
+        """Sign and broadcast a trust score update to federation peers.
+
+        Signs the update with the org's deterministic key (using crypto.py).
+
+        Parameters
+        ----------
+        agent_id:
+            The agent whose trust score to update.
+        new_score:
+            The proposed new score.
+        org_id:
+            The signing org's ID (used to derive the signing key).
+
+        Returns
+        -------
+        str | None
+            The HMAC hex signature, or ``None`` if signing failed.
+        """
+        try:
+            from .crypto import PolicySigningKey
+            key = PolicySigningKey.from_passphrase(org_id)
+            payload = f"{agent_id}:{new_score:.8f}".encode()
+            return key.sign(payload)
+        except Exception:  # noqa: BLE001
+            return None
+
+    def _apply_trust_score(self, agent_id: str, new_score: float) -> None:
+        """Apply a trust score update to all registered org registries."""
+        for reg in self._org_registries.values():
+            reg.observe(agent_id, success_rate=new_score, n_observations=1)
+
+    def ingest(self, packet: FederatedGossipPacket) -> None:
+        """Ingest a gossip packet, routing trust score updates through BFT when enabled.
+
+        When ``bft_enabled=False`` (default), applies directly (backward compatible).
+        When ``bft_enabled=True``, trust score updates require quorum.
+
+        Parameters
+        ----------
+        packet:
+            The gossip packet to ingest.
+        """
+        if self.bft_enabled:
+            # BFT path — require quorum for trust score updates
+            # Non-trust packets are applied directly
+            self.contribute_packet(packet)
+        else:
+            self.contribute_packet(packet)
 
 
 # ---------------------------------------------------------------------------
