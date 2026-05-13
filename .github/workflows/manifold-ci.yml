@@ -49,7 +49,7 @@ jobs:
 
       - name: Run pyflakes
         run: |
-          python -m pyflakes manifold/ | grep -v __pycache__ | tee out.txt
+          python -m pyflakes manifold/ 2>&1 | grep -v __pycache__ > out.txt || true
           if [ $(wc -l < out.txt) -gt 0 ]; then exit 1; fi
 
   ts-build:
