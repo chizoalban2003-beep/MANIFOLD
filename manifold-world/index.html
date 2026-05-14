@@ -107,15 +107,29 @@ body{background:#07080f;overflow:hidden;font-family:'Share Tech Mono',monospace;
 </div>
 
 <div class="panel-overlay" id="panel-tower">
-  <div class="panel-box">
+  <div class="panel-box" style="min-width:300px;max-width:360px">
     <h2>◈ MANIFOLD Tower</h2>
-    <label>Tower Level</label>
-    <div id="pt-level" style="font-size:17px;color:#AFA9EC;margin:3px 0">L1</div>
-    <label>World Health</label><div class="hbar"><div class="hbar-fill" id="pt-health-fill"></div></div>
-    <label>Active Agents</label><div id="pt-agents" style="font-size:11px;color:#888;margin-top:3px"></div>
-    <div class="panel-row">
-      <button class="btn btn-primary" onclick="upgradeTower()">Upgrade Tower</button>
-      <button class="btn btn-secondary" onclick="closePanel('panel-tower')">✕</button>
+    <div style="display:flex;gap:0;margin-bottom:12px">
+      <button id="tab-world" onclick="showTowerTab('world')" style="flex:1;background:rgba(175,169,236,.18);color:#AFA9EC;border:1px solid rgba(175,169,236,.3);border-right:none;border-radius:6px 0 0 6px;padding:5px;font-size:10px;cursor:pointer;font-family:inherit">World</button>
+      <button id="tab-research" onclick="showTowerTab('research')" style="flex:1;background:rgba(175,169,236,.05);color:#555;border:1px solid rgba(175,169,236,.2);border-radius:0 6px 6px 0;padding:5px;font-size:10px;cursor:pointer;font-family:inherit">Research</button>
+    </div>
+    <!-- World tab -->
+    <div id="tower-world-content">
+      <label>Tower Level</label>
+      <div id="pt-level" style="font-size:17px;color:#AFA9EC;margin:3px 0">L1</div>
+      <label>World Health</label><div class="hbar"><div class="hbar-fill" id="pt-health-fill"></div></div>
+      <label>Active Agents</label><div id="pt-agents" style="font-size:11px;color:#888;margin-top:3px"></div>
+      <div class="panel-row">
+        <button class="btn btn-primary" onclick="upgradeTower()">Upgrade Tower</button>
+        <button class="btn btn-secondary" onclick="closePanel('panel-tower')">✕</button>
+      </div>
+    </div>
+    <!-- Research tab -->
+    <div id="tower-research-content" style="display:none">
+      <div id="research-tree-container"></div>
+      <div class="panel-row" style="margin-top:10px">
+        <button class="btn btn-secondary" onclick="closePanel('panel-tower')">✕</button>
+      </div>
     </div>
   </div>
 </div>
@@ -134,16 +148,19 @@ body{background:#07080f;overflow:hidden;font-family:'Share Tech Mono',monospace;
 </div>
 
 <div class="panel-overlay" id="panel-task">
-  <div class="panel-box">
+  <div class="panel-box" style="min-width:280px">
     <h2 id="ptd-name">Deploy Task</h2>
-    <div id="ptd-domain" style="font-size:10px;color:#888;margin-bottom:6px"></div>
+    <div id="ptd-domain" style="font-size:10px;color:#888;margin-bottom:4px"></div>
+    <div id="ptd-crna" style="margin-bottom:8px"></div>
+    <label style="font-size:9px;color:#555;display:block;margin-bottom:4px">QUICK TASKS</label>
+    <div id="ptd-quick" style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:8px"></div>
     <label>Task Description</label>
     <textarea id="ptd-desc" placeholder="Describe the task..."></textarea>
-    <label>Stakes (1-10)</label>
+    <label>Stakes</label>
     <input type="range" id="ptd-stakes" min="1" max="10" value="5">
-    <div style="text-align:center;font-size:9px;color:#555;margin-top:2px" id="ptd-stakes-val">5</div>
+    <div style="text-align:center;font-size:9px;color:#555;margin-top:2px" id="ptd-stakes-val">Medium</div>
     <div class="panel-row">
-      <button class="btn btn-primary" onclick="deployTask()">Deploy</button>
+      <button class="btn btn-primary" onclick="deployTask()">◈ Deploy</button>
       <button class="btn btn-secondary" onclick="closePanel('panel-task')">Cancel</button>
     </div>
   </div>
@@ -169,6 +186,7 @@ body{background:#07080f;overflow:hidden;font-family:'Share Tech Mono',monospace;
 // ========== CONSTANTS ==========
 const GRID=16, TW=72, TH=36;
 let OX, OY;
+let panX=0, panY=0, zoomLevel=1.0;
 const canvas=document.getElementById('game-canvas');
 const ctx=canvas.getContext('2d');
 
@@ -236,11 +254,15 @@ function saveState(){
 }
 
 // ========== HELPERS ==========
-function tileToScreen(ti,tj){ return {x:OX+(ti-tj)*TW/2, y:OY+(ti+tj)*TH/2}; }
+function tileToScreen(ti,tj){
+  const eTW=TW*zoomLevel, eTH=TH*zoomLevel;
+  return {x:OX+panX+(ti-tj)*eTW/2, y:OY+panY+(ti+tj)*eTH/2};
+}
 function screenToTile(sx,sy){
-  const dx=sx-OX, dy=sy-OY;
-  const ti=((dx/(TW/2))+(dy/(TH/2)))/2;
-  const tj=((dy/(TH/2))-(dx/(TW/2)))/2;
+  const eTW=TW*zoomLevel, eTH=TH*zoomLevel;
+  const dx=sx-OX-panX, dy=sy-OY-panY;
+  const ti=((dx/(eTW/2))+(dy/(eTH/2)))/2;
+  const tj=((dy/(eTH/2))-(dx/(eTW/2)))/2;
   return {ti:Math.round(ti),tj:Math.round(tj)};
 }
 function seededRand(seed){ let x=Math.sin(seed+1)*10000; return x-Math.floor(x); }
@@ -1044,29 +1066,87 @@ function upgradeBuilding(){
   setTimeout(()=>{if(bld.upgrade_end&&Date.now()>=bld.upgrade_end){bld.level++;bld.upgrade_end=null;saveState();showToast('Upgrade complete!','#AFA9EC');}},31000);
 }
 let panelTile=null;
+const ZONE_TASKS={
+  finance:   ['Deep audit', 'Risk assessment', 'Generate report'],
+  devops:    ['Deploy pipeline', 'Check sensors', 'Analyse metrics'],
+  healthcare:['Diagnose anomaly', 'Monitor vitals', 'Run compliance'],
+  legal:     ['Review contract', 'Check regulations', 'Flag risks'],
+  general:   ['Scout layout', 'Map zone', 'Process data'],
+};
+const ZONE_CRNA={
+  finance:   {c:0.4,r:0.85,n:0.3,a:0.5},
+  devops:    {c:0.3,r:0.60,n:0.2,a:0.8},
+  healthcare:{c:0.2,r:0.95,n:0.1,a:0.7},
+  legal:     {c:0.5,r:0.70,n:0.9,a:0.4},
+  general:   {c:0.3,r:0.50,n:0.5,a:0.5},
+};
+function _crnaBarHTML(label,val,col){
+  return `<div style="display:flex;align-items:center;gap:5px;margin-top:3px">
+    <span style="font-size:9px;color:#555;width:10px">${label}</span>
+    <div style="flex:1;height:4px;background:#1a1a2e;border-radius:2px;overflow:hidden">
+      <div style="width:${Math.round(val*100)}%;height:100%;background:${col};border-radius:2px"></div>
+    </div>
+    <span style="font-size:9px;color:#666;width:28px">${val.toFixed(2)}</span>
+  </div>`;
+}
 function openTaskPanel(ti,tj){
   panelTile={ti,tj};
   let dom='general';
   if(ti<7&&tj<7) dom='finance'; else if(ti>=9&&tj<7) dom='devops'; else if(ti<7&&tj>=9) dom='healthcare'; else if(ti>=9&&tj>=9) dom='legal';
-  document.getElementById('ptd-name').textContent='Deploy Task';
+  const crna=ZONE_CRNA[dom]||ZONE_CRNA.general;
+  const quickTasks=ZONE_TASKS[dom]||ZONE_TASKS.general;
+  const capDom=dom.charAt(0).toUpperCase()+dom.slice(1);
+
+  document.getElementById('ptd-name').textContent='◈ '+capDom+' Zone';
   document.getElementById('ptd-domain').textContent='Domain: '+dom;
+
+  // CRNA bars
+  const crnaHtml=_crnaBarHTML('C',crna.c,'#c87820')+_crnaBarHTML('R',crna.r,'#E24B4A')+_crnaBarHTML('N',crna.n,'#AFA9EC')+_crnaBarHTML('A',crna.a,'#1D9E75');
+  document.getElementById('ptd-crna').innerHTML=crnaHtml;
+
+  // Quick task buttons
+  const qEl=document.getElementById('ptd-quick');
+  qEl.innerHTML=quickTasks.map(t=>`<button onclick="setQuickTask('${t}')" style="background:#1a1a2e;border:1px solid #AFA9EC33;color:#AFA9EC;padding:5px 8px;border-radius:4px;font-size:10px;cursor:pointer;font-family:inherit">${t}</button>`).join('');
+
   document.getElementById('ptd-desc').value='';
   document.getElementById('ptd-stakes').value='5';
-  document.getElementById('ptd-stakes-val').textContent='5';
+  document.getElementById('ptd-stakes-val').textContent='Medium';
   document.getElementById('panel-task').classList.add('active');
 }
-document.getElementById('ptd-stakes')?.addEventListener('input',function(){document.getElementById('ptd-stakes-val').textContent=this.value;});
+function setQuickTask(text){ document.getElementById('ptd-desc').value=text; }
+document.getElementById('ptd-stakes')?.addEventListener('input',function(){
+  const v=parseInt(this.value);
+  document.getElementById('ptd-stakes-val').textContent=v<=3?'Low':v<=7?'Medium':'High';
+});
 async function deployTask(){
   const desc=document.getElementById('ptd-desc').value.trim();
-  const stakes=parseInt(document.getElementById('ptd-stakes').value);
+  if(!desc){showToast('Enter a task description','#E24B4A');return;}
+  const sv=parseInt(document.getElementById('ptd-stakes').value);
+  const stakes=sv<=3?0.3:sv<=7?0.6:0.9;
   const domText=document.getElementById('ptd-domain').textContent.replace('Domain: ','');
   closePanel('panel-task');
+  // Animate a task pillar at tapped zone
+  if(panelTile){
+    const pp=tileToScreen(panelTile.ti,panelTile.tj);
+    spawnParticles(pp.x,pp.y,'complete','#AFA9EC');
+    spawnFloat(pp.x,pp.y-30,'◈ TASK','#AFA9EC');
+  }
   try{
     const key=localStorage.getItem('manifold_key')||'';
     const url=localStorage.getItem('manifold_url')||'';
     const res=await fetch(`${url}/task`,{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},body:JSON.stringify({task:desc,domain:domText,stakes})});
-    if(res.ok) showToast('Task deployed!','#1D9E75'); else throw new Error();
-  }catch(e){ showToast('Task queued (offline mode)','#AFA9EC'); }
+    if(res.ok){
+      const data=await res.json();
+      showToast('Task deployed!','#1D9E75');
+      // VCG toast if vcg_result present
+      if(data.vcg_result){
+        const vr=data.vcg_result;
+        const wnr=vr.winner||'agent';
+        const wf=vr.social_welfare!=null?vr.social_welfare.toFixed(2):'?';
+        setTimeout(()=>showToast(`⚡ VCG: ${wnr} won ${domText} task (welfare: ${wf})`,'#534AB7'),600);
+      }
+    } else throw new Error();
+  }catch(e){ showToast('Task queued (demo mode)','#AFA9EC'); }
   const ag=WS.agents.find(a=>a.domain===domText&&a._state==='idle');
   if(ag) spawnTaskPillar(ag);
 }
@@ -1131,8 +1211,85 @@ function drawDragUI(){
   ctx.restore();
 }
 
+// ========== PAN + ZOOM ==========
+let _isPanning=false, _panStart={x:0,y:0}, _panOrigin={x:0,y:0};
+let _lastPinchDist=0, _doubleTapTimer=0;
+
+canvas.addEventListener('wheel',e=>{
+  e.preventDefault();
+  const oldZ=zoomLevel;
+  zoomLevel=Math.max(0.5,Math.min(2.0,zoomLevel*(1+e.deltaY*-0.001)));
+  panX-=(e.clientX-OX)*(zoomLevel-oldZ)/oldZ;
+  panY-=(e.clientY-OY)*(zoomLevel-oldZ)/oldZ;
+},{passive:false});
+
+canvas.addEventListener('pointerdown',e=>{
+  if(dragBuilding) return;
+  const now=Date.now();
+  if(now-_doubleTapTimer<350){panX=0;panY=0;zoomLevel=1.0;showToast('View reset','#AFA9EC');return;}
+  _doubleTapTimer=now;
+  if(e.isPrimary){_isPanning=true;_panStart={x:e.clientX,y:e.clientY};_panOrigin={x:panX,y:panY};}
+});
+canvas.addEventListener('pointermove',e=>{
+  if(_isPanning&&e.isPrimary&&!dragBuilding){
+    panX=_panOrigin.x+(e.clientX-_panStart.x);
+    panY=_panOrigin.y+(e.clientY-_panStart.y);
+  }
+});
+canvas.addEventListener('pointerup',e=>{if(e.isPrimary)_isPanning=false;});
+
+let _touches={};
+canvas.addEventListener('touchstart',e=>{for(const t of e.changedTouches)_touches[t.identifier]={x:t.clientX,y:t.clientY};},{passive:true});
+canvas.addEventListener('touchmove',e=>{
+  e.preventDefault();
+  const tArr=Array.from(e.touches);
+  if(tArr.length>=2){
+    const nd=Math.hypot(tArr[0].clientX-tArr[1].clientX,tArr[0].clientY-tArr[1].clientY);
+    if(_lastPinchDist>0){
+      const ratio=nd/_lastPinchDist, oldZ=zoomLevel;
+      zoomLevel=Math.max(0.5,Math.min(2.0,zoomLevel*ratio));
+      const cx=(tArr[0].clientX+tArr[1].clientX)/2, cy=(tArr[0].clientY+tArr[1].clientY)/2;
+      panX-=(cx-OX)*(zoomLevel-oldZ)/oldZ;
+      panY-=(cy-OY)*(zoomLevel-oldZ)/oldZ;
+    }
+    _lastPinchDist=nd;
+  }
+},{passive:false});
+canvas.addEventListener('touchend',e=>{for(const t of e.changedTouches)delete _touches[t.identifier];if(Object.keys(_touches).length<2)_lastPinchDist=0;},{passive:true});
+
+function drawMinimap(){
+  const mw=80,mh=80,mx=canvas.width-mw-14,my=canvas.height-mh-14;
+  ctx.save();
+  ctx.fillStyle='rgba(10,10,20,0.82)';ctx.fillRect(mx,my,mw,mh);
+  ctx.strokeStyle='#333';ctx.lineWidth=1;ctx.strokeRect(mx,my,mw,mh);
+  const cw=mw/GRID,ch=mh/GRID;
+  for(let i=0;i<GRID;i++)for(let j=0;j<GRID;j++){
+    const col=isWater(i,j)?'#03080f':isPath(i,j)?'#111118':isCenter(i,j)?'#0d0c2e':zoneCols(i,j).base;
+    ctx.fillStyle=col;ctx.fillRect(mx+i*cw,my+j*ch,cw,ch);
+  }
+  for(const ag of WS.agents){ctx.fillStyle=ag.col;ctx.beginPath();ctx.arc(mx+ag.tx*cw,my+ag.tz*ch,2,0,Math.PI*2);ctx.fill();}
+  const eTW=TW*zoomLevel,eTH=TH*zoomLevel;
+  const vx0=mx+mw/2-panX/(eTW)*cw*2,vy0=my+mh/2-panY/(eTH)*ch*2;
+  const vw=(canvas.width/eTW)*cw*2,vh=(canvas.height/eTH)*ch*2;
+  ctx.strokeStyle='rgba(175,169,236,0.5)';ctx.lineWidth=1;ctx.strokeRect(vx0-vw/2,vy0-vh/2,vw,vh);
+  ctx.restore();
+}
+
+// Tap minimap to jump
+canvas.addEventListener('click',e=>{
+  const mw=80,mh=80,mx=canvas.width-mw-14,my=canvas.height-mh-14;
+  if(e.clientX>=mx&&e.clientX<mx+mw&&e.clientY>=my&&e.clientY<my+mh){
+    const fi=((e.clientX-mx)/mw)*GRID,fj=((e.clientY-my)/mh)*GRID;
+    const eTW=TW*zoomLevel,eTH=TH*zoomLevel;
+    panX=(GRID/2-fi)*eTW/2;panY=(GRID/2-fj)*eTH/2;
+  }
+});
+
 // ========== CLICK DETECTION ==========
 canvas.addEventListener('click',e=>{
+  // Minimap check handled above
+  const mw=80,mh=80,mmx=canvas.width-mw-14,mmy=canvas.height-mh-14;
+  if(e.clientX>=mmx&&e.clientX<mmx+mw&&e.clientY>=mmy&&e.clientY<mmy+mh) return;
   if(dragBuilding) return;
   const x=e.clientX,y=e.clientY;
   for(const ag of WS.agents){const p=tileToScreen(ag.tx,ag.tz);if(Math.hypot(x-p.x,y-p.y)<15){openAgentPanel(ag);return;}}
@@ -1165,6 +1322,7 @@ function handleWSMsg(msg){
       const ag=WS.agents.find(a=>a.id===upd.id);
       if(ag){ag.health=upd.health??ag.health;if(upd.ats_score) ag.level=Math.ceil(upd.ats_score*5);}
     });
+    updateAgentBar();
   }
   if(msg.type==='governance_event'){
     const ag=WS.agents.find(a=>a.id===msg.agent_id);
@@ -1173,6 +1331,13 @@ function handleWSMsg(msg){
   }
   if(msg.type==='task_update') showToast('Task '+msg.status+': '+(msg.task_id||'').slice(0,8));
   if(msg.type==='world_stats') WS.world_health=msg.system_health*100;
+  if(msg.type==='escalation') queueEscalation(msg);
+  if(msg.type==='adversarial') showAdversarialBanner(msg.domain||'unknown',msg.minimax_action||'defend');
+  if(msg.type==='vcg_result'){
+    const wnr=msg.winner||'agent';
+    const wf=msg.social_welfare!=null?parseFloat(msg.social_welfare).toFixed(2):'?';
+    showToast(`⚡ VCG: ${wnr} won ${msg.domain||''} task (welfare: ${wf})`,'#534AB7');
+  }
 }
 setInterval(async()=>{
   if(wsConnected) return;
@@ -1241,6 +1406,7 @@ function gameLoop(ts){
   drawAgents();
   drawParticlesAndFloats();
   drawDragUI();
+  drawMinimap();
   updateHUD();
   // Reset shadow/linedash globally
   ctx.shadowBlur=0; ctx.setLineDash([]);
@@ -1345,6 +1511,229 @@ async function toggleMic(){
 }
 
 // ── NERVATURA Convergence Sparkline (PROMPT 6 / EXP5) ────────────────────
+
+// ── AGENT BAR (PROMPT 3) ─────────────────────────────────────────────────
+function updateAgentBar(){
+  const bar=document.getElementById('agent-bar-cards');
+  if(!bar) return;
+  bar.innerHTML=WS.agents.map(ag=>{
+    const dot=ag._paused?'#E24B4A':ag._state==='idle'?'#c8a820':'#1D9E75';
+    const ep=ag.episode_history?ag.episode_history.length:0;
+    return `<div class="agent-card" draggable="true"
+      onclick="openAgentPanel(WS.agents.find(a=>a.id==='${ag.id}'))"
+      ondragstart="barDragStart(event,'${ag.id}')"
+      title="${ag.name}"
+      style="background:#0f1020;border:1px solid ${ag.col}44;border-radius:6px;padding:5px 7px;display:flex;align-items:center;gap:5px;cursor:pointer;position:relative;min-width:64px;flex-shrink:0">
+      <div style="width:8px;height:8px;border-radius:50%;background:${dot};flex-shrink:0"></div>
+      <span style="font-size:9px;color:${ag.col};white-space:nowrap">${ag.name.split(' ')[0]}</span>
+      ${ep>0?`<span style="position:absolute;top:-4px;right:-4px;background:#534AB7;color:#fff;font-size:7px;border-radius:8px;padding:1px 3px">${ep}</span>`:''}
+    </div>`;
+  }).join('');
+}
+
+let _barDragId=null;
+function barDragStart(e,agId){
+  _barDragId=agId;
+  e.dataTransfer.setData('text/plain',agId);
+  showToast('Drag to a zone to deploy','#AFA9EC');
+}
+canvas.addEventListener('dragover',e=>{e.preventDefault();});
+canvas.addEventListener('drop',e=>{
+  e.preventDefault();
+  if(!_barDragId) return;
+  const tile=screenToTile(e.clientX,e.clientY);
+  let dom='general';
+  if(tile.ti<7&&tile.tj<7) dom='finance'; else if(tile.ti>=9&&tile.tj<7) dom='devops'; else if(tile.ti<7&&tile.tj>=9) dom='healthcare'; else if(tile.ti>=9&&tile.tj>=9) dom='legal';
+  const agId=_barDragId; _barDragId=null;
+  const key=localStorage.getItem('manifold_key')||'';
+  const url=localStorage.getItem('manifold_url')||'';
+  fetch(`${url}/task`,{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},
+    body:JSON.stringify({task:'redeploy',agent_id:agId,domain:dom,stakes:0.5})
+  }).then(r=>r.ok?showToast('Agent deployed!','#1D9E75'):null).catch(()=>showToast('Deploy queued (demo)','#AFA9EC'));
+  const ag=WS.agents.find(a=>a.id===agId);
+  if(ag&&ag._state==='idle') spawnTaskPillar(ag);
+  const pp=tileToScreen(tile.ti,tile.tj);
+  spawnFloat(pp.x,pp.y-30,'DEPLOY','#534AB7');
+});
+setTimeout(updateAgentBar,500);
+setInterval(updateAgentBar,5000);
+
+// ── ESCALATION OVERLAY (PROMPT 3) ────────────────────────────────────────
+const _escalQueue=[];
+let _escalActive=false, _escalCountdownTimer=null;
+function queueEscalation(data){_escalQueue.push(data);if(!_escalActive)_showNextEscalation();}
+function _showNextEscalation(){
+  if(_escalQueue.length===0){_escalActive=false;return;}
+  _escalActive=true;
+  const data=_escalQueue.shift();
+  const overlay=document.getElementById('escalation-overlay');
+  const risk=parseFloat(data.risk_score||data.risk||0.9);
+  document.getElementById('escal-desc').textContent=data.description||data.task||'High-risk action requires approval';
+  document.getElementById('escal-risk-fill').style.width=Math.round(risk*100)+'%';
+  document.getElementById('escal-risk-val').textContent=(risk*100).toFixed(0)+'%';
+  overlay.style.display='flex';
+  let secs=60;
+  document.getElementById('escal-countdown-fill').style.width='100%';
+  document.getElementById('escal-agent-id').value=data.agent_id||'';
+  clearInterval(_escalCountdownTimer);
+  _escalCountdownTimer=setInterval(()=>{
+    secs--;
+    document.getElementById('escal-countdown-fill').style.width=Math.max(0,secs/60*100)+'%';
+    if(secs<=0){clearInterval(_escalCountdownTimer);_handleEscalDecision('deny',true);}
+  },1000);
+}
+function _handleEscalDecision(action,auto){
+  clearInterval(_escalCountdownTimer);
+  document.getElementById('escalation-overlay').style.display='none';
+  const agId=document.getElementById('escal-agent-id').value;
+  if(auto){showToast('Auto-denied — MANIFOLD chose safer','#E24B4A');}
+  else{showToast(action==='approve'?'✓ Approved':'✗ Denied',action==='approve'?'#1D9E75':'#E24B4A');}
+  const key=localStorage.getItem('manifold_key')||'';
+  const url=localStorage.getItem('manifold_url')||'';
+  if(agId) fetch(`${url}/agents/${agId}/commands`,{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},body:JSON.stringify({command:action,payload:{}})}).catch(()=>{});
+  setTimeout(_showNextEscalation,400);
+}
+setInterval(async()=>{
+  const key=localStorage.getItem('manifold_key')||'';
+  const url=localStorage.getItem('manifold_url')||'';
+  if(!key) return;
+  try{
+    const r=await fetch(`${url}/agents`,{headers:{'Authorization':'Bearer '+key}});
+    if(!r.ok) return;
+    const d=await r.json();
+    if(d.agents) d.agents.forEach(a=>{if(a.risk_score>0.85&&a.status==='active'&&!_escalActive)queueEscalation({agent_id:a.agent_id,description:'High-risk task: '+a.agent_id,risk_score:a.risk_score});});
+  }catch(e){}
+},45000);
+
+// ── BFT FEDERATION INDICATOR (PROMPT 4) ──────────────────────────────────
+async function _pollBFTStatus(){
+  const key=localStorage.getItem('manifold_key')||'';
+  const url=localStorage.getItem('manifold_url')||'';
+  if(!key) return;
+  try{
+    const r=await fetch(`${url}/federation/bft-status`,{headers:{'Authorization':'Bearer '+key}});
+    if(!r.ok) return;
+    const d=await r.json();
+    const el=document.getElementById('bft-indicator');
+    if(!el) return;
+    const dot=d.bft_active?'#1D9E75':d.node_count>=2?'#c8a820':'#555';
+    const label=d.bft_active?`BFT · ${d.node_count} nodes`:d.node_count>=2?`GOSSIP · ${d.node_count} nodes`:'NETWORK OFFLINE';
+    el.innerHTML=`<span style="width:7px;height:7px;border-radius:50%;background:${dot};display:inline-block;margin-right:4px;flex-shrink:0"></span><span style="font-size:9px;color:${dot}">${label}</span>`;
+  }catch(e){
+    const el=document.getElementById('bft-indicator');
+    if(el) el.innerHTML='<span style="width:7px;height:7px;border-radius:50%;background:#555;display:inline-block;margin-right:4px"></span><span style="font-size:9px;color:#555">OFFLINE</span>';
+  }
+}
+setInterval(_pollBFTStatus,15000);
+setTimeout(_pollBFTStatus,3000);
+
+// ── ADVERSARIAL ALERT BANNER (PROMPT 4) ───────────────────────────────────
+let _adversarialTimer=null;
+function showAdversarialBanner(domain,action){
+  const banner=document.getElementById('adversarial-banner');
+  if(!banner) return;
+  document.getElementById('adv-domain').textContent=domain;
+  document.getElementById('adv-action').textContent=action;
+  banner.style.display='flex';
+  clearTimeout(_adversarialTimer);
+  let flashes=0;
+  const fi=setInterval(()=>{flashes++;const tp=tileToScreen(7.5,7.5);spawnParticles(tp.x,tp.y,'breach','#E24B4A');if(flashes>=3)clearInterval(fi);},400);
+  _adversarialTimer=setTimeout(()=>dismissAdversarialBanner(),8000);
+}
+function dismissAdversarialBanner(){
+  const b=document.getElementById('adversarial-banner');
+  if(b) b.style.display='none';
+  clearTimeout(_adversarialTimer);
+}
+setInterval(async()=>{
+  const key=localStorage.getItem('manifold_key')||'';
+  const url=localStorage.getItem('manifold_url')||'';
+  if(!key) return;
+  try{
+    const r=await fetch(`${url}/federation/status`,{headers:{'Authorization':'Bearer '+key}});
+    if(!r.ok) return;
+    const d=await r.json();
+    if(d.adversarial_detected) showAdversarialBanner(d.domain||'unknown',d.minimax_action||'defend');
+  }catch(e){}
+},30000);
+
+// ── RESEARCH TREE (PROMPT 5) ──────────────────────────────────────────────
+const RESEARCH_LEVELS=[
+  {level:1,cost:0,nodes:[
+    {id:'basic_gov',  name:'Basic Governance', desc:'CRNA pricing + audit', icon:'⚖'},
+    {id:'crna_price', name:'CRNA Pricing',      desc:'4-vector risk engine', icon:'◈'},
+    {id:'astar',      name:'A* Planning',       desc:'Optimal grid planning', icon:'🗺'},
+  ]},
+  {level:2,cost:200,nodes:[
+    {id:'mpc',        name:'MPC Look-ahead',    desc:'Model-predictive control', icon:'🔮'},
+    {id:'bayesian_n', name:'Bayesian N',        desc:'Uncertainty fusion', icon:'📡'},
+  ]},
+  {level:3,cost:500,nodes:[
+    {id:'cbs',        name:'CBS Multi-Agent',   desc:'Conflict-based search', icon:'🤝'},
+    {id:'vcg',        name:'VCG Auction',       desc:'Truthful allocation', icon:'⚡'},
+  ]},
+  {level:4,cost:1000,nodes:[
+    {id:'minimax',    name:'AdversarialMinimax',desc:'Game-theoretic defence', icon:'🛡'},
+    {id:'kino',       name:'Kinodynamic',       desc:'Dynamic motion planning', icon:'🚀'},
+  ]},
+  {level:5,cost:2000,nodes:[
+    {id:'formal_n',   name:'Formal Shannon N',  desc:'Information-theoretic N', icon:'📐'},
+    {id:'tom',        name:'Theory of Mind L1', desc:'Agent intention inference', icon:'🧠'},
+    {id:'bft_res',    name:'BFT Federation',    desc:'Byzantine-fault tolerant', icon:'🔗'},
+  ]},
+];
+let _researchUnlocks=JSON.parse(localStorage.getItem('manifold_research')||'{}');
+RESEARCH_LEVELS[0].nodes.forEach(n=>{_researchUnlocks[n.id]=true;});
+let _researchTokens=parseInt(localStorage.getItem('manifold_tokens')||'0');
+function _saveResearch(){localStorage.setItem('manifold_research',JSON.stringify(_researchUnlocks));localStorage.setItem('manifold_tokens',String(_researchTokens));}
+function renderResearchTree(){
+  const container=document.getElementById('research-tree-container');
+  if(!container) return;
+  container.innerHTML=`<div style="font-size:9px;color:#888;margin-bottom:8px">Governance Tokens: <span style="color:#FFD700">${_researchTokens}</span></div>`
+    +RESEARCH_LEVELS.map(lvl=>{
+      const prevUnlocked=lvl.level===1||RESEARCH_LEVELS.find(l=>l.level===lvl.level-1)?.nodes.every(n=>_researchUnlocks[n.id]);
+      return `<div style="margin-bottom:8px">
+        <div style="font-size:9px;color:#555;margin-bottom:3px">Level ${lvl.level}${lvl.cost>0?` · ${lvl.cost} tokens`:' · Free'}</div>
+        <div style="display:flex;flex-wrap:wrap;gap:4px">
+          ${lvl.nodes.map(n=>{
+            const unlocked=_researchUnlocks[n.id];
+            const canUnlock=prevUnlocked&&!unlocked&&_researchTokens>=lvl.cost;
+            const border=unlocked?'2px solid #1D9E75':canUnlock?'1px solid #534AB7':'1px solid #222';
+            const bg=unlocked?'rgba(29,158,117,0.1)':canUnlock?'rgba(83,74,183,0.1)':'rgba(10,10,20,0.5)';
+            return `<div onclick="unlockResearch('${n.id}',${lvl.cost})" style="background:${bg};border:${border};border-radius:6px;padding:5px 6px;cursor:pointer;min-width:80px;max-width:100px;text-align:center" title="${n.desc}">
+              <div style="font-size:14px">${n.icon}</div>
+              <div style="font-size:8px;color:${unlocked?'#1D9E75':'#888'};margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${n.name}</div>
+              ${!unlocked?`<div style="font-size:7px;color:#555">${lvl.cost} tkn</div>`:''}
+            </div>`;
+          }).join('')}
+        </div>
+      </div>`;
+    }).join('');
+}
+async function unlockResearch(id,cost){
+  if(_researchUnlocks[id]){showToast('Already unlocked','#888');return;}
+  if(_researchTokens<cost){showToast(`Need ${cost} governance tokens`,'#E24B4A');return;}
+  _researchTokens-=cost;
+  _researchUnlocks[id]=true;
+  _saveResearch();
+  renderResearchTree();
+  showToast('Research complete: '+id,'#FFD700');
+  const tp=tileToScreen(7.5,7.5);
+  spawnParticles(tp.x,tp.y,'levelup','#FFD700');
+  spawnFloat(tp.x,tp.y-40,'★ RESEARCH','#FFD700');
+}
+function showTowerTab(tab){
+  document.getElementById('tower-world-content').style.display=tab==='world'?'block':'none';
+  document.getElementById('tower-research-content').style.display=tab==='research'?'block':'none';
+  document.getElementById('tab-world').style.background=tab==='world'?'rgba(175,169,236,.18)':'rgba(175,169,236,.05)';
+  document.getElementById('tab-world').style.color=tab==='world'?'#AFA9EC':'#555';
+  document.getElementById('tab-research').style.background=tab==='research'?'rgba(175,169,236,.18)':'rgba(175,169,236,.05)';
+  document.getElementById('tab-research').style.color=tab==='research'?'#AFA9EC':'#555';
+  if(tab==='research') renderResearchTree();
+}
+// Award tokens when agents complete tasks
+function awardGovernanceTokens(amount){_researchTokens+=amount;_saveResearch();}
+
 var _vHistory=[];
 function _updateConvergenceSparkline(data){
   var box=document.getElementById('convergence-box');
@@ -1392,13 +1781,65 @@ setTimeout(_pollConvergence,2000);
 <!-- Convergence sparkline widget (bottom-right of world panel) -->
 <style>
 #convergence-box{
-  position:fixed;bottom:12px;right:14px;
+  position:fixed;bottom:12px;right:106px;
   background:rgba(20,20,40,0.88);border:1px solid #333;
   border-radius:6px;padding:4px 8px;
   display:flex;align-items:center;gap:4px;
-  z-index:9999;font-family:monospace;
+  z-index:9999;font-family:monospace;cursor:pointer;
 }
+/* ── Agent bar ── */
+#agent-bar{position:fixed;bottom:0;left:0;right:0;height:52px;background:rgba(7,8,15,0.92);border-top:1px solid #1a1a2e;z-index:200;display:flex;align-items:center;padding:0 10px;gap:6px;overflow-x:auto;pointer-events:auto;}
+#agent-bar::-webkit-scrollbar{height:3px;} #agent-bar::-webkit-scrollbar-thumb{background:#333;}
+#agent-bar-label{font-size:9px;color:#333;margin-right:2px;flex-shrink:0}
+/* ── Escalation overlay ── */
+#escalation-overlay{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(226,75,74,0.12);z-index:800;display:none;align-items:center;justify-content:center;}
+#escalation-box{background:#0f1020;border:1px solid rgba(226,75,74,0.5);border-radius:12px;padding:20px;width:280px;font-family:inherit;}
+/* ── BFT indicator ── */
+#bft-indicator{position:fixed;top:52px;right:10px;background:rgba(10,10,20,0.85);border:1px solid #222;border-radius:5px;padding:4px 8px;z-index:150;display:flex;align-items:center;pointer-events:none;font-family:monospace;}
+/* ── Adversarial banner ── */
+#adversarial-banner{position:fixed;top:0;left:0;right:0;background:rgba(226,75,74,0.85);color:#fff;z-index:600;display:none;align-items:center;justify-content:space-between;padding:6px 14px;font-size:11px;font-family:inherit;}
 </style>
+
+<!-- Agent bar -->
+<div id="agent-bar">
+  <span id="agent-bar-label">AGENTS</span>
+  <div id="agent-bar-cards" style="display:flex;gap:6px;align-items:center;flex:1;overflow-x:auto;"></div>
+</div>
+
+<!-- Escalation overlay -->
+<div id="escalation-overlay">
+  <div id="escalation-box">
+    <div style="font-size:13px;color:#E24B4A;font-weight:700;margin-bottom:8px">⚠ MANIFOLD ESCALATION</div>
+    <div id="escal-desc" style="font-size:11px;color:#ccc;margin-bottom:10px;line-height:1.5"></div>
+    <div style="font-size:9px;color:#555;margin-bottom:3px">Risk Score</div>
+    <div style="height:6px;background:#1a1a2e;border-radius:3px;overflow:hidden;margin-bottom:6px">
+      <div id="escal-risk-fill" style="height:100%;background:#E24B4A;border-radius:3px;transition:width .3s"></div>
+    </div>
+    <div id="escal-risk-val" style="font-size:9px;color:#E24B4A;margin-bottom:10px"></div>
+    <input type="hidden" id="escal-agent-id">
+    <div style="display:flex;gap:8px;margin-bottom:10px">
+      <button onclick="_handleEscalDecision('approve',false)" style="flex:1;background:rgba(29,158,117,.2);color:#1D9E75;border:1px solid #1D9E75;border-radius:6px;padding:8px;cursor:pointer;font-family:inherit;font-size:11px">✓ Approve</button>
+      <button onclick="_handleEscalDecision('deny',false)" style="flex:1;background:rgba(226,75,74,.15);color:#E24B4A;border:1px solid #E24B4A;border-radius:6px;padding:8px;cursor:pointer;font-family:inherit;font-size:11px">✗ Deny</button>
+    </div>
+    <div style="font-size:9px;color:#555;margin-bottom:3px">Auto-deny in:</div>
+    <div style="height:4px;background:#1a1a2e;border-radius:2px;overflow:hidden">
+      <div id="escal-countdown-fill" style="height:100%;background:#534AB7;border-radius:2px;transition:width 1s linear"></div>
+    </div>
+  </div>
+</div>
+
+<!-- BFT indicator -->
+<div id="bft-indicator">
+  <span style="width:7px;height:7px;border-radius:50%;background:#555;display:inline-block;margin-right:4px"></span>
+  <span style="font-size:9px;color:#555">CONNECTING…</span>
+</div>
+
+<!-- Adversarial alert banner -->
+<div id="adversarial-banner">
+  <span>⚠ Adversarial pattern detected in <strong id="adv-domain">?</strong> · Action: <strong id="adv-action">?</strong></span>
+  <button onclick="dismissAdversarialBanner()" style="background:none;border:none;color:#fff;cursor:pointer;font-size:14px;padding:0 4px">✕</button>
+</div>
+
 <div id="convergence-box" title="NERVATURA V(t) convergence — EXP5">
   <span style="color:#666;font-size:10px">V(t) loading…</span>
 </div>
