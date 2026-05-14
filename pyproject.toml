@@ -44,6 +44,9 @@ Repository = "https://github.com/chizoalban2003-beep/MANIFOLD"
 manifold = "manifold.cli:main"
 manifold-shadow = "deploy_shadow:main"
 
+[tool.setuptools.packages.find]
+include = ["manifold*"]
+
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
