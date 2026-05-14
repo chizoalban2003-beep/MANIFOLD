@@ -325,3 +325,37 @@ def test_post_federation_join_returns_200() -> None:
     assert result["status"] == 200
     assert result["data"]["status"] == "joined"
     assert result["data"]["org_id"] == "fed-join-test-org"
+
+
+
+# ---------------------------------------------------------------------------
+# BFT auto-activation tests (Prompt 2B)
+# ---------------------------------------------------------------------------
+
+def test_bft_disabled_at_two_nodes():
+    """BFT should remain disabled when only 2 nodes are registered."""
+    bridge = FederatedGossipBridge()
+    bridge.register("org-1")
+    bridge.register("org-2")
+    assert bridge.bft_enabled is False
+
+
+def test_bft_enabled_at_three_nodes():
+    """BFT should auto-activate when the third node registers."""
+    bridge = FederatedGossipBridge()
+    bridge.register("org-1")
+    bridge.register("org-2")
+    assert bridge.bft_enabled is False
+    bridge.register("org-3")
+    assert bridge.bft_enabled is True
+
+
+def test_bft_status_endpoint_returns_correct_fields() -> None:
+    """GET /federation/bft-status returns bft_active, node_count, quorum, f."""
+    result = _call_server_handler("_handle_get_federation_bft_status")
+    assert result["status"] == 200
+    data = result["data"]
+    assert "bft_active" in data
+    assert "node_count" in data
+    assert "quorum" in data
+    assert "f" in data

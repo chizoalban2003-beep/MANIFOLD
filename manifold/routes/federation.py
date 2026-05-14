@@ -73,6 +73,23 @@ def handle_post_federation_gossip(self: "ManifoldHandler", body: dict) -> None:
         s._send_error(self, 400, f"Invalid gossip packet: {exc}")
 
 
+def handle_get_federation_bft_status(self: "ManifoldHandler") -> None:
+    """GET /federation/bft-status — return BFT quorum status."""
+    s = _srv()
+    bridge = s._GOSSIP_BRIDGE
+    node_count = len(bridge.registered_orgs())
+    s._send_json(
+        self,
+        200,
+        {
+            "bft_active": bridge.bft_enabled,
+            "node_count": node_count,
+            "quorum": bridge.quorum,
+            "f": bridge.f,
+        },
+    )
+
+
 def handle_post_ats_register(self: "ManifoldHandler", body: dict[str, Any]) -> None:
     """POST /ats/register — register a tool in the ATS network."""
     s = _srv()
