@@ -1134,7 +1134,10 @@ async function deployTask(){
   try{
     const key=localStorage.getItem('manifold_key')||'';
     const url=localStorage.getItem('manifold_url')||'';
-    const res=await fetch(`${url}/task`,{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},body:JSON.stringify({task:desc,domain:domText,stakes})});
+    const payload={task:desc,domain:domText,stakes};
+    if(_researchUnlocks['vcg']) payload.use_vcg=true;
+    if(_researchUnlocks['mpc']) payload.use_mpc=true;
+    const res=await fetch(`${url}/task`,{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},body:JSON.stringify(payload)});
     if(res.ok){
       const data=await res.json();
       showToast('Task deployed!','#1D9E75');
@@ -1721,6 +1724,14 @@ async function unlockResearch(id,cost){
   const tp=tileToScreen(7.5,7.5);
   spawnParticles(tp.x,tp.y,'levelup','#FFD700');
   spawnFloat(tp.x,tp.y-40,'★ RESEARCH','#FFD700');
+  // Wire capabilities to backend
+  const key=localStorage.getItem('manifold_key')||'';
+  const url=localStorage.getItem('manifold_url')||'';
+  if(id==='bft_res'&&url){
+    fetch(`${url}/federation/bft-enable`,{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},body:'{}'})
+      .then(r=>r.ok?showToast('BFT federation enabled','#1D9E75'):null)
+      .catch(()=>null);
+  }
 }
 function showTowerTab(tab){
   document.getElementById('tower-world-content').style.display=tab==='world'?'block':'none';

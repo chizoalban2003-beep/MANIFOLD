@@ -128,3 +128,21 @@ def test_tom_no_stagger_for_single_agent():
     assert plan.has_tom_adjustment is False
     for st in plan.sub_tasks:
         assert st.delay_seconds == 0
+
+
+# ---------------------------------------------------------------------------
+# use_vcg flag tests
+# ---------------------------------------------------------------------------
+
+def test_router_accepts_use_vcg_flag():
+    """TaskRouter can be constructed with use_vcg=True and produces a valid plan."""
+    router = TaskRouter(registry=AgentRegistry(), use_vcg=True)
+    assert router.use_vcg is True
+    plan = router.route("allocate cleaning tasks")
+    assert isinstance(plan, TaskPlan)
+
+
+def test_router_use_vcg_default_false():
+    """TaskRouter.use_vcg defaults to False."""
+    router = TaskRouter(registry=AgentRegistry())
+    assert router.use_vcg is False

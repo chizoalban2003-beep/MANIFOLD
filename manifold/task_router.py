@@ -257,13 +257,15 @@ class TaskRouter:
         return slots if slots else [[task]]
 
     def _best_agent(
-        self, domain: str, capabilities_needed: list[str]
+        self, domain: str, capabilities_needed: list[str], use_vcg: bool | None = None
     ) -> AgentRecord | None:
         """Find the best available agent for a sub-task.
 
-        When ``self.use_vcg`` is True, delegates to VCGAuction (PROMPT D2).
+        When ``use_vcg`` is True (or ``self.use_vcg`` when *use_vcg* is None),
+        delegates to VCGAuction (PROMPT D2).
         """
-        if self.use_vcg:
+        _vcg = self.use_vcg if use_vcg is None else use_vcg
+        if _vcg:
             # VCG auction — provably truthful mechanism
             from manifold.vcg_auction import VCGAuction
             auction = VCGAuction(self._registry)
@@ -290,14 +292,23 @@ class TaskRouter:
 
         return max(candidates, key=score)
 
-    def route(self, task: str, stakes_hint: float = 0.5) -> TaskPlan:
+    def route(self, task: str, stakes_hint: float = 0.5, use_vcg: bool | None = None) -> TaskPlan:
         """
         Main entry point. Receive a complex task, return a TaskPlan.
+
+        Args:
+            task: Natural-language task description.
+            stakes_hint: Caller-supplied risk hint (0.0–1.0).
+            use_vcg: Override ``self.use_vcg`` for this call only.  If *None*
+                the instance default is used.
         """
         task_id = hashlib.sha256(f"{task}{time.time()}".encode()).hexdigest()[:12]
         slots = self._decompose_two_level(task)
         sub_tasks: list[SubTask] = []
         index = 0
+
+        # Resolve effective VCG flag for this call without mutating instance state
+        _effective_use_vcg = self.use_vcg if use_vcg is None else use_vcg
 
         for group_id, slot in enumerate(slots):
             for sub_text in slot:
@@ -323,7 +334,7 @@ class TaskRouter:
                     status = "blocked"
                     reason = "Escalation required -- human review needed"
                 else:
-                    agent = self._best_agent(domain, caps_needed)
+                    agent = self._best_agent(domain, caps_needed, use_vcg=_effective_use_vcg)
                     if agent:
                         status = "assigned"
                         reason = f"Assigned to {agent.agent_id}"

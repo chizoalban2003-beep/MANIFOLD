@@ -359,3 +359,37 @@ def test_bft_status_endpoint_returns_correct_fields() -> None:
     assert "node_count" in data
     assert "quorum" in data
     assert "f" in data
+
+
+def test_post_bft_enable_activates_bft() -> None:
+    """POST /federation/bft-enable force-enables BFT even with <3 nodes."""
+    # Ensure the bridge starts with BFT disabled
+    import manifold.server as srv  # noqa: PLC0415
+    bridge = srv._GOSSIP_BRIDGE
+    original = bridge.bft_enabled
+    try:
+        bridge.bft_enabled = False
+        result = _call_server_handler("_handle_post_federation_bft_enable")
+        assert result["status"] == 200
+        assert result["data"]["bft_active"] is True
+        assert "node_count" in result["data"]
+        assert "quorum" in result["data"]
+        assert "f" in result["data"]
+        assert "already_active" in result["data"]
+    finally:
+        bridge.bft_enabled = original
+
+
+def test_post_bft_enable_idempotent() -> None:
+    """POST /federation/bft-enable is idempotent — calling twice is safe."""
+    import manifold.server as srv  # noqa: PLC0415
+    bridge = srv._GOSSIP_BRIDGE
+    original = bridge.bft_enabled
+    try:
+        bridge.bft_enabled = True
+        result = _call_server_handler("_handle_post_federation_bft_enable")
+        assert result["status"] == 200
+        assert result["data"]["bft_active"] is True
+        assert result["data"]["already_active"] is True
+    finally:
+        bridge.bft_enabled = original

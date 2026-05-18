@@ -90,6 +90,36 @@ def handle_get_federation_bft_status(self: "ManifoldHandler") -> None:
     )
 
 
+def handle_post_federation_bft_enable(self: "ManifoldHandler") -> None:
+    """POST /federation/bft-enable — force-enable BFT on this bridge.
+
+    Called by the MANIFOLD World research tree when the BFT capability
+    is unlocked.  Safe to call even if BFT is already active.
+    """
+    import logging as _logging  # noqa: PLC0415
+    s = _srv()
+    bridge = s._GOSSIP_BRIDGE
+    already = bridge.bft_enabled
+    if not already:
+        bridge.bft_enabled = True
+        node_count = len(bridge.registered_orgs())
+        bridge.quorum = max(1, node_count - bridge.f)
+        _logging.getLogger(__name__).info(
+            "BFT force-enabled via API: %d nodes in federation", node_count
+        )
+    s._send_json(
+        self,
+        200,
+        {
+            "bft_active": bridge.bft_enabled,
+            "node_count": len(bridge.registered_orgs()),
+            "quorum": bridge.quorum,
+            "f": bridge.f,
+            "already_active": already,
+        },
+    )
+
+
 def handle_post_ats_register(self: "ManifoldHandler", body: dict[str, Any]) -> None:
     """POST /ats/register — register a tool in the ATS network."""
     s = _srv()
