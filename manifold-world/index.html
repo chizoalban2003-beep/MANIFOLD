@@ -1058,7 +1058,8 @@ function openTaskPanel(ti,tj){
 document.getElementById('ptd-stakes')?.addEventListener('input',function(){document.getElementById('ptd-stakes-val').textContent=this.value;});
 async function deployTask(){
   const desc=document.getElementById('ptd-desc').value.trim();
-  const stakes=parseInt(document.getElementById('ptd-stakes').value);
+  const stakesSliderValue=parseFloat(document.getElementById('ptd-stakes').value);
+  const stakes=Math.min(1,Math.max(0,(Number.isFinite(stakesSliderValue)?stakesSliderValue:0)/10));
   const domText=document.getElementById('ptd-domain').textContent.replace('Domain: ','');
   closePanel('panel-task');
   try{
