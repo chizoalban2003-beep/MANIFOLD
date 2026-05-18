@@ -73,19 +73,11 @@ def handle_post_task(self: "ManifoldHandler", body: dict) -> None:
     s = _srv()
     task = str(body.get("task", "")).strip()
     stakes = float(body.get("stakes", 0.5))
-    # Per-call capability flags from the MANIFOLD World research tree.
-    # use_vcg=True activates VCG auction for this request without permanently
-    # mutating the shared TaskRouter instance.
-    use_vcg: bool | None = True if body.get("use_vcg") else None
-    use_mpc = bool(body.get("use_mpc", False))  # reserved for future MPC look-ahead routing
     if not task:
         s._send_error(self, 400, "task field required")
         return
-    plan = s._TASK_ROUTER.route(task, stakes_hint=stakes, use_vcg=use_vcg)
-    result = plan.to_dict()
-    if use_mpc:
-        result["use_mpc"] = True  # acknowledged; MPC planner used for next look-ahead
-    s._send_json(self, 200, result)
+    plan = s._TASK_ROUTER.route(task, stakes_hint=stakes)
+    s._send_json(self, 200, plan.to_dict())
 
 
 def handle_get_brain_state(self: "ManifoldHandler") -> None:

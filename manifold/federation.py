@@ -34,7 +34,6 @@ Key classes
 
 from __future__ import annotations
 
-import logging as _logging
 from dataclasses import dataclass, field
 from typing import Literal
 
@@ -309,13 +308,6 @@ class FederatedGossipBridge:
             Unique identifier for the organisation.
         """
         self._org_registries.setdefault(org_id, ReputationRegistry())
-        n = len(self._org_registries)
-        if not self.bft_enabled and n >= 3:
-            self.bft_enabled = True
-            self.quorum = n - self.f  # f+1..n
-            _logging.getLogger(__name__).info(
-                "BFT activated: %d nodes in federation", n
-            )
 
     def contribute_snapshot(self, snapshot: OrgReputationSnapshot) -> None:
         """Contribute a batch snapshot from an organisation.

@@ -1,27 +1,5 @@
 # Changelog
 
-## [2.3.0] — Full CoC-parity world + infrastructure completion
-
-### Added
-- World: zone tap → deploy task panel with stakes slider (Low/Medium/High → 0.3/0.6/0.9)
-- World: bottom agent army bar with drag-to-deploy (CoC troop mechanic)
-- World: escalation approval overlay with 60-second countdown and auto-deny
-- World: pan and pinch-zoom (0.5× to 2×) with mini-map and double-tap reset
-- World: BFT federation status indicator (auto-hides at <3 nodes, expands on tap)
-- World: VCG auction toast notifications (bottom-left, 4-second auto-dismiss)
-- World: adversarial alert banner with minimax report (8-second auto-dismiss)
-- World: convergence sparkline — V(t) live graph from `/nervatura/convergence`
-- World: governance research tree (5 levels, token-gated, localStorage-persisted)
-- ToM L1 wired into TaskRouter (`_apply_tom_stagger` staggers conflicting agents by 30 s)
-- BFT auto-activates when federation reaches 3+ nodes (`FederatedGossipBridge.register`)
-- GET `/federation/bft-status` endpoint — returns `{bft_active, node_count, quorum, f}`
-
-### Fixed
-- `manifold_data/` removed from git tracking
-- `.gitignore` tightened (added `manifold_data/`, `htmlcov/`, `.coverage`, etc.)
-
----
-
 ## [2.2.0] — Gap closures (research-grounded)
 
 ### Closed (engineering)
