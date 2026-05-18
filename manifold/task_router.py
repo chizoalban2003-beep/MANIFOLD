@@ -31,7 +31,6 @@ class SubTask:
     depends_on: list = field(default_factory=list)  # list of sub-task index strings
     execution_mode: str = "sequential"  # "sequential" or "parallel"
     parallel_group: int = 0  # tasks with same group ID run together
-    delay_seconds: int = 0  # ToM stagger: dispatch delay in seconds
 
 
 # ---------------------------------------------------------------------------
@@ -148,7 +147,6 @@ class TaskPlan:
     dependency_graph: dict = field(default_factory=dict)   # {id: [depends_on_ids]}
     parallel_groups: list = field(default_factory=list)    # list of task-id groups
     has_ordering: bool = False
-    has_tom_adjustment: bool = False  # True if ToM staggered any sub-task
 
     def to_dict(self) -> dict:
         return {
@@ -168,7 +166,6 @@ class TaskPlan:
                     "depends_on": s.depends_on,
                     "execution_mode": s.execution_mode,
                     "parallel_group": s.parallel_group,
-                    "delay_seconds": s.delay_seconds,
                 }
                 for s in self.sub_tasks
             ],
@@ -178,7 +175,6 @@ class TaskPlan:
             "dependency_graph": self.dependency_graph,
             "parallel_groups": self.parallel_groups,
             "has_ordering": self.has_ordering,
-            "has_tom_adjustment": self.has_tom_adjustment,
         }
 
 class TaskRouter:
@@ -257,15 +253,13 @@ class TaskRouter:
         return slots if slots else [[task]]
 
     def _best_agent(
-        self, domain: str, capabilities_needed: list[str], use_vcg: bool | None = None
+        self, domain: str, capabilities_needed: list[str]
     ) -> AgentRecord | None:
         """Find the best available agent for a sub-task.
 
-        When ``use_vcg`` is True (or ``self.use_vcg`` when *use_vcg* is None),
-        delegates to VCGAuction (PROMPT D2).
+        When ``self.use_vcg`` is True, delegates to VCGAuction (PROMPT D2).
         """
-        _vcg = self.use_vcg if use_vcg is None else use_vcg
-        if _vcg:
+        if self.use_vcg:
             # VCG auction — provably truthful mechanism
             from manifold.vcg_auction import VCGAuction
             auction = VCGAuction(self._registry)
@@ -292,23 +286,14 @@ class TaskRouter:
 
         return max(candidates, key=score)
 
-    def route(self, task: str, stakes_hint: float = 0.5, use_vcg: bool | None = None) -> TaskPlan:
+    def route(self, task: str, stakes_hint: float = 0.5) -> TaskPlan:
         """
         Main entry point. Receive a complex task, return a TaskPlan.
-
-        Args:
-            task: Natural-language task description.
-            stakes_hint: Caller-supplied risk hint (0.0–1.0).
-            use_vcg: Override ``self.use_vcg`` for this call only.  If *None*
-                the instance default is used.
         """
         task_id = hashlib.sha256(f"{task}{time.time()}".encode()).hexdigest()[:12]
         slots = self._decompose_two_level(task)
         sub_tasks: list[SubTask] = []
         index = 0
-
-        # Resolve effective VCG flag for this call without mutating instance state
-        _effective_use_vcg = self.use_vcg if use_vcg is None else use_vcg
 
         for group_id, slot in enumerate(slots):
             for sub_text in slot:
@@ -334,7 +319,7 @@ class TaskRouter:
                     status = "blocked"
                     reason = "Escalation required -- human review needed"
                 else:
-                    agent = self._best_agent(domain, caps_needed, use_vcg=_effective_use_vcg)
+                    agent = self._best_agent(domain, caps_needed)
                     if agent:
                         status = "assigned"
                         reason = f"Assigned to {agent.agent_id}"
@@ -364,10 +349,6 @@ class TaskRouter:
             task, sub_tasks, slots
         )
 
-        # ToM L1: stagger assignments where two agents are predicted to conflict
-        # in the same zone at the same time window (~30s).
-        has_tom_adjustment = self._apply_tom_stagger(sub_tasks)
-
         blocked = sum(1 for s in sub_tasks if s.status == "blocked")
         executable = all(s.status in ("assigned", "pending") for s in sub_tasks)
         plan = TaskPlan(
@@ -379,76 +360,9 @@ class TaskRouter:
             dependency_graph=dep_graph,
             parallel_groups=par_groups,
             has_ordering=has_ordering,
-            has_tom_adjustment=has_tom_adjustment,
         )
         self._plans[task_id] = plan
         return plan
-
-    # ------------------------------------------------------------------
-    # ToM L1 — Theory of Mind stagger for conflicting agent assignments
-    # ------------------------------------------------------------------
-
-    def _apply_tom_stagger(self, sub_tasks: list[SubTask]) -> bool:
-        """Use ToM L1 to detect and stagger conflicting agent assignments.
-
-        When two assigned sub-tasks target the same domain/zone and the
-        ``predict_all_agents`` call indicates both assigned agents are
-        predicted to "proceed" in that zone simultaneously, delay the
-        later sub-task by 30 seconds.
-
-        Returns
-        -------
-        bool
-            ``True`` if any stagger was applied.
-        """
-        adjusted = False
-        # Group sub-tasks by (domain, assigned_to) to find potential zone conflicts
-        # We only stagger sub-tasks that share the same domain and are both assigned
-        assigned_tasks = [s for s in sub_tasks if s.status == "assigned" and s.assigned_to]
-
-        # Build a map: domain -> list of sub-task indices in that domain
-        domain_map: dict[str, list[int]] = {}
-        for st in assigned_tasks:
-            domain_map.setdefault(st.domain, []).append(st.index)
-
-        for domain, indices in domain_map.items():
-            if len(indices) < 2:
-                continue
-
-            # For each pair of agents in the same zone, run ToM prediction
-            seen_agents: list[str] = []
-            for idx in indices:
-                st = sub_tasks[idx]
-                agent_id = st.assigned_to
-                if agent_id is None:
-                    continue
-
-                if agent_id in seen_agents:
-                    # Duplicate agent assignment in same zone — always stagger
-                    st.delay_seconds = 30
-                    st.reason += " [ToM: staggered — same agent, same zone]"
-                    adjusted = True
-                    continue
-
-                # Check ToM predictions for conflicts with already-seen agents
-                if seen_agents:
-                    predictions = self._registry.predict_all_agents(
-                        observer_id=agent_id, zone=domain
-                    )
-                    conflict_detected = any(
-                        p.get("agent_id") in seen_agents
-                        and p.get("predicted_action") == "proceed"
-                        for p in predictions
-                    )
-                    if conflict_detected:
-                        st.delay_seconds = 30
-                        st.reason += " [ToM: staggered — predicted zone conflict]"
-                        adjusted = True
-                        continue
-
-                seen_agents.append(agent_id)
-
-        return adjusted
 
     # ------------------------------------------------------------------
     # EXP6 helpers

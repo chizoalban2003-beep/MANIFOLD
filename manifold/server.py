@@ -677,11 +677,6 @@ class ManifoldHandler(BaseHTTPRequestHandler):
                 self._handle_get_federation_status()
                 return
 
-            # GET /federation/bft-status  (BFT quorum status)
-            if path == "/federation/bft-status":
-                self._handle_get_federation_bft_status()
-                return
-
             # GET /realtime/status  (v1.7.0 real-time bus/grid/health/planner)
             if path == "/realtime/status":
                 self._handle_get_realtime_status()
@@ -901,8 +896,6 @@ class ManifoldHandler(BaseHTTPRequestHandler):
                 self._handle_post_federation_join(body, _caller2)
             elif path == "/federation/gossip":
                 self._handle_post_federation_gossip(body)
-            elif path == "/federation/bft-enable":
-                self._handle_post_federation_bft_enable()
             elif path == "/task":
                 self._handle_post_task(body)
             elif path == "/auction":
@@ -3937,12 +3930,6 @@ def _handle_get_federation_status(self: "ManifoldHandler") -> None:
     return handle_get_federation_status(self)
 
 
-def _handle_get_federation_bft_status(self: "ManifoldHandler") -> None:
-    """GET /federation/bft-status — return BFT quorum status."""
-    from manifold.routes.federation import handle_get_federation_bft_status  # noqa: PLC0415
-    return handle_get_federation_bft_status(self)
-
-
 def _handle_post_federation_join(
     self: "ManifoldHandler", body: dict, caller: Any
 ) -> None:
@@ -3957,17 +3944,9 @@ def _handle_post_federation_gossip(self: "ManifoldHandler", body: dict) -> None:
     return handle_post_federation_gossip(self, body)
 
 
-def _handle_post_federation_bft_enable(self: "ManifoldHandler") -> None:
-    """POST /federation/bft-enable — force-enable BFT on the gossip bridge."""
-    from manifold.routes.federation import handle_post_federation_bft_enable  # noqa: PLC0415
-    return handle_post_federation_bft_enable(self)
-
-
 ManifoldHandler._handle_get_federation_status = _handle_get_federation_status  # type: ignore[attr-defined]
-ManifoldHandler._handle_get_federation_bft_status = _handle_get_federation_bft_status  # type: ignore[attr-defined]
 ManifoldHandler._handle_post_federation_join = _handle_post_federation_join  # type: ignore[attr-defined]
 ManifoldHandler._handle_post_federation_gossip = _handle_post_federation_gossip  # type: ignore[attr-defined]
-ManifoldHandler._handle_post_federation_bft_enable = _handle_post_federation_bft_enable  # type: ignore[attr-defined]
 
 
 # ---------------------------------------------------------------------------

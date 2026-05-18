@@ -12,8 +12,8 @@
 > Built on **NERVATURA** — the governed intelligence framework.
 
 [![CI](https://github.com/chizoalban2003-beep/MANIFOLD/actions/workflows/manifold-ci.yml/badge.svg)](https://github.com/chizoalban2003-beep/MANIFOLD/actions/workflows/manifold-ci.yml)
-[![Tests](https://img.shields.io/badge/tests-2565%2B-brightgreen)]()
-[![Version](https://img.shields.io/badge/version-2.3.0-blue)]()
+[![Tests](https://img.shields.io/badge/tests-2598%2B-brightgreen)]()
+[![Version](https://img.shields.io/badge/version-2.2.0-blue)]()
 [![Python](https://img.shields.io/badge/python-3.12%2B-blue)]()
 [![Zero deps](https://img.shields.io/badge/external%20deps-0-success)]()
 [![License](https://img.shields.io/badge/license-MIT-lightgrey)]()
@@ -347,54 +347,13 @@ See `manifold-ts/README.md` for full TypeScript documentation.
 
 | Metric | Value |
 |---|---|
-| Tests | 2565 / 2565 ✅ |
+| Tests | 2383 / 2383 ✅ |
 | Python modules | 90+ |
-| API endpoints | 50+ |
+| API endpoints | 48+ |
 | Domain packs | 7 |
 | Brain actions | 13 |
 | Agent types | Unlimited |
 | External dependencies | **0** |
-
----
-
-## MANIFOLD World
-
-MANIFOLD ships a fully interactive isometric PWA game world (`GET /world`) inspired by Clash of Clans. It turns the governance dashboard into a **command centre**.
-
-### Interactive Features
-
-| Feature | Description |
-|---|---|
-| **Isometric PWA** | Full offline-capable progressive web app with Service Worker |
-| **Zone tap → deploy** | Tap any zone tile to open a deploy panel with task presets and stakes slider |
-| **Army bar** | Fixed bottom bar showing all agents as drag-deployable cards (CoC style) |
-| **Drag troops to zones** | Drag an agent card to a zone tile to auto-submit a redeploy task |
-| **Escalation approval overlay** | Risk > 0.85 triggers a 60-second approve/deny countdown |
-| **Pan and pinch-zoom** | Pointer-event pan + pinch-zoom (0.5× – 2×) with mini-map |
-| **Convergence sparkline** | 120×40 px V(t) live graph from `/nervatura/convergence` |
-| **Governance research tree** | 5-level capability unlock tree (token-gated, stored in localStorage) |
-| **BFT federation status** | Top-right indicator: green (3+ nodes BFT), amber (2 nodes), grey (offline) |
-| **VCG auction toasts** | Bottom-left slide-up toasts when auction results arrive |
-| **Adversarial alerts** | Red banner + tower flash when minimax detects adversarial patterns |
-| **WebSocket live data** | Real-time agent updates, world stats, and escalation events via WS |
-
----
-
-## Governance Research Tree
-
-The research tree lets you earn **governance tokens** through good decisions and spend them to unlock increasingly sophisticated governance capabilities — exactly like upgrading a CoC laboratory.
-
-| Level | Cost | Capabilities |
-|---|---|---|
-| **1 — Foundation** | Always unlocked | Basic governance, CRNA pricing, A\* path planning |
-| **2 — Planning** | 200 tokens | MPC look-ahead planner, Bayesian sensor fusion |
-| **3 — Coordination** | 500 tokens | CBS multi-agent planner, VCG auction allocation |
-| **4 — Adversarial** | 1 000 tokens | Adversarial minimax, Kinodynamic planner |
-| **5 — Frontier** | 2 000 tokens | Formal Shannon N (NERVATURA), Theory of Mind L1, BFT federation |
-
-Unlock state is persisted in `localStorage` under the key `manifold_research`.
-When a capability is unlocked it wires automatically into POST `/task` requests
-(e.g. `use_mpc=true`, `use_vcg=true`) and calls POST `/federation/bft-enable` for BFT.
 
 ---
 

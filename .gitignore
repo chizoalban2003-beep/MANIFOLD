@@ -22,7 +22,6 @@ __pycache__/
 *.db
 *.db-shm
 *.db-wal
-*.wal
 
 # Additional build / test artefacts
 *.pyo
