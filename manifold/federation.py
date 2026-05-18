@@ -34,6 +34,7 @@ Key classes
 
 from __future__ import annotations
 
+import logging as _logging
 from dataclasses import dataclass, field
 from typing import Literal
 
@@ -307,7 +308,6 @@ class FederatedGossipBridge:
         org_id:
             Unique identifier for the organisation.
         """
-        import logging as _logging
         self._org_registries.setdefault(org_id, ReputationRegistry())
         n = len(self._org_registries)
         if not self.bft_enabled and n >= 3:

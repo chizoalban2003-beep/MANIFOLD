@@ -4,6 +4,7 @@ Handlers for:
   GET  /federation/status
   POST /federation/join
   POST /federation/gossip
+  POST /federation/bft-enable
   POST /ats/register
   POST /ats/signal
   GET  /ats/leaderboard
@@ -11,6 +12,7 @@ Handlers for:
 
 from __future__ import annotations
 
+import logging as _logging
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -96,7 +98,6 @@ def handle_post_federation_bft_enable(self: "ManifoldHandler") -> None:
     Called by the MANIFOLD World research tree when the BFT capability
     is unlocked.  Safe to call even if BFT is already active.
     """
-    import logging as _logging  # noqa: PLC0415
     s = _srv()
     bridge = s._GOSSIP_BRIDGE
     already = bridge.bft_enabled
