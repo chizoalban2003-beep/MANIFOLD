@@ -2,15 +2,17 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-# Install only core dependencies first (layer cache)
+# Copy dependency manifests and all source before installing
+# (editable install requires the source tree to be present)
 COPY pyproject.toml requirements.txt ./
-RUN pip install --no-cache-dir -e ".[ui]"
-
-# Copy source
 COPY manifold/ ./manifold/
+COPY manifold_physical/ ./manifold_physical/
 COPY manifold-ts/ ./manifold-ts/
 COPY app.py deploy_shadow.py ./
 COPY scripts/ ./scripts/
+
+# Install the package with UI extras — deps resolved from pyproject.toml
+RUN pip install --no-cache-dir -e ".[ui]"
 
 # Default: run the HTTP oracle server
 EXPOSE 8080
