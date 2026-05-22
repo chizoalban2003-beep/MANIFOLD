@@ -84,10 +84,11 @@ class PhysicalManager:
         # MQTT
         if "mqtt" in config:
             mc = config["mqtt"]
+            agent_id = mc.get("agent_id")
             self._mqtt = MQTTBridge(
                 broker_host=mc.get("broker_host", "localhost"),
                 broker_port=int(mc.get("broker_port", 1883)),
-                agent_id=mc.get("agent_id"),
+                agent_id=None if agent_id is None else str(agent_id),
                 heartbeat_interval=float(mc.get("heartbeat_interval", 0.5)),
             )
             for dev in mc.get("devices", []):

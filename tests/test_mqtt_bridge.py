@@ -33,6 +33,12 @@ def test_device_mapping_defaults():
     assert dm.risk_on_trigger == 0.75
 
 
+def test_agent_id_rejects_invalid_topic_characters():
+    """agent_id should refuse MQTT topic separator characters."""
+    with pytest.raises(ValueError):
+        MQTTBridge(broker_host="localhost", agent_id="roomba/01")
+
+
 def test_home_assistant_profile_returns_three_mappings():
     """HomeAssistantProfile classmethod should return 3 DeviceMapping objects."""
     profile = MQTTBridge.HomeAssistantProfile()
@@ -139,6 +145,8 @@ def test_agent_topics_and_status_payload(monkeypatch):
     bridge = MQTTBridge(broker_host="localhost", agent_id="roomba-01")
     captured: list[tuple[str, dict]] = []
     monkeypatch.setattr(bridge, "_publish_json", lambda topic, payload: captured.append((topic, payload)) or True)
+    bridge._running = True
+    bridge._sock = object()
 
     ok_tel = bridge.publish_telemetry(1.2349, 2.3451, 0.0, state="moving", extra={"mode": "auto"})
     ok_status = bridge.publish_status(state="moving", battery=91, extra={"mode": "auto"})
@@ -146,12 +154,12 @@ def test_agent_topics_and_status_payload(monkeypatch):
     assert ok_tel is True
     assert ok_status is True
     assert captured[0][0] == "manifold/agent/roomba-01/telemetry"
-    assert captured[0][1]["x"] == 1.235
-    assert captured[0][1]["y"] == 2.345
+    assert captured[0][1]["x"] == round(1.2349, 3)
+    assert captured[0][1]["y"] == round(2.3451, 3)
     assert captured[0][1]["state"] == "moving"
     assert captured[1][0] == "manifold/agent/roomba-01/status"
     assert captured[1][1]["battery"] == 91
-    assert captured[1][1]["connected"] is False
+    assert captured[1][1]["connected"] is True
     assert captured[1][1]["mode"] == "auto"
 
 

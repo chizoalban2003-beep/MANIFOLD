@@ -34,6 +34,9 @@ _DEVICE_OBSTACLE_MAP: dict[str, tuple[str, float | None]] = {
 }
 
 _AGENT_TOPIC_PREFIX = "manifold/agent"
+_MIN_HEARTBEAT_INTERVAL = 0.05
+_RECONNECT_BACKOFF_INITIAL = 0.25
+_RECONNECT_BACKOFF_MAX = 5.0
 
 
 @dataclass
@@ -84,9 +87,9 @@ class MQTTBridge:
     ) -> None:
         self.broker_host = broker_host
         self.broker_port = broker_port
-        self.agent_id = agent_id
+        self.agent_id = self._validate_agent_id(agent_id)
         self.command_callback = command_callback
-        self.heartbeat_interval = max(0.05, float(heartbeat_interval))
+        self.heartbeat_interval = max(_MIN_HEARTBEAT_INTERVAL, float(heartbeat_interval))
         self._mappings: dict[str, DeviceMapping] = {}
         self._sensor_bridge = SensorBridge()
         self._sock: socket.socket | None = None
@@ -96,6 +99,8 @@ class MQTTBridge:
         self._heartbeat_thread: threading.Thread | None = None
         self._packet_id = 0
         self._heartbeat_counter = 0
+        self._heartbeat_lock = threading.Lock()
+        self._socket_lock = threading.RLock()
         self._publish_lock = threading.Lock()
 
     # ------------------------------------------------------------------
@@ -118,9 +123,18 @@ class MQTTBridge:
 
     def set_agent(self, agent_id: str) -> None:
         """Bind the bridge to an agent-id topic namespace."""
-        self.agent_id = agent_id
+        self.agent_id = self._validate_agent_id(agent_id)
         if self._sock is not None and self._running:
             self._subscribe_runtime_topics(self._sock)
+
+    @staticmethod
+    def _validate_agent_id(agent_id: str | None) -> str | None:
+        """Reject agent IDs that would create invalid MQTT topic paths."""
+        if agent_id is None:
+            return None
+        if any(ch in agent_id for ch in "/+#\x00"):
+            raise ValueError("agent_id may not contain '/', '+', '#', or NUL")
+        return agent_id
 
     def start(self) -> None:
         """Connect to the broker and start the receive loop in a background thread."""
@@ -222,9 +236,12 @@ class MQTTBridge:
         extra: dict[str, Any] | None = None,
     ) -> bool:
         """Publish robot health to the status topic."""
+        if heartbeat is None:
+            with self._heartbeat_lock:
+                heartbeat = self._heartbeat_counter
         payload: dict[str, Any] = {
             "state": state,
-            "heartbeat": self._heartbeat_counter if heartbeat is None else heartbeat,
+            "heartbeat": heartbeat,
             "connected": self.is_connected(),
         }
         if battery is not None:
@@ -248,7 +265,7 @@ class MQTTBridge:
     def start_heartbeat(self, interval: float | None = None) -> None:
         """Start the periodic status heartbeat publisher."""
         if interval is not None:
-            self.heartbeat_interval = max(0.05, float(interval))
+            self.heartbeat_interval = max(_MIN_HEARTBEAT_INTERVAL, float(interval))
         if self._heartbeat_running or self.agent_id is None:
             return
         self._heartbeat_running = True
@@ -265,8 +282,10 @@ class MQTTBridge:
 
     def heartbeat_tick(self, *, state: str = "active", extra: dict[str, Any] | None = None) -> bool:
         """Publish one heartbeat sample and increment the counter."""
-        self._heartbeat_counter += 1
-        return self.publish_status(state=state, heartbeat=self._heartbeat_counter, extra=extra)
+        with self._heartbeat_lock:
+            self._heartbeat_counter += 1
+            heartbeat = self._heartbeat_counter
+        return self.publish_status(state=state, heartbeat=heartbeat, extra=extra)
 
     # ------------------------------------------------------------------
     # MQTT 3.1.1 minimal client — connection
@@ -299,8 +318,9 @@ class MQTTBridge:
 
     def _close_socket(self) -> None:
         """Close the current socket, swallowing transport errors."""
-        sock = self._sock
-        self._sock = None
+        with self._socket_lock:
+            sock = self._sock
+            self._sock = None
         if sock is None:
             return
         try:
@@ -310,26 +330,26 @@ class MQTTBridge:
 
     def _publish_json(self, topic: str | None, payload: dict[str, Any]) -> bool:
         """Serialize *payload* to JSON and publish to *topic*."""
-        if topic is None or self._sock is None or not self._running:
-            return False
         try:
             message = json.dumps(payload, separators=(",", ":"), sort_keys=True)
-            self._publish(topic, message)
+            with self._socket_lock:
+                sock = self._sock
+            if topic is None or sock is None or not self._running:
+                return False
+            self._publish(sock, topic, message)
             return True
         except Exception as exc:  # noqa: BLE001
             logging.debug("MQTTBridge publish failed: %s", exc)
             return False
 
-    def _publish(self, topic: str, payload: str) -> None:
+    def _publish(self, sock: socket.socket, topic: str, payload: str) -> None:
         """Publish a UTF-8 payload to *topic* over the current socket."""
-        if self._sock is None:
-            raise OSError("MQTT socket is not connected")
         topic_bytes = topic.encode()
         payload_bytes = payload.encode()
         variable_header = struct.pack("!H", len(topic_bytes)) + topic_bytes
         body = variable_header + payload_bytes
         with self._publish_lock:
-            self._sock.sendall(b"\x30" + _encode_remaining(len(body)) + body)
+            sock.sendall(b"\x30" + _encode_remaining(len(body)) + body)
 
     def _send_connect(self, sock: socket.socket) -> None:
         """Assemble and send an MQTT 3.1.1 CONNECT packet."""
@@ -380,15 +400,19 @@ class MQTTBridge:
     # ------------------------------------------------------------------
 
     def _receive_loop(self) -> None:
-        backoff = 0.25
+        backoff = _RECONNECT_BACKOFF_INITIAL
         while self._running:
-            if self._sock is None:
-                self._sock = self._connect_to_broker()
-                if self._sock is None:
+            with self._socket_lock:
+                sock = self._sock
+            if sock is None:
+                sock = self._connect_to_broker()
+                with self._socket_lock:
+                    self._sock = sock
+                if sock is None:
                     time.sleep(backoff)
-                    backoff = min(backoff * 2.0, 5.0)
+                    backoff = min(backoff * 2.0, _RECONNECT_BACKOFF_MAX)
                     continue
-                backoff = 0.25
+                backoff = _RECONNECT_BACKOFF_INITIAL
             try:
                 packet = self._recv_packet()
                 if packet is None:
@@ -400,20 +424,22 @@ class MQTTBridge:
                 if not self._running:
                     break
                 time.sleep(backoff)
-                backoff = min(backoff * 2.0, 5.0)
+                backoff = min(backoff * 2.0, _RECONNECT_BACKOFF_MAX)
             except Exception as exc:  # noqa: BLE001
                 logging.debug("MQTTBridge recv error: %s", exc)
 
     def _recv_packet(self) -> tuple[int, bytes] | None:
         """Read one complete MQTT packet from the socket."""
-        if not self._sock:
+        with self._socket_lock:
+            sock = self._sock
+        if not sock:
             return None
-        first = _recv_exact(self._sock, 1)
+        first = _recv_exact(sock, 1)
         if not first:
             return None
         packet_type = first[0]
-        remaining = _decode_remaining(self._sock)
-        body = _recv_exact(self._sock, remaining) if remaining > 0 else b""
+        remaining = _decode_remaining(sock)
+        body = _recv_exact(sock, remaining) if remaining > 0 else b""
         if body is None:
             return None
         return (packet_type, body)
@@ -486,11 +512,12 @@ class MQTTBridge:
             command = {"command": command}
         if not isinstance(command, dict):
             command = {"command": "UNKNOWN", "payload": command}
-        command.setdefault("agent_id", self.agent_id)
-        command.setdefault("topic", self.agent_cmd_topic)
+        normalized = dict(command)
+        normalized.setdefault("agent_id", self.agent_id)
+        normalized.setdefault("topic", self.agent_cmd_topic)
         if self.command_callback is not None:
             try:
-                self.command_callback(command)
+                self.command_callback(normalized)
             except Exception as exc:  # noqa: BLE001
                 logging.debug("MQTTBridge command callback failed: %s", exc)
 
