@@ -9,11 +9,15 @@ rule pressure.
 from __future__ import annotations
 
 import logging
+import uuid
+import weakref
 
 from dataclasses import dataclass, field
 from typing import Literal
 
+from .cell_update_bus import CellUpdate, CellUpdateBus, get_bus
 from .gridmapper import AgentPopulation, GridOptimizationResult, GridWorld
+from .movement import MovementState, MovementStateMachine, PathPlanner
 from .trustrouter import clamp01
 
 _logger = logging.getLogger(__name__)
@@ -565,6 +569,86 @@ class ManifoldBrain:
     memory: BrainMemory = field(default_factory=BrainMemory)
     price_adapter: PriceAdapter | None = None
     asset_adapter: AssetAdapter | None = None
+    movement: MovementStateMachine = field(default_factory=MovementStateMachine)
+    movement_planner: PathPlanner | None = field(default=None, repr=False, compare=False)
+    movement_bus: CellUpdateBus | None = field(default=None, repr=False, compare=False)
+
+    def __post_init__(self) -> None:
+        if self.movement_planner is None:
+            from .planner import CRNAPlanner
+
+            self.movement_planner = CRNAPlanner()
+        if self.movement_bus is None:
+            self.movement_bus = get_bus()
+        subscriber_id = f"manifold-brain-movement-{uuid.uuid4().hex}"
+        brain_ref = weakref.ref(self)
+
+        def _movement_callback(update: CellUpdate) -> None:
+            brain = brain_ref()
+            if brain is not None:
+                brain._handle_movement_update(update)
+
+        self.movement_bus.subscribe(subscriber_id, _movement_callback)
+        if hasattr(self.movement_bus, "unsubscribe"):
+            weakref.finalize(self, self.movement_bus.unsubscribe, subscriber_id)
+
+    @property
+    def logical_pos(self) -> tuple[int, int, int]:
+        """Current snapped grid position for movement."""
+        return self.movement.logical_pos
+
+    @logical_pos.setter
+    def logical_pos(self, value: tuple[int, int, int]) -> None:
+        self.movement.logical_pos = tuple(int(coord) for coord in value)
+
+    @property
+    def physical_pos(self) -> tuple[float, float, float]:
+        """Current continuous position for movement."""
+        return self.movement.physical_pos
+
+    @physical_pos.setter
+    def physical_pos(self, value: tuple[float, float, float]) -> None:
+        self.movement.physical_pos = tuple(float(coord) for coord in value)
+
+    @property
+    def next_safe_cell(self) -> tuple[int, int, int] | None:
+        """The next path cell the agent is moving toward."""
+        return self.movement.next_safe_cell
+
+    @next_safe_cell.setter
+    def next_safe_cell(self, value: tuple[int, int, int] | None) -> None:
+        self.movement.next_safe_cell = tuple(int(coord) for coord in value) if value is not None else None
+
+    @property
+    def movement_state(self) -> MovementState:
+        """Current movement state machine phase."""
+        return self.movement.state
+
+    @property
+    def replan_pending(self) -> bool:
+        """Whether a replan has been requested by a gatekeeper event."""
+        return self.movement.replan_pending
+
+    @replan_pending.setter
+    def replan_pending(self, value: bool) -> None:
+        self.movement.replan_pending = bool(value)
+
+    @property
+    def current_path_set(self) -> set[tuple[int, int, int]]:
+        """Current set of path cells used for O(1) membership checks."""
+        return self.movement.current_path_set
+
+    def set_movement_goal(self, target_cell: tuple[int, int, int]) -> None:
+        """Assign a new navigation target and request a fresh plan."""
+        self.movement.set_goal(target_cell)
+
+    def tick(self, delta_time: float) -> None:
+        """Advance movement state and, when snapped, recompute paths."""
+        self.movement.tick(delta_time, planner=self.movement_planner)
+
+    def _handle_movement_update(self, update: CellUpdate) -> None:
+        """Bridge bus updates into the movement gatekeeper logic."""
+        self.movement.on_cell_update(update)
 
     def decide(self, task: BrainTask) -> BrainDecision:
         task = task.normalized()

@@ -11,10 +11,11 @@ from __future__ import annotations
 import math
 import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from enum import IntEnum
 from typing import TYPE_CHECKING
 
-from .cell_update_bus import CellUpdate, get_bus
+from .cell_update_bus import CellCoord, CellUpdate, CellUpdateBus, get_bus
 
 if TYPE_CHECKING:
     pass
@@ -30,6 +31,178 @@ class CRNAValues:
     r: float
     n: float
     a: float
+
+
+class OccupancyState(IntEnum):
+    """Discrete occupancy state for hysteresis-based obstacle tracking."""
+
+    FREE = 0
+    PENDING = 1
+    DYNAMIC_BLOCK = 2
+    STATIC_BLOCK = 3
+
+
+@dataclass(slots=True)
+class GridCell:
+    """Confidence-tracked occupancy cell with Schmitt-trigger hysteresis."""
+
+    coord: tuple[int, int, int]
+    confidence: float = 0.0
+    state: OccupancyState = OccupancyState.FREE
+    last_updated: float = field(default_factory=time.monotonic)
+    block_threshold: float = 0.8
+    clear_threshold: float = 0.4
+    decay_rate_per_second: float = 0.12
+
+    def __post_init__(self) -> None:
+        self.confidence = self._clamp01(self.confidence)
+        self.last_updated = float(self.last_updated)
+        self._apply_hysteresis(force=True)
+
+    @staticmethod
+    def _clamp01(value: float) -> float:
+        return max(0.0, min(1.0, float(value)))
+
+    def _advance_confidence(self, current_time: float) -> None:
+        """Decay confidence toward zero based on elapsed wall-clock time."""
+        elapsed = max(0.0, float(current_time) - self.last_updated)
+        if elapsed > 0.0:
+            self.confidence = self._clamp01(
+                self.confidence - (self.decay_rate_per_second * elapsed)
+            )
+            self.last_updated = float(current_time)
+
+    def _apply_hysteresis(self, *, force: bool = False) -> tuple[OccupancyState, OccupancyState]:
+        """Resolve the discrete occupancy state and return ``(previous, current)``."""
+        previous = self.state
+        if previous == OccupancyState.STATIC_BLOCK:
+            self.confidence = 1.0
+            return previous, previous
+
+        if previous == OccupancyState.DYNAMIC_BLOCK and not force:
+            if self.confidence < self.clear_threshold:
+                self.state = OccupancyState.PENDING if self.confidence > 0.0 else OccupancyState.FREE
+            return previous, self.state
+
+        if self.confidence >= self.block_threshold:
+            self.state = OccupancyState.DYNAMIC_BLOCK
+        elif self.confidence > 0.0:
+            self.state = OccupancyState.PENDING
+        else:
+            self.state = OccupancyState.FREE
+
+        return previous, self.state
+
+    def register_hit(self, confidence_delta: float, current_time: float | None = None) -> tuple[OccupancyState, OccupancyState]:
+        """Increase confidence from a sensor hit and return the state transition."""
+        now = float(current_time if current_time is not None else time.monotonic())
+        self._advance_confidence(now)
+        self.confidence = self._clamp01(self.confidence + confidence_delta)
+        self.last_updated = now
+        return self._apply_hysteresis()
+
+    def decay_to(self, current_time: float) -> tuple[OccupancyState, OccupancyState]:
+        """Decay confidence to *current_time* and return the resulting transition."""
+        now = float(current_time)
+        self._advance_confidence(now)
+        return self._apply_hysteresis()
+
+    @property
+    def blocked(self) -> bool:
+        """Return ``True`` while the cell is considered a dynamic or static block."""
+        return self.state in {OccupancyState.DYNAMIC_BLOCK, OccupancyState.STATIC_BLOCK}
+
+
+class DynamicGridManager:
+    """Event-driven occupancy manager with Schmitt-trigger hysteresis.
+
+    The manager aggregates sensor hits into confidence values, applies
+    time-based decay, and publishes a single ``cell_blocked`` or
+    ``cell_cleared`` event only when the discrete state crosses the hysteresis
+    boundary.
+    """
+
+    def __init__(
+        self,
+        *,
+        bus: "CellUpdateBus | None" = None,
+        hit_confidence_delta: float = 0.25,
+        decay_rate_per_second: float = 0.12,
+        block_threshold: float = 0.8,
+        clear_threshold: float = 0.4,
+    ) -> None:
+        self._bus = bus or get_bus()
+        self._hit_confidence_delta = hit_confidence_delta
+        self._decay_rate_per_second = decay_rate_per_second
+        self._block_threshold = block_threshold
+        self._clear_threshold = clear_threshold
+        self._cells: dict[tuple[int, int, int], GridCell] = {}
+
+    def _cell(self, coord: tuple[int, int, int]) -> GridCell:
+        cell = self._cells.get(coord)
+        if cell is None:
+            cell = GridCell(
+                coord=coord,
+                block_threshold=self._block_threshold,
+                clear_threshold=self._clear_threshold,
+                decay_rate_per_second=self._decay_rate_per_second,
+            )
+            self._cells[coord] = cell
+        return cell
+
+    def _emit_transition(
+        self,
+        coord: tuple[int, int, int],
+        previous: OccupancyState,
+        current: OccupancyState,
+        *,
+        current_time: float,
+    ) -> None:
+        if previous == current:
+            return
+        event_name: str | None = None
+        if previous != OccupancyState.DYNAMIC_BLOCK and current == OccupancyState.DYNAMIC_BLOCK:
+            event_name = "cell_blocked"
+        elif previous == OccupancyState.DYNAMIC_BLOCK and current != OccupancyState.DYNAMIC_BLOCK:
+            event_name = "cell_cleared"
+        if event_name is None:
+            return
+        self._bus.publish(
+            CellUpdate(
+                coord=CellCoord(x=coord[0], y=coord[1], z=coord[2], t=current_time),
+                source="dynamic_grid_manager",
+                reason=event_name,
+            )
+        )
+
+    def register_sensor_hit(
+        self,
+        coord: tuple[int, int, int],
+        *,
+        confidence_delta: float | None = None,
+        current_time: float | None = None,
+    ) -> GridCell:
+        """Increase the confidence for *coord* and emit a block event if needed."""
+        now = float(current_time if current_time is not None else time.monotonic())
+        cell = self._cell(coord)
+        previous, current = cell.register_hit(
+            confidence_delta if confidence_delta is not None else self._hit_confidence_delta,
+            current_time=now,
+        )
+        self._emit_transition(coord, previous, current, current_time=now)
+        return cell
+
+    def tick_decay(self, current_time: float) -> None:
+        """Apply decay to every tracked cell and emit boundary-crossing events."""
+        now = float(current_time)
+        for coord, cell in self._cells.items():
+            previous = cell.state
+            cell.decay_to(now)
+            self._emit_transition(coord, previous, cell.state, current_time=now)
+
+    def get_cell(self, coord: tuple[int, int, int]) -> GridCell:
+        """Return the tracked cell for *coord*, creating a fresh one if needed."""
+        return self._cell(coord)
 
 
 class DynamicCell:
