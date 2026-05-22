@@ -24,6 +24,7 @@ class MovementState(IntEnum):
     IDLE = 0
     TRANSITING = 1
     REPLANNING = 2
+    ERROR = 3
 
 
 @runtime_checkable
@@ -231,3 +232,41 @@ class MovementStateMachine:
                 self._clear_replan_cooldown_until = current_time + self.replan_cooldown_seconds
                 if self.state is MovementState.IDLE:
                     self.state = MovementState.REPLANNING
+
+
+# ---------------------------------------------------------------------------
+# Watchdog — hardware heartbeat safety monitor
+# ---------------------------------------------------------------------------
+
+
+@dataclass(slots=True)
+class Watchdog:
+    """Heartbeat watchdog that triggers EMERGENCY_STOP on timeout.
+
+    The brain must call :meth:`feed` at the configured interval (default 500 ms).
+    If :meth:`is_expired` returns ``True``, the control loop must halt the robot
+    and transition to ``MovementState.ERROR``.  Once :meth:`feed` is called again
+    the watchdog recovers automatically (``is_expired`` returns ``False``).
+
+    Parameters
+    ----------
+    timeout_seconds:
+        Maximum allowed time between heartbeat feeds (default: 0.5 s).
+    """
+
+    timeout_seconds: float = 0.5
+    _last_fed: float = field(default_factory=time.monotonic, repr=False)
+
+    def feed(self, current_time: float | None = None) -> None:
+        """Reset the watchdog timer."""
+        self._last_fed = float(current_time if current_time is not None else time.monotonic())
+
+    def is_expired(self, current_time: float | None = None) -> bool:
+        """Return ``True`` if the heartbeat has timed out."""
+        now = float(current_time if current_time is not None else time.monotonic())
+        return (now - self._last_fed) > self.timeout_seconds
+
+    @property
+    def elapsed(self) -> float:
+        """Seconds since the last feed."""
+        return time.monotonic() - self._last_fed

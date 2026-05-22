@@ -17,7 +17,7 @@ from typing import Literal
 
 from .cell_update_bus import CellUpdate, CellUpdateBus, get_bus
 from .gridmapper import AgentPopulation, GridOptimizationResult, GridWorld
-from .movement import MovementState, MovementStateMachine, PathPlanner
+from .movement import MovementState, MovementStateMachine, PathPlanner, Watchdog
 from .trustrouter import clamp01
 
 _logger = logging.getLogger(__name__)
@@ -572,6 +572,8 @@ class ManifoldBrain:
     movement: MovementStateMachine = field(default_factory=MovementStateMachine)
     movement_planner: PathPlanner | None = field(default=None, repr=False, compare=False)
     movement_bus: CellUpdateBus | None = field(default=None, repr=False, compare=False)
+    watchdog: Watchdog = field(default_factory=Watchdog)
+    mqtt_gateway: object | None = field(default=None, repr=False, compare=False)
 
     def __post_init__(self) -> None:
         if self.movement_planner is None:
@@ -642,9 +644,57 @@ class ManifoldBrain:
         """Assign a new navigation target and request a fresh plan."""
         self.movement.set_goal(target_cell)
 
+    def feed_watchdog(self) -> None:
+        """Reset the watchdog timer — call this from the hardware heartbeat loop."""
+        self.watchdog.feed()
+
     def tick(self, delta_time: float) -> None:
-        """Advance movement state and, when snapped, recompute paths."""
+        """Advance the control loop: safety → movement → telemetry sync.
+
+        The loop order is strictly:
+        1. **Safety check** — if the watchdog has expired, enter ERROR state and
+           issue EMERGENCY_STOP via the MQTT gateway.
+        2. **Movement logic** — delegate to the MovementStateMachine (which
+           handles replan_pending internally).
+        3. **MQTT telemetry sync** — push position/status to hardware.
+
+        Automatic recovery: once :meth:`feed_watchdog` is called again, the
+        ERROR state is cleared and normal operation resumes on the next tick.
+        """
+        # --- 1. Safety: watchdog check ---
+        if self.watchdog.is_expired():
+            if self.movement.state is not MovementState.ERROR:
+                _logger.warning("Watchdog expired (%.3fs) — entering ERROR state",
+                                self.watchdog.elapsed)
+                self.movement.state = MovementState.ERROR
+                self._emit_emergency_stop()
+            return  # Do NOT advance movement while in ERROR
+
+        # Recovery from ERROR: watchdog was fed externally
+        if self.movement.state is MovementState.ERROR:
+            _logger.info("Watchdog recovered — resuming from ERROR → IDLE")
+            self.movement.state = MovementState.IDLE
+
+        # --- 2. Movement logic (includes interrupt/replan processing) ---
         self.movement.tick(delta_time, planner=self.movement_planner)
+
+        # --- 3. MQTT telemetry sync ---
+        if self.mqtt_gateway is not None and hasattr(self.mqtt_gateway, "sync_to_hardware"):
+            try:
+                self.mqtt_gateway.sync_to_hardware()
+            except Exception as exc:  # noqa: BLE001
+                _logger.debug("MQTT sync failed: %s", exc)
+
+    def _emit_emergency_stop(self) -> None:
+        """Publish EMERGENCY_STOP via the MQTT gateway if available."""
+        if self.mqtt_gateway is None:
+            return
+        bridge = getattr(self.mqtt_gateway, "bridge", None)
+        if bridge is not None and hasattr(bridge, "publish_command"):
+            try:
+                bridge.publish_command("EMERGENCY_STOP")
+            except Exception as exc:  # noqa: BLE001
+                _logger.debug("EMERGENCY_STOP publish failed: %s", exc)
 
     def _handle_movement_update(self, update: CellUpdate) -> None:
         """Bridge bus updates into the movement gatekeeper logic."""
