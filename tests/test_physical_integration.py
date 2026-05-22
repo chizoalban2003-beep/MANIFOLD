@@ -65,6 +65,23 @@ def test_get_physical_status_returns_expected_shape():
     assert "last_obstacle_event" in data
 
 
+def test_physical_manager_wires_mqtt_agent_topics():
+    """PhysicalManager should pass agent_id and heartbeat settings to MQTTBridge."""
+    pm = PhysicalManager(config={
+        "mqtt": {
+            "broker_host": "localhost",
+            "broker_port": 1883,
+            "agent_id": "roomba-01",
+            "heartbeat_interval": 0.25,
+            "devices": [],
+        }
+    })
+
+    assert pm._mqtt is not None
+    assert pm._mqtt.agent_id == "roomba-01"
+    assert pm._mqtt.heartbeat_interval == 0.25
+
+
 # ---------------------------------------------------------------------------
 # Test 3: Obstacle from mock Roomba appears in DynamicGrid
 # ---------------------------------------------------------------------------

@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+### Added
+- MQTT hardware bridge hardening: structured `manifold/agent/{id}/{cmd,telemetry,status}` topics, outbound telemetry/status publishing, periodic heartbeat, reconnect loop, and a `ManifoldMQTTGateway` wrapper for syncing brain state to hardware.
+
 ## [2.2.0] — Gap closures (research-grounded)
 
 ### Closed (engineering)

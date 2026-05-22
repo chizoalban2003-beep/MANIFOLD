@@ -7,6 +7,7 @@ import pytest
 from manifold.cell_update_bus import CellUpdateBus
 from manifold_physical.bridges.mqtt_bridge import (
     DeviceMapping,
+    ManifoldMQTTGateway,
     MQTTBridge,
     _encode_remaining,
     _topic_matches,
@@ -131,3 +132,77 @@ def test_smoke_detector_uses_high_risk(mock_bus):
     # The risk override for smoke_detector is 0.95, so r_delta should be close
     max_r = max(u.r_delta for u in received)
     assert max_r > 0.5
+
+
+def test_agent_topics_and_status_payload(monkeypatch):
+    """Telemetry/status publishers should target the structured agent topics."""
+    bridge = MQTTBridge(broker_host="localhost", agent_id="roomba-01")
+    captured: list[tuple[str, dict]] = []
+    monkeypatch.setattr(bridge, "_publish_json", lambda topic, payload: captured.append((topic, payload)) or True)
+
+    ok_tel = bridge.publish_telemetry(1.2349, 2.3451, 0.0, state="moving", extra={"mode": "auto"})
+    ok_status = bridge.publish_status(state="moving", battery=91, extra={"mode": "auto"})
+
+    assert ok_tel is True
+    assert ok_status is True
+    assert captured[0][0] == "manifold/agent/roomba-01/telemetry"
+    assert captured[0][1]["x"] == 1.235
+    assert captured[0][1]["y"] == 2.345
+    assert captured[0][1]["state"] == "moving"
+    assert captured[1][0] == "manifold/agent/roomba-01/status"
+    assert captured[1][1]["battery"] == 91
+    assert captured[1][1]["connected"] is False
+    assert captured[1][1]["mode"] == "auto"
+
+
+def test_command_topic_payload_reaches_callback():
+    """Inbound command messages should be decoded and routed to the callback."""
+    received = []
+
+    bridge = MQTTBridge(
+        broker_host="localhost",
+        agent_id="roomba-01",
+        command_callback=lambda command: received.append(command),
+    )
+    bridge._simulate_command('{"command":"MOVE_TO","target":{"x":4,"y":5,"z":0}}')
+
+    assert len(received) == 1
+    assert received[0]["command"] == "MOVE_TO"
+    assert received[0]["target"] == {"x": 4, "y": 5, "z": 0}
+    assert received[0]["agent_id"] == "roomba-01"
+
+
+def test_heartbeat_tick_increments_counter(monkeypatch):
+    """Heartbeat ticks should increment the counter and publish status."""
+    bridge = MQTTBridge(broker_host="localhost", agent_id="roomba-01")
+    captured: list[dict] = []
+    monkeypatch.setattr(bridge, "_publish_json", lambda topic, payload: captured.append(payload) or True)
+
+    assert bridge.heartbeat_tick(state="idle") is True
+    assert bridge.heartbeat_tick(state="idle") is True
+    assert [item["heartbeat"] for item in captured] == [1, 2]
+
+
+def test_mqtt_gateway_syncs_brain_state(monkeypatch):
+    """The gateway should push brain position/state into telemetry and status topics."""
+    class DummyState:
+        name = "TRANSITING"
+
+    class DummyBrain:
+        physical_pos = (3.5, 4.25, 0.0)
+        logical_pos = (3, 4, 0)
+        movement_state = DummyState()
+        replan_pending = True
+
+    bridge = MQTTBridge(broker_host="localhost", agent_id="roomba-01")
+    captured: list[tuple[str, dict]] = []
+    monkeypatch.setattr(bridge, "_publish_json", lambda topic, payload: captured.append((topic, payload)) or True)
+
+    gateway = ManifoldMQTTGateway(brain=DummyBrain(), bridge=bridge)
+    assert gateway.sync_to_hardware() is True
+
+    assert captured[0][0] == "manifold/agent/roomba-01/telemetry"
+    assert captured[0][1]["logical_pos"] == [3, 4, 0]
+    assert captured[0][1]["replan_pending"] is True
+    assert captured[1][0] == "manifold/agent/roomba-01/status"
+    assert captured[1][1]["physical_pos"] == [3.5, 4.25, 0.0]

@@ -16,6 +16,15 @@ sensors detect obstacles, `SensorBridge` translates those events into
 `CellUpdate` messages on `CellUpdateBus`, which immediately raises Risk
 in the affected cells so the planner can route around them.
 
+MQTT-connected hardware also gets a structured agent topic namespace:
+
+- `manifold/agent/{id}/cmd`
+- `manifold/agent/{id}/telemetry`
+- `manifold/agent/{id}/status`
+
+`MQTTBridge` can publish telemetry/status, subscribe to command messages,
+and emit a periodic heartbeat so a robot can enter failsafe if updates stop.
+
 ## Quick start
 
 ```python
