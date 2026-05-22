@@ -569,6 +569,20 @@ class ManifoldMQTTGateway:
     bridge: MQTTBridge
     agent_id: str | None = None
 
+    def __post_init__(self) -> None:
+        """Wire the bridge's command_callback to route policy commands to the brain."""
+        if self.bridge.command_callback is None:
+            self.bridge.command_callback = self._on_command
+
+    def _on_command(self, command: dict[str, Any]) -> None:
+        """Route inbound MQTT commands to the brain's policy handler."""
+        handle_command = getattr(self.brain, "handle_command", None)
+        if handle_command is None:
+            return
+        action_code = command.get("action_code")
+        if action_code is not None:
+            handle_command(int(action_code), command.get("params") or {})
+
     def sync_to_hardware(self) -> bool:
         """Push the brain's current physical state to MQTT telemetry/status."""
         agent_id = self.agent_id or self.bridge.agent_id

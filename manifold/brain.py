@@ -13,11 +13,12 @@ import uuid
 import weakref
 
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Any, Literal
 
 from .cell_update_bus import CellUpdate, CellUpdateBus, get_bus
 from .gridmapper import AgentPopulation, GridOptimizationResult, GridWorld
 from .movement import MovementState, MovementStateMachine, PathPlanner, Watchdog
+from .policy_action import PolicyAction
 from .trustrouter import clamp01
 
 _logger = logging.getLogger(__name__)
@@ -699,6 +700,124 @@ class ManifoldBrain:
     def _handle_movement_update(self, update: CellUpdate) -> None:
         """Bridge bus updates into the movement gatekeeper logic."""
         self.movement.on_cell_update(update)
+
+    # ------------------------------------------------------------------
+    # Policy Command Interface
+    # ------------------------------------------------------------------
+
+    def handle_command(self, action_code: int, params: dict[str, Any] | None = None) -> None:
+        """Central command dispatcher: maps a PolicyAction code to a Brain method.
+
+        This is the API endpoint for the UI / MQTT bridge.  The frontend sends
+        ``{"action_code": N, "params": {...}}`` on the ``cmd`` topic; the bridge
+        deserializes it and calls this method.
+
+        Parameters
+        ----------
+        action_code:
+            Integer matching a :class:`PolicyAction` member.
+        params:
+            Action-specific parameters (target coords, zone id, etc.).
+        """
+        if params is None:
+            params = {}
+        try:
+            action = PolicyAction(action_code)
+        except ValueError:
+            _logger.warning("Unknown policy action code: %d", action_code)
+            return
+
+        handler = self._policy_action_map().get(action)
+        if handler is not None:
+            handler(params)
+        else:
+            _logger.info("PolicyAction %s not yet implemented", action.name)
+
+    def _policy_action_map(self) -> dict[PolicyAction, Any]:
+        """Return the mapping of PolicyAction → handler method."""
+        return {
+            PolicyAction.DEPLOY_AGENT: self._cmd_deploy,
+            PolicyAction.GATHER_DATA: self._cmd_gather,
+            PolicyAction.RECALIBRATE: self._cmd_recalibrate,
+            PolicyAction.PATROL: self._cmd_patrol,
+            PolicyAction.MAINTENANCE: self._cmd_maintenance,
+            PolicyAction.SCAN_WORLD: self._cmd_scan_world,
+            PolicyAction.INTERACT_OBJECT: self._cmd_interact_object,
+            PolicyAction.DEFEND_ZONE: self._cmd_defend_zone,
+            PolicyAction.ESCALATE: self._cmd_escalate,
+            PolicyAction.RETURN_HOME: self._cmd_return_home,
+            PolicyAction.FORM_COALITION: self._cmd_form_coalition,
+            PolicyAction.RESEARCH: self._cmd_research,
+            PolicyAction.EMERGENCY_STOP: self._cmd_emergency_stop,
+        }
+
+    def _cmd_deploy(self, params: dict[str, Any]) -> None:
+        """Deploy the agent to a specified position."""
+        target = params.get("target")
+        if target and len(target) >= 3:
+            self.set_movement_goal(tuple(int(c) for c in target[:3]))
+            _logger.info("DEPLOY_AGENT → target=%s", target)
+
+    def _cmd_gather(self, params: dict[str, Any]) -> None:
+        """Navigate to a data-gathering waypoint."""
+        target = params.get("target")
+        if target and len(target) >= 3:
+            self.set_movement_goal(tuple(int(c) for c in target[:3]))
+            _logger.info("GATHER_DATA → target=%s", target)
+
+    def _cmd_recalibrate(self, params: dict[str, Any]) -> None:
+        """Trigger sensor recalibration (future: sensor_bridge integration)."""
+        _logger.info("RECALIBRATE requested (params=%s)", params)
+
+    def _cmd_patrol(self, params: dict[str, Any]) -> None:
+        """Set a patrol goal — translate UI coordinates to brain pathing."""
+        end = params.get("end") or params.get("target")
+        if end and len(end) >= 3:
+            self.set_movement_goal(tuple(int(c) for c in end[:3]))
+            _logger.info("PATROL → end=%s", end)
+
+    def _cmd_maintenance(self, params: dict[str, Any]) -> None:
+        """Enter a maintenance/docking routine."""
+        _logger.info("MAINTENANCE requested (params=%s)", params)
+
+    def _cmd_scan_world(self, params: dict[str, Any]) -> None:
+        """Initiate a full-world scan sweep."""
+        _logger.info("SCAN_WORLD requested (params=%s)", params)
+
+    def _cmd_interact_object(self, params: dict[str, Any]) -> None:
+        """Interact with a specific object (future: manipulation subsystem)."""
+        _logger.info("INTERACT_OBJECT requested (params=%s)", params)
+
+    def _cmd_defend_zone(self, params: dict[str, Any]) -> None:
+        """Move to and hold a defensive zone."""
+        target = params.get("zone_center") or params.get("target")
+        if target and len(target) >= 3:
+            self.set_movement_goal(tuple(int(c) for c in target[:3]))
+            _logger.info("DEFEND_ZONE → center=%s", target)
+
+    def _cmd_escalate(self, params: dict[str, Any]) -> None:
+        """Escalate current situation to a higher-level controller."""
+        _logger.info("ESCALATE requested (params=%s)", params)
+
+    def _cmd_return_home(self, params: dict[str, Any]) -> None:
+        """Navigate back to the home/dock position."""
+        home = params.get("home", (0, 0, 0))
+        self.set_movement_goal(tuple(int(c) for c in home[:3]))
+        _logger.info("RETURN_HOME → %s", home)
+
+    def _cmd_form_coalition(self, params: dict[str, Any]) -> None:
+        """Request coalition formation with specified agent ids."""
+        _logger.info("FORM_COALITION requested (params=%s)", params)
+
+    def _cmd_research(self, params: dict[str, Any]) -> None:
+        """Queue a research/exploration task."""
+        _logger.info("RESEARCH requested (params=%s)", params)
+
+    def _cmd_emergency_stop(self, params: dict[str, Any]) -> None:
+        """Trigger immediate EMERGENCY_STOP — same as watchdog timeout."""
+        _logger.warning("EMERGENCY_STOP command received")
+        self.movement.state = MovementState.ERROR
+        self._emit_emergency_stop()
 
     def decide(self, task: BrainTask) -> BrainDecision:
         task = task.normalized()
