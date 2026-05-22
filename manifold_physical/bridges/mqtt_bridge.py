@@ -581,7 +581,8 @@ class ManifoldMQTTGateway:
             return
         action_code = command.get("action_code")
         if action_code is not None:
-            handle_command(int(action_code), command.get("params") or {})
+            agent_id = command.get("agent_id")
+            handle_command(int(action_code), command.get("params") or {}, agent_id=agent_id)
 
     def sync_to_hardware(self) -> bool:
         """Push the brain's current physical state to MQTT telemetry/status."""

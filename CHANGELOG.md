@@ -3,6 +3,11 @@
 ## Unreleased
 
 ### Added
+- **Fleet Orchestrator (Town Hall)**: `ManifoldBrain` now supports N-agent fleet management via `register_agent(agent_id)`, `unregister_agent(agent_id)`, `fleet_agent_ids()`. Each fleet agent gets its own `MovementStateMachine` and `Watchdog`.
+- **Per-agent tick isolation**: `tick()` iterates over fleet members with independent safety checks — one agent's watchdog timeout does NOT halt others.
+- **Command routing & broadcasting**: `handle_command(action_code, params, agent_id=...)` routes to a specific fleet agent (targeted), broadcasts to all when `agent_id="ALL"`, or targets the primary when omitted.
+- **MQTT agent_id passthrough**: `ManifoldMQTTGateway._on_command()` now extracts `agent_id` from the command payload and routes accordingly.
+- 12 new fleet manager tests (`tests/test_fleet_manager.py`). 2593 tests pass, zero pyflakes warnings.
 - MQTT hardware bridge hardening: structured `manifold/agent/{id}/{cmd,telemetry,status}` topics, outbound telemetry/status publishing, periodic heartbeat, reconnect loop, and a `ManifoldMQTTGateway` wrapper for syncing brain state to hardware.
 
 ## [2.2.0] — Gap closures (research-grounded)
