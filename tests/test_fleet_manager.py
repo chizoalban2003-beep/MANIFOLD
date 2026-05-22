@@ -119,6 +119,16 @@ def test_handle_command_no_agent_id_goes_to_primary() -> None:
     assert brain.fleet["robot-1"].target_cell is None
 
 
+def test_handle_command_unknown_agent_id_is_ignored() -> None:
+    """Command targeted to a non-existent fleet agent is a no-op with warning."""
+    brain = _make_brain()
+    brain.register_agent("robot-1")
+    brain.handle_command(PolicyAction.PATROL, {"end": [9, 9, 0]}, agent_id="ghost")
+    # Neither primary nor fleet agent affected
+    assert brain.movement.target_cell is None
+    assert brain.fleet["robot-1"].target_cell is None
+
+
 # ------------------------------------------------------------------
 # Fleet tick — per-agent safety isolation
 # ------------------------------------------------------------------

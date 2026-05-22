@@ -858,15 +858,20 @@ class ManifoldBrain:
             return
 
         # Routing: broadcast or targeted
-        if agent_id is not None and agent_id != "ALL" and agent_id in self.fleet:
-            # Targeted to a specific fleet agent
-            handler(params, agent_id=agent_id)
-        else:
+        if agent_id is not None and agent_id != "ALL":
+            if agent_id in self.fleet:
+                # Targeted to a specific fleet agent
+                handler(params, agent_id=agent_id)
+            else:
+                _logger.warning("Command for unknown fleet agent: %s", agent_id)
+        elif agent_id == "ALL":
             # Broadcast: primary + all fleet members
             handler(params, agent_id=None)
-            if agent_id == "ALL":
-                for fleet_id in list(self.fleet.keys()):
-                    handler(params, agent_id=fleet_id)
+            for fleet_id in list(self.fleet.keys()):
+                handler(params, agent_id=fleet_id)
+        else:
+            # Default: primary agent only
+            handler(params, agent_id=None)
 
     def _policy_action_map(self) -> dict[PolicyAction, Any]:
         """Return the mapping of PolicyAction → handler method."""
