@@ -264,7 +264,7 @@ class Watchdog:
     def is_expired(self, current_time: float | None = None) -> bool:
         """Return ``True`` if the heartbeat has timed out."""
         now = float(current_time if current_time is not None else time.monotonic())
-        return (now - self._last_fed) > self.timeout_seconds
+        return (now - self._last_fed) >= self.timeout_seconds
 
     @property
     def elapsed(self) -> float:
