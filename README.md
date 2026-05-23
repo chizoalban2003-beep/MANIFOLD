@@ -12,8 +12,8 @@
 > Built on **NERVATURA** — the governed intelligence framework.
 
 [![CI](https://github.com/chizoalban2003-beep/MANIFOLD/actions/workflows/manifold-ci.yml/badge.svg)](https://github.com/chizoalban2003-beep/MANIFOLD/actions/workflows/manifold-ci.yml)
-[![Tests](https://img.shields.io/badge/tests-2594%2B-brightgreen)]()
-[![Version](https://img.shields.io/badge/version-2.4.0-blue)]()
+[![Tests](https://img.shields.io/badge/tests-2596%2B-brightgreen)]()
+[![Version](https://img.shields.io/badge/version-2.5.0-blue)]()
 [![Python](https://img.shields.io/badge/python-3.12%2B-blue)]()
 [![Zero deps](https://img.shields.io/badge/external%20deps-pandas%2C%20pydantic-success)]()
 [![License](https://img.shields.io/badge/license-MIT-lightgrey)]()
@@ -338,9 +338,44 @@ See `manifold-ts/README.md` for full TypeScript documentation.
 |---|---|---|
 | **v1.7.0** | ✅ Done | CRNA engine, ManifoldBrain (13 actions), PolicyRuleEngine, brain persistence, AgentRegistry, TaskRouter, CellUpdateBus, DynamicGrid (TTL), DigitalHealthMonitor, CRNAPlanner (A*), NERVATURAWorld (3D voxel), SpaceIngestion, SensorBridge, cell occupancy and right-of-way, manifold-world (CoC PWA), universal AI gateway, WebSocket, TypeScript client, federation, ATS trust network |
 | **v2.4.0** | ✅ Done | Fleet Orchestrator (Town Hall) — ManifoldBrain manages N agents via `register_agent()`, per-agent tick isolation, `handle_command(agent_id=...)` routing with `"ALL"` broadcast, MQTT `agent_id` passthrough, 2594 tests |
+| **v2.5.0** | ✅ Done | CoC world complete — zone deploy panel, agent army bar, escalation overlay, pan+zoom, BFT indicator, VCG toasts, adversarial alerts, research tree; ToM in TaskRouter; remote/vector/swarm endpoints |
 | **Phase 1** | 🔄 In progress | Deploy to Railway/Fly/Heroku, onboard pilot orgs, real governance data collection, manifold-world as installable PWA on phone |
 | **Phase 2** | 📋 Roadmap | MANIFOLD Physical v0.1 — Roomba bridge with real hardware, MQTT IoT connector, camera-based obstacle detection pipeline |
 | **Phase 3** | 🔭 Vision | NERVATURA platform — digital + physical governance OS, brand restructure, commercial partnerships, managed cloud offering |
+
+---
+
+## MANIFOLD World (v2.5.0)
+
+MANIFOLD World (`/world`) is an isometric real-time governance game built on the MANIFOLD API — a Clash of Clans-style command interface for your agent fleet.
+
+### Interactive Features
+
+| Feature | Description |
+|---|---|
+| **Zone-Tap Deploy** | Tap any zone tile to open a bottom-sheet with CRNA bars, domain quick-tasks, custom input, stakes radio, and one-tap deployment |
+| **Agent Army Bar** | Fixed bottom bar showing all agents with status dots and episode badges; drag-to-deploy to any zone tile |
+| **Escalation Overlay** | Auto-shown when WebSocket receives `escalation` events with risk > 0.85; shows risk bar, 60s countdown, Approve/Deny buttons |
+| **Pan + Zoom** | Drag to pan the isometric grid; scroll to zoom (0.4×–2.2×); double-click to reset; pinch-zoom on mobile |
+| **Mini-Map** | 80×60 canvas in bottom-right corner showing all tiles and viewport rectangle; click to jump |
+| **BFT Indicator** | Top-right corner panel polling `/federation/status` every 20s; green=BFT active, amber=gossip-only, grey=offline |
+| **VCG Auction Toast** | Shown after `POST /task` when response contains `vcg_result`; purple toast with winner, domain, welfare efficiency |
+| **Adversarial Alert** | Dismissible banner at top when WebSocket receives `adversarial` event; MANIFOLD tower flashes 3 red pulses |
+| **Research Tree** | 5-level token-gated governance capability tree (tap tower → Research); localStorage persistence; unlocks flags on task requests |
+
+---
+
+## v2.4 Capabilities
+
+| Capability | Module | Description |
+|---|---|---|
+| ZKP Proofs | `manifold/zkp.py` | Zero-knowledge policy commitment proofs via HMAC-SHA256 |
+| Temporal Forking | `manifold/temporal.py` | Parallel timeline branching for counterfactual reasoning |
+| Self-Healing Watchdog | `manifold/watchdog.py` | Per-component restart + crash-log via `ProcessWatchdog` |
+| Semantic Vector Memory | `manifold/vectorfs.py` | LSH-indexed cosine similarity search (`VectorIndex`) |
+| Swarm Routing | `manifold/swarm.py` | Peer delegation via routing value (`SwarmRouter.best_peer()`) |
+| Universal Protocol Adapter | `manifold/rosetta.py` | Translate foreign payloads (LangChain, AutoGen, CrewAI) into BrainTasks |
+| Mobile Alerts | `manifold/remote.py` | Webhook-based push notifications via `MobileAlertGateway` |
 
 ---
 
@@ -348,9 +383,9 @@ See `manifold-ts/README.md` for full TypeScript documentation.
 
 | Metric | Value |
 |---|---|
-| Tests | 2594 / 2594 ✅ |
+| Tests | 2596 / 2596 ✅ |
 | Python modules | 90+ |
-| API endpoints | 48+ |
+| API endpoints | 55+ |
 | Domain packs | 7 |
 | Brain actions | 13 |
 | Agent types | Unlimited |
@@ -372,3 +407,4 @@ PRs welcome. Open an issue first for significant changes.
 
 *MANIFOLD — The Universal Governance OS for Digital and Physical Intelligence.*
 *Built on NERVATURA. MIT Licence. Built by Alban Chigozirim.*
+

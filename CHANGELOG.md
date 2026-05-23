@@ -2,6 +2,32 @@
 
 ## Unreleased
 
+## [2.5.0] — CoC World Complete + Infrastructure Wiring
+
+### Added — World (CoC parity complete)
+- Zone tap deploy panel with stakes slider (bottom-sheet, CRNA bars, domain quick-tasks)
+- Agent army bar with drag-to-deploy (fixed bottom bar, status dots, episode badges)
+- Escalation approval overlay with 60s countdown timer and Approve/Deny actions
+- Pan and pinch-zoom with mini-map (0.4×–2.2× range, double-click reset)
+- BFT federation status indicator (top-right, polls `/federation/status` every 20s)
+- VCG auction toast notifications (purple toast after `/task` with `vcg_result`)
+- Adversarial pattern alert banner + MANIFOLD tower 3-pulse red flash
+- Governance research tree (5 levels, token-gated, localStorage persistence, flag wiring)
+
+### Added — Infrastructure
+- Theory of Mind wired into TaskRouter (`_apply_tom_stagger()`, `delay_seconds` on `SubTask`, `has_tom_stagger` on `TaskPlan`; stagger applied when 2+ agents predicted to proceed in same zone)
+- `POST /remote/alert` — mobile escalation push via `MobileAlertGateway.deliver_sync()`
+- `POST /vectors/insert` — insert vector into semantic index (alias for `/vector/add` with `id` field)
+- `POST /vectors/search` — semantic similarity search with `top_k` parameter
+- `GET /vectors/stats` — VectorIndex size, dimensionality, and LSH bucket info
+- `GET /swarm/peers` — list all known swarm peers and their routing values
+- `POST /swarm/route` — delegate task to best swarm peer via `SwarmRouter`
+- WebSocket handler updated to process `escalation`, `adversarial`, and `vcg_result` event types
+
+### Fixed
+- `manifold_data/` confirmed not tracked in git (already in `.gitignore`)
+- Version bumped to 2.5.0 in `manifold/__init__.py` and `pyproject.toml`
+
 ## [2.4.0] — Fleet Orchestrator (Town Hall)
 
 ### Added
