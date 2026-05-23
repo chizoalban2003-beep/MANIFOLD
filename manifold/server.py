@@ -111,6 +111,7 @@ from .dynamic_grid import get_grid as _get_grid
 from .health_monitor import DigitalHealthMonitor as _DigitalHealthMonitor
 from .planner import CRNAPlanner as _CRNAPlanner, MPCPlanner as _MPCPlanner
 from .nervatura_world import NERVATURAWorld as _NERVATURAWorld
+from .remote import MobileAlertGateway as _MobileAlertGateway
 
 
 # ---------------------------------------------------------------------------
@@ -348,6 +349,9 @@ _CLEARING_ENGINE = ClearingEngine(ledger=_ECONOMY_LEDGER)
 
 # Phase 33: Swarm Router
 _SWARM_ROUTER = SwarmRouter()
+
+# Phase 58: Mobile Alert Gateway (remote push / webhook)
+_MOBILE_GATEWAY = _MobileAlertGateway()
 
 # Phase 34: Threat Intelligence Feed Streamer
 _THREAT_STREAMER = ThreatFeedStreamer()
@@ -778,6 +782,16 @@ class ManifoldHandler(BaseHTTPRequestHandler):
                 self._handle_get_plan_roomba()
                 return
 
+            # GET /swarm/peers  (v2.5.0 — swarm routing table)
+            if path == "/swarm/peers":
+                self._handle_get_swarm_peers()
+                return
+
+            # GET /vectors/stats  (v2.5.0 — vector index statistics)
+            if path == "/vectors/stats":
+                self._handle_get_vectors_stats()
+                return
+
             _send_error(self, 404, f"No route for GET {self.path}")
         except Exception as exc:  # noqa: BLE001
             _send_error(self, 500, str(exc))
@@ -919,6 +933,14 @@ class ManifoldHandler(BaseHTTPRequestHandler):
                 self._handle_post_ingest_audio(body)
             elif path == "/ingest":
                 self._handle_post_ingest(body)
+            elif path == "/remote/alert":
+                self._handle_post_remote_alert(body)
+            elif path == "/vectors/insert":
+                self._handle_post_vectors_insert(body)
+            elif path == "/vectors/search":
+                self._handle_post_vectors_search(body)
+            elif path == "/swarm/route":
+                self._handle_post_swarm_route(body)
             else:
                 _send_error(self, 404, f"No route for POST {self.path}")
         except Exception as exc:  # noqa: BLE001
@@ -4397,6 +4419,171 @@ ManifoldHandler._handle_get_world_model_stats = _handle_get_world_model_stats  #
 ManifoldHandler._handle_get_agents_predictions = _handle_get_agents_predictions  # type: ignore[attr-defined]
 ManifoldHandler._handle_get_plan_roomba = _handle_get_plan_roomba  # type: ignore[attr-defined]
 ManifoldHandler._handle_post_auction = _handle_post_auction  # type: ignore[attr-defined]
+
+
+# ---------------------------------------------------------------------------
+# v2.5.0 — Remote alert, vectors, swarm endpoints
+# ---------------------------------------------------------------------------
+
+
+def _handle_post_remote_alert(self: "ManifoldHandler", body: dict) -> None:
+    """POST /remote/alert — dispatch a mobile alert via MobileAlertGateway.
+
+    Body keys:
+        message (str): Alert text.
+        urgency (str | float): Urgency level, e.g. "high" or 0.9.
+        agent_id (str): Originating agent identifier.
+
+    Returns:
+        {delivered: bool, log_id: str}
+    """
+    import uuid as _uuid
+    message = str(body.get("message", ""))
+    urgency = body.get("urgency", "medium")
+    agent_id = str(body.get("agent_id", ""))
+
+    if not message:
+        _send_error(self, 400, "Body must contain 'message'.")
+        return
+
+    payload = {"message": message, "urgency": urgency, "agent_id": agent_id}
+    log_id = str(_uuid.uuid4())[:8]
+
+    # deliver_sync returns empty list when no webhooks are registered
+    _MOBILE_GATEWAY.deliver_sync(
+        topic="manifold.remote.alert",
+        payload=payload,
+    )
+
+    delivered = len(_MOBILE_GATEWAY.webhooks) > 0
+    _send_json(self, 200, {"delivered": delivered, "log_id": log_id})
+
+
+ManifoldHandler._handle_post_remote_alert = _handle_post_remote_alert  # type: ignore[attr-defined]
+
+
+def _handle_post_vectors_insert(self: "ManifoldHandler", body: dict) -> None:
+    """POST /vectors/insert — insert a vector into the semantic index.
+
+    Body keys:
+        id (str): Unique vector identifier.
+        vector (list[float]): Embedding values.
+        metadata (dict, optional): Arbitrary key/value metadata.
+
+    Returns:
+        {id: str, dim: int, size: int}
+    """
+    vector_id = str(body.get("id", ""))
+    vector = body.get("vector")
+    metadata = body.get("metadata") or {}
+
+    if not vector_id:
+        _send_error(self, 400, "Body must contain 'id'.")
+        return
+    if not isinstance(vector, list) or not vector:
+        _send_error(self, 400, "Body must contain a non-empty 'vector' list.")
+        return
+    try:
+        float_vector = [float(v) for v in vector]
+    except (TypeError, ValueError) as exc:
+        _send_error(self, 400, f"Invalid vector values: {exc}")
+        return
+
+    with _LOCK:
+        _VECTOR_INDEX.add(vector_id, float_vector, metadata=metadata)
+
+    _send_json(self, 200, {"id": vector_id, "dim": len(float_vector), "size": len(_VECTOR_INDEX)})
+
+
+ManifoldHandler._handle_post_vectors_insert = _handle_post_vectors_insert  # type: ignore[attr-defined]
+
+
+def _handle_post_vectors_search(self: "ManifoldHandler", body: dict) -> None:
+    """POST /vectors/search — semantic similarity search.
+
+    Body keys:
+        vector (list[float]): Query embedding.
+        top_k (int, optional): Number of results to return (default 5).
+
+    Returns:
+        {matches: [{id: str, similarity: float}]}
+    """
+    vector = body.get("vector")
+    top_k = int(body.get("top_k", 5))
+
+    if not isinstance(vector, list) or not vector:
+        _send_error(self, 400, "Body must contain a non-empty 'vector' list.")
+        return
+    try:
+        float_vector = [float(v) for v in vector]
+    except (TypeError, ValueError) as exc:
+        _send_error(self, 400, f"Invalid vector values: {exc}")
+        return
+
+    with _LOCK:
+        results = _VECTOR_INDEX.search(float_vector, k=max(1, top_k))
+
+    _send_json(self, 200, {"matches": [{"id": r.vector_id, "similarity": r.similarity} for r in results]})
+
+
+ManifoldHandler._handle_post_vectors_search = _handle_post_vectors_search  # type: ignore[attr-defined]
+
+
+def _handle_get_vectors_stats(self: "ManifoldHandler") -> None:
+    """GET /vectors/stats — vector index size and dimensionality info."""
+    with _LOCK:
+        size = len(_VECTOR_INDEX)
+        buckets = _VECTOR_INDEX.lsh_bucket_count()
+        summary = _VECTOR_INDEX.bucket_summary()
+        dim: int | None = _VECTOR_INDEX.dim if size > 0 else None
+
+    _send_json(self, 200, {"size": size, "dim": dim, "lsh_buckets": buckets, "bucket_summary": summary})
+
+
+ManifoldHandler._handle_get_vectors_stats = _handle_get_vectors_stats  # type: ignore[attr-defined]
+
+
+def _handle_get_swarm_peers(self: "ManifoldHandler") -> None:
+    """GET /swarm/peers — list all known swarm peers with routing values."""
+    with _LOCK:
+        peers = _SWARM_ROUTER.routing_table()
+    _send_json(self, 200, {"peers": peers, "count": len(peers)})
+
+
+ManifoldHandler._handle_get_swarm_peers = _handle_get_swarm_peers  # type: ignore[attr-defined]
+
+
+def _handle_post_swarm_route(self: "ManifoldHandler", body: dict) -> None:
+    """POST /swarm/route — route a task to the best swarm peer.
+
+    Body keys:
+        task (str): Task description or prompt.
+        domain (str, optional): Domain hint (default "general").
+
+    Returns:
+        SwarmRouteResult as dict.
+    """
+    task_text = str(body.get("task", ""))
+    domain = str(body.get("domain", "general"))
+
+    if not task_text:
+        _send_error(self, 400, "Body must contain 'task'.")
+        return
+
+    brain_task = BrainTask(
+        prompt=task_text,
+        domain=domain,
+        stakes=0.5,
+        uncertainty=0.3,
+    )
+
+    with _LOCK:
+        result = _SWARM_ROUTER.route(brain_task)
+
+    _send_json(self, 200, result.to_dict())
+
+
+ManifoldHandler._handle_post_swarm_route = _handle_post_swarm_route  # type: ignore[attr-defined]
 
 
 def run_server(port: int = 8080, *, host: str = "0.0.0.0") -> None:

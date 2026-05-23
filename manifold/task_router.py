@@ -31,6 +31,7 @@ class SubTask:
     depends_on: list = field(default_factory=list)  # list of sub-task index strings
     execution_mode: str = "sequential"  # "sequential" or "parallel"
     parallel_group: int = 0  # tasks with same group ID run together
+    delay_seconds: int = 0  # ToM stagger: seconds to wait before dispatching (0 = no delay)
 
 
 # ---------------------------------------------------------------------------
@@ -147,6 +148,7 @@ class TaskPlan:
     dependency_graph: dict = field(default_factory=dict)   # {id: [depends_on_ids]}
     parallel_groups: list = field(default_factory=list)    # list of task-id groups
     has_ordering: bool = False
+    has_tom_stagger: bool = False  # True if ToM stagger was applied to any sub-task
 
     def to_dict(self) -> dict:
         return {
@@ -166,6 +168,7 @@ class TaskPlan:
                     "depends_on": s.depends_on,
                     "execution_mode": s.execution_mode,
                     "parallel_group": s.parallel_group,
+                    "delay_seconds": s.delay_seconds,
                 }
                 for s in self.sub_tasks
             ],
@@ -175,6 +178,7 @@ class TaskPlan:
             "dependency_graph": self.dependency_graph,
             "parallel_groups": self.parallel_groups,
             "has_ordering": self.has_ordering,
+            "has_tom_stagger": self.has_tom_stagger,
         }
 
 class TaskRouter:
@@ -349,6 +353,9 @@ class TaskRouter:
             task, sub_tasks, slots
         )
 
+        # ToM stagger: predict agent actions per zone; delay later agents in same zone
+        has_tom_stagger = self._apply_tom_stagger(sub_tasks)
+
         blocked = sum(1 for s in sub_tasks if s.status == "blocked")
         executable = all(s.status in ("assigned", "pending") for s in sub_tasks)
         plan = TaskPlan(
@@ -360,6 +367,7 @@ class TaskRouter:
             dependency_graph=dep_graph,
             parallel_groups=par_groups,
             has_ordering=has_ordering,
+            has_tom_stagger=has_tom_stagger,
         )
         self._plans[task_id] = plan
         return plan
@@ -447,6 +455,50 @@ class TaskRouter:
             par_groups = graph.parallel_groups() if has_ordering else []
 
         return dep_dict, par_groups, has_ordering
+
+    def _apply_tom_stagger(self, sub_tasks: list[SubTask]) -> bool:
+        """Apply Theory-of-Mind stagger to agents predicted to conflict in the same zone.
+
+        For every zone (domain) that has two or more assigned sub-tasks, calls
+        ``AgentRegistry.predict_agent_action()`` for each assigned agent.  When
+        two or more agents are predicted to ``"proceed"`` in the same zone they
+        would otherwise be dispatched simultaneously; the second and subsequent
+        ones receive ``delay_seconds=30`` per rank to stagger their dispatch.
+
+        Returns
+        -------
+        bool
+            ``True`` if at least one delay was applied.
+        """
+        # Group sub-task indices by domain for assigned sub-tasks
+        zone_indices: dict[str, list[int]] = {}
+        for i, st in enumerate(sub_tasks):
+            if st.status == "assigned" and st.assigned_to:
+                zone_indices.setdefault(st.domain, []).append(i)
+
+        staggered = False
+        for domain, indices in zone_indices.items():
+            if len(indices) < 2:
+                continue
+            # Collect indices of agents predicted to proceed in this zone
+            proceed_indices: list[int] = []
+            for idx in indices:
+                st = sub_tasks[idx]
+                prediction = self._registry.predict_agent_action(
+                    observer_id="system",
+                    target_id=str(st.assigned_to),
+                    context={"zone": domain, "task_type": domain, "current_crna": {}},
+                )
+                if prediction.get("predicted_action") == "proceed":
+                    proceed_indices.append(idx)
+
+            # Stagger: first proceeds at rank 0 (no delay), later ones get +30s each
+            if len(proceed_indices) >= 2:
+                for rank, idx in enumerate(proceed_indices[1:], 1):
+                    sub_tasks[idx].delay_seconds = rank * 30
+                staggered = True
+
+        return staggered
 
     def get_plan(self, task_id: str) -> TaskPlan | None:
         return self._plans.get(task_id)

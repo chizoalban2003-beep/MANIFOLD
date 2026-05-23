@@ -24,10 +24,16 @@ import type {
   OrgPolicy,
   RecruitmentRequest,
   RecruitmentResult,
+  RemoteAlertResult,
   ReputationScore,
+  SwarmPeer,
+  SwarmRouteResult,
   TaskPlan,
   ToolRegistration,
   TrustSignal,
+  VectorEntry,
+  VectorSearchResult,
+  VectorStats,
   WorldStatus,
 } from "./types.js";
 
@@ -326,10 +332,14 @@ export class ManifoldClient {
    * Submit a task to the MANIFOLD governance pipeline.
    *
    * @param task - The brain task to evaluate.
+   * @param options - Optional flags for advanced capabilities (VCG, MPC, CBS).
    * @returns A {@link TaskPlan} with sub-tasks and routing assignments.
    */
-  submitTask(task: BrainTask): Promise<TaskPlan> {
-    return this.request<TaskPlan>("POST", "/task", task);
+  submitTask(
+    task: BrainTask,
+    options: { use_vcg?: boolean; use_mpc?: boolean; use_cbs?: boolean } = {},
+  ): Promise<TaskPlan> {
+    return this.request<TaskPlan>("POST", "/task", { ...task, ...options });
   }
 
   /**
@@ -337,5 +347,89 @@ export class ManifoldClient {
    */
   getWorldStatus(): Promise<WorldStatus> {
     return this.request<WorldStatus>("GET", "/realtime/status");
+  }
+
+  // -------------------------------------------------------------------------
+  // v2.5.0 — Vector memory
+  // -------------------------------------------------------------------------
+
+  /**
+   * Insert a vector into the semantic memory index.
+   *
+   * @param entry - The vector entry (id, vector, optional metadata).
+   */
+  insertVector(entry: VectorEntry): Promise<{ id: string; dim: number; size: number }> {
+    return this.request<{ id: string; dim: number; size: number }>(
+      "POST",
+      "/vectors/insert",
+      entry,
+    );
+  }
+
+  /**
+   * Search the semantic vector index for the nearest neighbours.
+   *
+   * @param vector - Query embedding vector.
+   * @param topK - Number of results to return (default 5).
+   */
+  searchVectors(
+    vector: number[],
+    topK = 5,
+  ): Promise<{ matches: VectorSearchResult[] }> {
+    return this.request<{ matches: VectorSearchResult[] }>("POST", "/vectors/search", {
+      vector,
+      top_k: topK,
+    });
+  }
+
+  /**
+   * Get statistics for the in-process vector index.
+   */
+  getVectorStats(): Promise<VectorStats> {
+    return this.request<VectorStats>("GET", "/vectors/stats");
+  }
+
+  // -------------------------------------------------------------------------
+  // v2.5.0 — Swarm routing
+  // -------------------------------------------------------------------------
+
+  /**
+   * List all known swarm peers and their routing values.
+   */
+  getSwarmPeers(): Promise<{ peers: SwarmPeer[]; count: number }> {
+    return this.request<{ peers: SwarmPeer[]; count: number }>("GET", "/swarm/peers");
+  }
+
+  /**
+   * Route a task to the best available swarm peer.
+   *
+   * @param task - Task description string.
+   * @param domain - Domain category (e.g. "finance").
+   */
+  routeToSwarm(task: string, domain?: string): Promise<SwarmRouteResult> {
+    return this.request<SwarmRouteResult>("POST", "/swarm/route", { task, domain });
+  }
+
+  // -------------------------------------------------------------------------
+  // v2.5.0 — Remote alerts
+  // -------------------------------------------------------------------------
+
+  /**
+   * Dispatch a mobile escalation alert via MobileAlertGateway.
+   *
+   * @param message - Alert text.
+   * @param urgency - Urgency level string or number (e.g. "high" or 0.9).
+   * @param agentId - Originating agent identifier.
+   */
+  sendRemoteAlert(
+    message: string,
+    urgency: string | number,
+    agentId: string,
+  ): Promise<RemoteAlertResult> {
+    return this.request<RemoteAlertResult>("POST", "/remote/alert", {
+      message,
+      urgency,
+      agent_id: agentId,
+    });
   }
 }

@@ -52,7 +52,7 @@ body{background:#07080f;overflow:hidden;font-family:'Share Tech Mono',monospace;
 <body>
 <canvas id="game-canvas"></canvas>
 <div id="hud-top">
-  <span id="hud-title">◈ MANIFOLD v1.9.0 • World</span>
+  <span id="hud-title">◈ MANIFOLD v2.5.0 • World</span>
   <div id="hud-resources">
     <div class="res-bar"><span>💰</span><div class="res-track"><div class="res-fill" id="rb-finance" style="background:#c87820"></div></div><span id="rv-finance">60</span></div>
     <div class="res-bar"><span>⚙</span><div class="res-track"><div class="res-fill" id="rb-compute" style="background:#185FA5"></div></div><span id="rv-compute">45</span></div>
@@ -115,6 +115,7 @@ body{background:#07080f;overflow:hidden;font-family:'Share Tech Mono',monospace;
     <label>Active Agents</label><div id="pt-agents" style="font-size:11px;color:#888;margin-top:3px"></div>
     <div class="panel-row">
       <button class="btn btn-primary" onclick="upgradeTower()">Upgrade Tower</button>
+      <button class="btn btn-primary" onclick="openResearchPanel()">🔬 Research</button>
       <button class="btn btn-secondary" onclick="closePanel('panel-tower')">✕</button>
     </div>
   </div>
@@ -169,6 +170,7 @@ body{background:#07080f;overflow:hidden;font-family:'Share Tech Mono',monospace;
 // ========== CONSTANTS ==========
 const GRID=16, TW=72, TH=36;
 let OX, OY;
+let panX=0, panY=0, zoomLevel=1.0;
 const canvas=document.getElementById('game-canvas');
 const ctx=canvas.getContext('2d');
 
@@ -211,6 +213,7 @@ const DEFAULT_WS={
   tasks:[],crystals:[],achievements:{},
 };
 let WS=null;
+let _adversarialFlash=0;
 
 function deepMerge(target,source){
   const out={...target};
@@ -236,9 +239,14 @@ function saveState(){
 }
 
 // ========== HELPERS ==========
-function tileToScreen(ti,tj){ return {x:OX+(ti-tj)*TW/2, y:OY+(ti+tj)*TH/2}; }
+function tileToScreen(ti,tj){
+  return {
+    x: OX + panX + (ti-tj)*(TW/2)*zoomLevel,
+    y: OY + panY + (ti+tj)*(TH/2)*zoomLevel
+  };
+}
 function screenToTile(sx,sy){
-  const dx=sx-OX, dy=sy-OY;
+  const dx=(sx-OX-panX)/zoomLevel, dy=(sy-OY-panY)/zoomLevel;
   const ti=((dx/(TW/2))+(dy/(TH/2)))/2;
   const tj=((dy/(TH/2))-(dx/(TW/2)))/2;
   return {ti:Math.round(ti),tj:Math.round(tj)};
@@ -634,6 +642,15 @@ function drawBuildings(){
   at('gossip_relay',  bld.gossip_relay,  (cx,cy,i)=>drawGossipRelay(bld.gossip_relay,cx,cy));
   at('honeypot',      bld.honeypot,      (cx,cy,i)=>drawHoneypot(bld.honeypot,cx,cy));
   drawManifoldTower();
+  if(_adversarialFlash>0){
+    const tp2=tileToScreen(7.5,7.5);
+    ctx.save(); ctx.globalAlpha=0.5*Math.sin(clock*10);
+    ctx.shadowColor='#E24B4A'; ctx.shadowBlur=30;
+    ctx.strokeStyle='#E24B4A'; ctx.lineWidth=2;
+    ctx.beginPath(); ctx.arc(tp2.x,tp2.y-40,20,0,Math.PI*2); ctx.stroke();
+    ctx.restore();
+    if(Math.floor(clock*3)!==Math.floor((clock-0.016)*3)) _adversarialFlash=Math.max(0,_adversarialFlash-1);
+  }
   buildingScreenPos['manifold_tower']=tileToScreen(7.5,7.5);
 }
 
@@ -969,6 +986,233 @@ function processToastQueue(){
   },3000);
 }
 
+// ========== AUXILIARY UI ==========
+function showVCGToast(vcgResult){
+  if(!vcgResult) return;
+  const winner=vcgResult.winner||vcgResult.assignments?.task_0||'?';
+  const domain=vcgResult.domain||vcgResult.task_domain||'?';
+  const welfare=vcgResult.total_welfare||vcgResult.efficiency||0;
+  const div=document.createElement('div');
+  div.style.cssText='position:fixed;bottom:68px;left:14px;z-index:1001;background:rgba(83,74,183,0.9);color:#fff;padding:6px 12px;border-radius:6px;font-size:10px;font-family:inherit;pointer-events:none;transform:translateY(20px);opacity:0;transition:transform .2s,opacity .2s;max-width:300px';
+  div.textContent=`⚡ VCG: ${winner} won ${domain} (eff: ${welfare.toFixed(2)})`;
+  document.body.appendChild(div);
+  requestAnimationFrame(()=>{div.style.transform='translateY(0)';div.style.opacity='1';});
+  setTimeout(()=>{div.style.transform='translateY(20px)';div.style.opacity='0';setTimeout(()=>div.remove(),250);},3500);
+}
+function drawMiniMap(){
+  const mm=document.getElementById('mini-map'); if(!mm) return;
+  const mc=mm.getContext('2d');
+  mc.clearRect(0,0,80,60);
+  mc.fillStyle='#07080f'; mc.fillRect(0,0,80,60);
+  const tw2=4,th2=3;
+  for(let i=0;i<GRID;i++) for(let j=0;j<GRID;j++){
+    const col=domainAccent(i,j)+'55';
+    const mx=40+(i-j)*tw2/2, my=10+(i+j)*th2/2;
+    mc.fillStyle=col; mc.fillRect(mx-tw2/2,my-th2/2,tw2,th2);
+  }
+  const vpW=Math.min(80,80/zoomLevel), vpH=Math.min(60,60/zoomLevel);
+  const vpX=40-panX*(tw2/(TW/2))/zoomLevel;
+  const vpY=10-panY*(th2/(TH/2))/zoomLevel;
+  mc.strokeStyle='rgba(255,255,255,0.6)'; mc.lineWidth=1;
+  mc.strokeRect(vpX-vpW/2,vpY-vpH/2,vpW,vpH);
+}
+document.addEventListener('DOMContentLoaded',()=>{
+  document.getElementById('mini-map')?.addEventListener('click',e=>{
+    const mm=document.getElementById('mini-map');
+    const rect=mm.getBoundingClientRect();
+    const mx=e.clientX-rect.left-40, my=e.clientY-rect.top-10;
+    panX=-mx*(TW/2)/2; panY=-my*(TH/2)/2;
+  });
+});
+function refreshArmyBar(){
+  const bar=document.getElementById('army-bar'); if(!bar) return;
+  bar.innerHTML='';
+  const agents=WS.agents;
+  agents.forEach(ag=>{
+    const icon=ag.domain==='finance'?'💰':ag.domain==='devops'?'🤖':ag.domain==='healthcare'?'🏥':ag.domain==='legal'?'⚖':'✨';
+    const statusCol=ag._state==='working'?'#1D9E75':ag._state==='idle'?'#c87820':'#555';
+    const card=document.createElement('div');
+    card.style.cssText=`flex-shrink:0;width:48px;height:44px;background:#0f1020;border:1px solid ${ag.col}44;border-radius:6px;display:flex;flex-direction:column;align-items:center;justify-content:center;cursor:pointer;position:relative;gap:1px;`;
+    card.innerHTML=`<span style="font-size:16px">${icon}</span><span style="font-size:7px;color:${ag.col};text-align:center;white-space:nowrap;overflow:hidden;max-width:44px">${ag.name.split(' ')[0]}</span><div style="position:absolute;top:3px;right:4px;width:6px;height:6px;border-radius:50%;background:${statusCol}"></div><div style="position:absolute;top:3px;left:3px;font-size:7px;background:rgba(0,0,0,.6);border-radius:3px;padding:0 2px;color:#ccc">${ag.task_count||''}</div>`;
+    card.onclick=()=>openAgentPanel(ag);
+    card.draggable=true;
+    card.ondragstart=e=>{
+      e.dataTransfer.setData('agentId',ag.id);
+      const ghost=document.getElementById('army-drag-ghost');
+      ghost.textContent=icon; ghost.style.display='block';
+    };
+    card.ondragend=()=>{
+      const ghost=document.getElementById('army-drag-ghost');
+      if(ghost) ghost.style.display='none';
+    };
+    bar.appendChild(card);
+  });
+}
+canvas.addEventListener('dragover',e=>{e.preventDefault();});
+canvas.addEventListener('drop',e=>{
+  e.preventDefault();
+  const agentId=e.dataTransfer.getData('agentId'); if(!agentId) return;
+  document.getElementById('army-drag-ghost').style.display='none';
+  const tile=screenToTile(e.clientX,e.clientY);
+  const dom=tile.ti<7&&tile.tj<7?'finance':tile.ti>=9&&tile.tj<7?'devops':tile.ti<7&&tile.tj>=9?'healthcare':tile.ti>=9&&tile.tj>=9?'legal':'general';
+  const key=localStorage.getItem('manifold_key')||'';
+  const url=localStorage.getItem('manifold_url')||'';
+  fetch(`${url}/task`,{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},body:JSON.stringify({task:'redeploy',agent_id:agentId,domain:dom})}).catch(()=>{});
+  showToast('Agent redeployed to '+dom,'#1D9E75');
+  const ag=WS.agents.find(a=>a.id===agentId);
+  if(ag){ag._targetTi=tile.ti;ag._targetTj=tile.tj;}
+});
+document.addEventListener('pointermove',e=>{
+  const ghost=document.getElementById('army-drag-ghost');
+  if(ghost&&ghost.style.display==='block'){ghost.style.left=(e.clientX+8)+'px';ghost.style.top=(e.clientY-16)+'px';}
+});
+const _escalationQueue=[];
+let _escalationTimer=null;
+let _currentEscalation=null;
+function showNextEscalation(){
+  if(_currentEscalation||_escalationQueue.length===0) return;
+  const ov=document.getElementById('escalation-overlay');
+  if(!ov) return;
+  _currentEscalation=_escalationQueue.shift();
+  document.getElementById('esc-task').textContent=(_currentEscalation.task||'Unknown task').slice(0,60);
+  document.getElementById('esc-risk-bar').style.width=Math.round((_currentEscalation.risk_score||0.9)*100)+'%';
+  ov.style.display='flex';
+  let secs=60;
+  document.getElementById('esc-timer').textContent=secs+'s';
+  _escalationTimer=setInterval(()=>{
+    secs--;
+    document.getElementById('esc-timer').textContent=secs+'s';
+    if(secs<=0){clearInterval(_escalationTimer);_escalationTimer=null;_autoDenyEscalation();}
+  },1000);
+}
+function resolveEscalation(action){
+  if(!_currentEscalation) return;
+  clearInterval(_escalationTimer); _escalationTimer=null;
+  const agentId=_currentEscalation.agent_id||'';
+  const key=localStorage.getItem('manifold_key')||'';
+  const url=localStorage.getItem('manifold_url')||'';
+  if(agentId) fetch(`${url}/agents/${agentId}/command`,{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},body:JSON.stringify({action})}).catch(()=>{});
+  const ov=document.getElementById('escalation-overlay');
+  if(ov) ov.style.display='none';
+  showToast(action==='approve'?'Escalation approved':'Escalation denied',action==='approve'?'#1D9E75':'#E24B4A');
+  _currentEscalation=null;
+  setTimeout(showNextEscalation,300);
+}
+function _autoDenyEscalation(){
+  showToast('Auto-denied escalation (timeout)','#555');
+  const ov=document.getElementById('escalation-overlay');
+  if(ov) ov.style.display='none';
+  _currentEscalation=null;
+  setTimeout(showNextEscalation,300);
+}
+async function _pollBFTStatus(){
+  const key=localStorage.getItem('manifold_key')||'';
+  const url=localStorage.getItem('manifold_url')||'';
+  if(!url) return;
+  try{
+    const res=await fetch(`${url}/federation/status`,{headers:{'Authorization':'Bearer '+key}});
+    if(!res.ok) return;
+    const data=await res.json();
+    const ind=document.getElementById('bft-indicator');
+    if(ind) ind.style.display='flex';
+    const nodes=data.node_count||data.nodes||0;
+    const bftActive=data.bft_active||false;
+    const dot=document.getElementById('bft-dot');
+    const label=document.getElementById('bft-label');
+    if(!dot||!label) return;
+    if(bftActive){dot.style.background='#1D9E75';label.style.color='#1D9E75';}
+    else if(nodes>=2){dot.style.background='#c87820';label.style.color='#c87820';}
+    else{dot.style.background='#555';label.style.color='#555';}
+    label.textContent='NETWORK: '+nodes+' node'+(nodes===1?'':'s');
+    const detail=document.getElementById('bft-detail');
+    if(detail) detail.innerHTML=`Quorum: ${data.quorum||'?'} · f=${data.f||0} · ${bftActive?'BFT active':'Gossip only'}<br>Last sync: ${data.last_sync?new Date(data.last_sync*1000).toLocaleTimeString():'never'}`;
+  }catch(e){}
+}
+function showBFTTooltip(){
+  const t=document.getElementById('bft-tooltip');
+  if(!t) return;
+  t.style.display=t.style.display==='none'?'block':'none';
+  if(t.style.display==='block') setTimeout(()=>{t.style.display='none';},4000);
+}
+setInterval(_pollBFTStatus,20000);
+setTimeout(_pollBFTStatus,3000);
+const RESEARCH_TREE=[
+  {level:1,nodes:[
+    {id:'basic_gov',name:'Basic Governance',icon:'⚖',cost:0,always:true},
+    {id:'crna_pricing',name:'CRNA Pricing',icon:'📊',cost:0,always:true},
+    {id:'astar_planning',name:'A* Planning',icon:'🗺',cost:0,always:true},
+    {id:'policy_rules',name:'PolicyRules',icon:'📋',cost:0,always:true},
+  ]},
+  {level:2,nodes:[
+    {id:'mpc_lookahead',name:'MPC Look-ahead',icon:'🔭',cost:200,flag:'use_mpc'},
+    {id:'bayesian_fusion',name:'Bayesian Fusion',icon:'📡',cost:200},
+    {id:'episodic_memory',name:'Episodic Memory',icon:'🧠',cost:200},
+  ]},
+  {level:3,nodes:[
+    {id:'cbs_paths',name:'CBS Paths',icon:'🛤',cost:500,flag:'use_cbs'},
+    {id:'vcg_auction',name:'VCG Auction',icon:'⚡',cost:500,flag:'use_vcg'},
+    {id:'parallel_tasks',name:'Parallel Tasks',icon:'⚙',cost:500},
+  ]},
+  {level:4,nodes:[
+    {id:'adversarial_mm',name:'Adversarial MM',icon:'🎯',cost:1000},
+    {id:'kinodynamic',name:'Kinodynamic',icon:'🤖',cost:1000},
+    {id:'temporal_fork',name:'Temporal Fork',icon:'⏱',cost:1000},
+  ]},
+  {level:5,nodes:[
+    {id:'shannon_n',name:'Shannon N',icon:'📐',cost:2000},
+    {id:'tom_l1',name:'Theory of Mind',icon:'🧬',cost:2000},
+    {id:'zkp_proofs',name:'ZKP Proofs',icon:'🔐',cost:2000,flag:'use_zkp'},
+    {id:'bft_voting',name:'BFT Voting',icon:'🗳',cost:2000},
+  ]},
+];
+let _researchUnlocked=JSON.parse(localStorage.getItem('manifold_research_v1')||'{}');
+let _govTokens=parseInt(localStorage.getItem('manifold_gov_tokens')||'0');
+function openResearchPanel(){
+  closePanel('panel-tower');
+  _renderResearchTree();
+  document.getElementById('research-panel').style.display='flex';
+}
+function _renderResearchTree(){
+  document.getElementById('research-tokens').textContent=_govTokens;
+  const container=document.getElementById('research-tree');
+  container.innerHTML='';
+  RESEARCH_TREE.forEach(row=>{
+    const rowDiv=document.createElement('div');
+    rowDiv.style.cssText='display:flex;gap:8px;justify-content:center;margin-bottom:10px;flex-wrap:wrap';
+    row.nodes.forEach(node=>{
+      const unlocked=node.always||_researchUnlocked[node.id];
+      const canUnlock=!unlocked&&_govTokens>=node.cost;
+      const div=document.createElement('div');
+      div.style.cssText=`width:90px;height:50px;border:1.5px solid ${unlocked?'#c87820':canUnlock?'#534AB7':'#2a2a3a'};border-radius:6px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;cursor:${canUnlock?'pointer':'default'};background:${unlocked?'rgba(200,120,32,0.1)':canUnlock?'rgba(83,74,183,0.1)':'transparent'};transition:border-color .2s;position:relative`;
+      div.innerHTML=`<span style="font-size:14px">${node.icon}</span><span style="font-size:8px;font-weight:700;color:${unlocked?'#c87820':canUnlock?'#AFA9EC':'#444'};text-align:center;line-height:1.1">${node.name}</span><span style="font-size:8px;color:${unlocked?'#1D9E75':'#555'}">${unlocked?'✓ Unlocked':node.cost===0?'Free':node.cost+' 🪙'}</span>`;
+      if(canUnlock) div.onclick=()=>unlockResearch(node);
+      rowDiv.appendChild(div);
+    });
+    container.appendChild(rowDiv);
+    if(row.level<5){
+      const sep=document.createElement('div');
+      sep.style.cssText='text-align:center;color:#222;font-size:10px;margin-bottom:4px';
+      sep.textContent='▼';
+      container.appendChild(sep);
+    }
+  });
+}
+function unlockResearch(node){
+  if(_researchUnlocked[node.id]||_govTokens<node.cost) return;
+  _govTokens-=node.cost;
+  _researchUnlocked[node.id]=true;
+  localStorage.setItem('manifold_research_v1',JSON.stringify(_researchUnlocked));
+  localStorage.setItem('manifold_gov_tokens',String(_govTokens));
+  showToast('Research complete: '+node.name,'#c87820');
+  _renderResearchTree();
+  if(node.id==='bft_voting'){
+    const key=localStorage.getItem('manifold_key')||'';
+    const url=localStorage.getItem('manifold_url')||'';
+    fetch(`${url}/federation/bft-enable`,{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},body:JSON.stringify({})}).catch(()=>{});
+  }
+}
+setInterval(()=>{_govTokens+=5;localStorage.setItem('manifold_gov_tokens',String(_govTokens));},30000);
+
 // ========== PANELS ==========
 function closePanel(id){
   document.getElementById(id)?.classList.remove('active');
@@ -1044,16 +1288,59 @@ function upgradeBuilding(){
   setTimeout(()=>{if(bld.upgrade_end&&Date.now()>=bld.upgrade_end){bld.level++;bld.upgrade_end=null;saveState();showToast('Upgrade complete!','#AFA9EC');}},31000);
 }
 let panelTile=null;
+let deployZone=null;
+let _zoneDeployOpenedAt=0;
 function openTaskPanel(ti,tj){
-  panelTile={ti,tj};
-  let dom='general';
-  if(ti<7&&tj<7) dom='finance'; else if(ti>=9&&tj<7) dom='devops'; else if(ti<7&&tj>=9) dom='healthcare'; else if(ti>=9&&tj>=9) dom='legal';
-  document.getElementById('ptd-name').textContent='Deploy Task';
-  document.getElementById('ptd-domain').textContent='Domain: '+dom;
-  document.getElementById('ptd-desc').value='';
-  document.getElementById('ptd-stakes').value='5';
-  document.getElementById('ptd-stakes-val').textContent='5';
-  document.getElementById('panel-task').classList.add('active');
+  let dom='general', accent='#AFA9EC';
+  if(ti<7&&tj<7){dom='finance';accent='#c87820';}
+  else if(ti>=9&&tj<7){dom='devops';accent='#185FA5';}
+  else if(ti<7&&tj>=9){dom='healthcare';accent='#0F6E56';}
+  else if(ti>=9&&tj>=9){dom='legal';accent='#534AB7';}
+  deployZone={ti,tj,dom,accent};
+  _zoneDeployOpenedAt=Date.now();
+  document.getElementById('zd-name').textContent=dom.charAt(0).toUpperCase()+dom.slice(1)+' Zone';
+  document.getElementById('zd-name').style.color=accent;
+  document.getElementById('zone-deploy-sheet').style.borderTopColor=accent;
+  const crnaBar=document.getElementById('zd-crna-bars');
+  crnaBar.innerHTML=['C','R','N','A'].map((l,i)=>{
+    const cols=['#185FA5','#E24B4A','#1D9E75','#c87820'];
+    const pct=Math.round(30+Math.random()*50);
+    return `<div style="display:flex;flex-direction:column;gap:1px;align-items:center"><span style="font-size:7px;color:#555">${l}</span><div style="width:60px;height:4px;background:#1a1a2e;border-radius:2px;overflow:hidden"><div style="width:${pct}%;height:100%;background:${cols[i]};border-radius:2px"></div></div></div>`;
+  }).join('');
+  const tasks={finance:['Audit','Forecast','Report'],devops:['Deploy','Monitor','Optimize'],healthcare:['Screen','Treat','Document'],legal:['Review','Comply','Draft'],general:['Analyse','Report','Monitor']};
+  const qtasks=tasks[dom]||tasks.general;
+  document.getElementById('zd-quick-btns').innerHTML=qtasks.map(t=>`<button onclick="setQuickTask('${t}')" style="background:#1a1a2e;border:1px solid ${accent}44;color:${accent};padding:4px 10px;border-radius:4px;cursor:pointer;font-size:10px;font-family:inherit">${t}</button>`).join('');
+  document.getElementById('zd-custom').value='';
+  document.getElementById('zone-deploy-sheet').style.transform='translateY(0)';
+}
+function setQuickTask(t){ document.getElementById('zd-custom').value=t; }
+function closeZoneDeploy(){
+  document.getElementById('zone-deploy-sheet').style.transform='translateY(100%)';
+  deployZone=null;
+}
+async function submitZoneDeploy(){
+  const task=document.getElementById('zd-custom').value.trim(); if(!task) return;
+  const stakesEl=document.querySelector('input[name="zd-stakes"]:checked');
+  const stakes=parseFloat(stakesEl?.value||0.6);
+  const dom=deployZone?.dom||'general';
+  closeZoneDeploy();
+  const key=localStorage.getItem('manifold_key')||'';
+  const url=localStorage.getItem('manifold_url')||'';
+  const useVcg=(_researchUnlocked&&_researchUnlocked['vcg_auction'])||false;
+  const useMpc=(_researchUnlocked&&_researchUnlocked['mpc_lookahead'])||false;
+  try{
+    const body={task,stakes,domain:dom};
+    if(useVcg) body.use_vcg=true;
+    if(useMpc) body.use_mpc=true;
+    const res=await fetch(`${url}/task`,{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},body:JSON.stringify(body)});
+    if(res.ok){
+      const data=await res.json();
+      showToast('Task deployed!','#1D9E75');
+      if(data.vcg_result) showVCGToast(data.vcg_result);
+      const ag=WS.agents.find(a=>a.domain===dom&&a._state==='idle');
+      if(ag) spawnTaskPillar(ag);
+    } else throw new Error();
+  }catch(e){ showToast('Task queued (offline)','#AFA9EC'); }
 }
 document.getElementById('ptd-stakes')?.addEventListener('input',function(){document.getElementById('ptd-stakes-val').textContent=this.value;});
 async function deployTask(){
@@ -1071,6 +1358,13 @@ async function deployTask(){
   const ag=WS.agents.find(a=>a.domain===domText&&a._state==='idle');
   if(ag) spawnTaskPillar(ag);
 }
+canvas.addEventListener('click',e=>{
+  if(!deployZone||Date.now()-_zoneDeployOpenedAt<50) return;
+  if(document.getElementById('zone-deploy-sheet').style.transform==='translateY(100%)') return;
+  const sh=document.getElementById('zone-deploy-sheet');
+  const r=sh.getBoundingClientRect();
+  if(e.clientY<r.top) closeZoneDeploy();
+});
 document.querySelectorAll('.panel-overlay').forEach(el=>el.addEventListener('click',e=>{if(e.target===el) el.classList.remove('active');}));
 
 // ========== DRAG EDITOR ==========
@@ -1112,6 +1406,32 @@ canvas.addEventListener('mouseup',e=>{
     if(isValidDrop(drop)){WS.buildings[dragBuilding].tx=drop.ti;WS.buildings[dragBuilding].tz=drop.tj;saveState();showToast('Building moved!','#1D9E75');}
     dragBuilding=null;dragCursor=null;
   }
+});
+// Pan and zoom
+let isPanning=false, panStartX=0, panStartY=0;
+let _lastTap=0;
+canvas.addEventListener('pointerdown',e=>{
+  if(dragBuilding) return;
+  isPanning=true; panStartX=e.clientX-panX; panStartY=e.clientY-panY;
+});
+canvas.addEventListener('pointermove',e=>{
+  if(!isPanning||dragBuilding) return;
+  const nx=e.clientX-panStartX, ny=e.clientY-panStartY;
+  const maxPan=TW*10;
+  panX=Math.max(-maxPan,Math.min(TW*3,nx));
+  panY=Math.max(-maxPan,Math.min(TW*3,ny));
+});
+canvas.addEventListener('pointerup',()=>{isPanning=false;});
+canvas.addEventListener('wheel',e=>{
+  e.preventDefault();
+  const oldZoom=zoomLevel;
+  zoomLevel=Math.max(0.4,Math.min(2.2,zoomLevel*(1-e.deltaY*0.001)));
+  panX-=(e.clientX-canvas.width/2)*(zoomLevel-oldZoom);
+  panY-=(e.clientY-canvas.height/2)*(zoomLevel-oldZoom);
+},{passive:false});
+canvas.addEventListener('dblclick',()=>{
+  panX=0; panY=0; zoomLevel=1.0;
+  showToast('View reset','#AFA9EC');
 });
 function drawDragUI(){
   if(!dragBuilding||!dragCursor) return;
@@ -1172,6 +1492,21 @@ function handleWSMsg(msg){
     if(ag){ag._govPulse=1.0;ag._govPermitted=msg.permitted;}
     if(!msg.permitted) showToast('Governance: action blocked','#E24B4A');
   }
+  if(msg.type==='escalation'||(msg.type==='governance_event'&&(msg.risk_score||0)>0.85)){
+    _escalationQueue.push({task:msg.task||msg.prompt||'High-risk decision',risk_score:msg.risk_score||0.9,agent_id:msg.agent_id||''});
+    showNextEscalation();
+  }
+  if(msg.type==='adversarial'){
+    const banner=document.getElementById('adversarial-banner');
+    const textEl=document.getElementById('adversarial-text');
+    if(banner&&textEl){
+      textEl.textContent=`⚠ Adversarial pattern detected · Action: ${msg.minimax_action||'defend'}`;
+      banner.style.display='flex';
+      setTimeout(()=>{banner.style.display='none';},8000);
+    }
+    _adversarialFlash=3;
+  }
+  if(msg.vcg_result) showVCGToast(msg.vcg_result);
   if(msg.type==='task_update') showToast('Task '+msg.status+': '+(msg.task_id||'').slice(0,8));
   if(msg.type==='world_stats') WS.world_health=msg.system_health*100;
 }
@@ -1185,6 +1520,8 @@ setInterval(async()=>{
     if(data.agents) handleWSMsg({type:'agent_update',agents:data.agents});
   }catch(e){}
 },30000);
+setInterval(refreshArmyBar,3000);
+setTimeout(refreshArmyBar,500);
 
 // ========== SETUP OVERLAY ==========
 function doConnect(){
@@ -1243,6 +1580,7 @@ function gameLoop(ts){
   drawParticlesAndFloats();
   drawDragUI();
   updateHUD();
+  drawMiniMap();
   // Reset shadow/linedash globally
   ctx.shadowBlur=0; ctx.setLineDash([]);
   requestAnimationFrame(gameLoop);
@@ -1403,5 +1741,75 @@ setTimeout(_pollConvergence,2000);
 <div id="convergence-box" title="NERVATURA V(t) convergence — EXP5">
   <span style="color:#666;font-size:10px">V(t) loading…</span>
 </div>
+
+<canvas id="mini-map" width="80" height="60" style="position:fixed;bottom:80px;right:14px;z-index:999;border:1px solid #333;border-radius:4px;opacity:0.8;cursor:pointer" title="Mini-map (click to jump)"></canvas>
+
+<!-- Zone Deploy Bottom Sheet -->
+<div id="zone-deploy-sheet" style="position:fixed;bottom:0;left:0;right:0;height:220px;background:rgba(6,8,16,0.97);border-top:1px solid #AFA9EC44;z-index:600;transform:translateY(100%);transition:transform .25s ease;padding:12px 16px 8px;box-sizing:border-box">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+    <div>
+      <span id="zd-name" style="font-size:13px;color:#AFA9EC;font-weight:700"></span>
+      <div style="display:flex;gap:6px;margin-top:4px" id="zd-crna-bars"></div>
+    </div>
+    <button onclick="closeZoneDeploy()" style="background:none;border:none;color:#555;cursor:pointer;font-size:16px">✕</button>
+  </div>
+  <div style="display:flex;gap:6px;margin-bottom:8px" id="zd-quick-btns"></div>
+  <div style="display:flex;gap:8px;align-items:center">
+    <input id="zd-custom" type="text" placeholder="Custom task…" style="flex:1;background:#0a0b18;border:1px solid #1e1e3a;color:#AFA9EC;padding:5px 8px;border-radius:4px;font-family:inherit;font-size:11px;outline:none">
+    <div style="display:flex;gap:4px;align-items:center;font-size:9px;color:#555">
+      Stakes:
+      <label><input type="radio" name="zd-stakes" value="0.3" style="accent-color:#1D9E75"> Low</label>
+      <label><input type="radio" name="zd-stakes" value="0.6" checked style="accent-color:#c87820"> Med</label>
+      <label><input type="radio" name="zd-stakes" value="0.9" style="accent-color:#E24B4A"> High</label>
+    </div>
+    <button onclick="submitZoneDeploy()" style="background:rgba(175,169,236,.15);border:1px solid rgba(175,169,236,.35);color:#AFA9EC;padding:5px 12px;border-radius:4px;cursor:pointer;font-size:11px;font-family:inherit">Deploy →</button>
+  </div>
+</div>
+
+<div id="army-bar" style="position:fixed;bottom:0;left:0;right:0;height:56px;background:rgba(4,5,10,0.93);border-top:1px solid rgba(255,255,255,0.06);z-index:590;display:flex;align-items:center;padding:0 8px;gap:4px;overflow-x:auto;overflow-y:hidden">
+  <!-- Populated by JS -->
+</div>
+<div id="army-drag-ghost" style="position:fixed;display:none;pointer-events:none;z-index:700;font-size:20px"></div>
+
+<div id="escalation-overlay" style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(226,75,74,0.10);z-index:800;display:none;align-items:center;justify-content:center">
+  <div style="background:#0f1020;border:2px solid #E24B4A;border-radius:10px;padding:20px;width:300px;min-height:140px;position:relative">
+    <div style="color:#E24B4A;font-size:13px;font-weight:700;margin-bottom:8px">⚠ MANIFOLD ESCALATION</div>
+    <div id="esc-task" style="font-size:11px;color:#ccc;margin-bottom:8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></div>
+    <div style="margin-bottom:8px">
+      <div style="font-size:9px;color:#555;margin-bottom:2px">Risk Score</div>
+      <div style="height:6px;background:#1a1a2e;border-radius:3px;overflow:hidden"><div id="esc-risk-bar" style="height:100%;background:#E24B4A;border-radius:3px;transition:width .3s"></div></div>
+    </div>
+    <div id="esc-timer" style="font-size:10px;color:#E24B4A;margin-bottom:10px;text-align:right">60s</div>
+    <div style="display:flex;gap:8px">
+      <button onclick="resolveEscalation('approve')" style="flex:1;background:rgba(29,158,117,0.2);border:1px solid #1D9E75;color:#1D9E75;padding:7px;border-radius:6px;cursor:pointer;font-family:inherit;font-size:11px">✓ Approve</button>
+      <button onclick="resolveEscalation('deny')" style="flex:1;background:rgba(226,75,74,0.2);border:1px solid #E24B4A;color:#E24B4A;padding:7px;border-radius:6px;cursor:pointer;font-family:inherit;font-size:11px">✗ Deny</button>
+    </div>
+  </div>
+</div>
+
+<div id="bft-indicator" style="position:fixed;top:52px;right:8px;width:120px;height:28px;background:rgba(7,8,15,0.9);border:1px solid #333;border-radius:14px;display:none;align-items:center;justify-content:center;gap:5px;font-size:9px;z-index:200;cursor:pointer" onclick="showBFTTooltip()" title="BFT Federation Status">
+  <span id="bft-dot" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#555"></span>
+  <span id="bft-label" style="color:#888">NETWORK: ?</span>
+</div>
+<div id="bft-tooltip" style="position:fixed;top:84px;right:8px;background:#0f1020;border:1px solid #333;border-radius:8px;padding:8px 12px;font-size:9px;color:#888;z-index:201;display:none;min-width:160px">
+  <div id="bft-detail"></div>
+</div>
+
+<div id="adversarial-banner" style="position:fixed;top:0;left:0;right:0;height:24px;background:rgba(226,75,74,0.88);z-index:900;display:none;align-items:center;justify-content:center;font-size:10px;color:#fff;cursor:pointer" onclick="this.style.display='none'">
+  <span id="adversarial-text">⚠ Adversarial pattern detected</span>
+</div>
+
+<!-- Research Tree Panel -->
+<div id="research-panel" style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.75);z-index:600;display:none;align-items:flex-start;justify-content:center;overflow-y:auto">
+  <div style="background:#0a0b18;border:1px solid rgba(175,169,236,.2);border-radius:12px;margin:40px auto;padding:20px;width:580px;max-width:96vw">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+      <h2 style="font-size:13px;color:#AFA9EC;margin:0">◈ Governance Research</h2>
+      <button onclick="document.getElementById('research-panel').style.display='none'" style="background:none;border:none;color:#555;cursor:pointer;font-size:16px">✕</button>
+    </div>
+    <div id="research-tree"></div>
+    <div style="margin-top:12px;font-size:9px;color:#444;text-align:center">Governance Tokens: <span id="research-tokens" style="color:#c87820">0</span></div>
+  </div>
+</div>
+
 </body>
 </html>
