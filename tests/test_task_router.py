@@ -100,7 +100,8 @@ def test_task_plan_has_tom_stagger_field():
 
 def test_tom_stagger_applied_when_two_agents_share_zone():
     """When two agents are both assigned to sub-tasks in the same domain and
-    both predicted to 'proceed', the second sub-task must receive delay_seconds=30."""
+    both predicted to 'proceed', subsequent sub-tasks receive incremental
+    delay_seconds (30s for the 2nd, 60s for the 3rd, etc.) to stagger dispatch."""
     from manifold.agent_registry import AgentRegistry, AgentRecord, Episode
     import time as _time
 

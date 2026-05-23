@@ -486,7 +486,7 @@ class TaskRouter:
                 st = sub_tasks[idx]
                 prediction = self._registry.predict_agent_action(
                     observer_id="system",
-                    target_id=st.assigned_to,  # type: ignore[arg-type]
+                    target_id=str(st.assigned_to),
                     context={"zone": domain, "task_type": domain, "current_crna": {}},
                 )
                 if prediction.get("predicted_action") == "proceed":
