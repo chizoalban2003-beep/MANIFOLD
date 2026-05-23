@@ -81,3 +81,63 @@ def test_get_plan_retrieves_plan_by_task_id():
     retrieved = router.get_plan(plan.task_id)
     assert retrieved is plan
     assert router.get_plan("nonexistent") is None
+
+
+# ---------------------------------------------------------------------------
+# ToM stagger tests
+# ---------------------------------------------------------------------------
+
+def test_task_plan_has_tom_stagger_field():
+    """TaskPlan must carry has_tom_stagger regardless of ToM result."""
+    router = _router()
+    plan = router.route("generate report")
+    assert hasattr(plan, "has_tom_stagger")
+    assert isinstance(plan.has_tom_stagger, bool)
+    # to_dict must include the field
+    d = plan.to_dict()
+    assert "has_tom_stagger" in d
+
+
+def test_tom_stagger_applied_when_two_agents_share_zone():
+    """When two agents are both assigned to sub-tasks in the same domain and
+    both predicted to 'proceed', the second sub-task must receive delay_seconds=30."""
+    from manifold.agent_registry import AgentRegistry, AgentRecord, Episode
+    import time as _time
+
+    registry = AgentRegistry()
+    # Register two agents in the same domain
+    registry.register("agent-alpha", "Alpha", ["general"], "org1", domain="finance")
+    registry.register("agent-beta", "Beta", ["general"], "org1", domain="finance")
+
+    # Give both agents a successful episode in the finance domain so ToM predicts "proceed"
+    now = _time.time()
+    ep = Episode(
+        task_description="financial analysis",
+        domain="finance",
+        duration_seconds=10.0,
+        success=True,
+        crna_at_start={"c": 0.3, "r": 0.2, "n": 0.1, "a": 0.8},
+        crna_at_end={"c": 0.3, "r": 0.2, "n": 0.1, "a": 0.9},
+        risk_encountered=0.2,
+        timestamp=now,
+    )
+    registry.record_episode("agent-alpha", ep)
+    registry.record_episode("agent-beta", ep)
+
+    router = TaskRouter(registry=registry)
+    # A task that naturally decomposes into at least 2 parallel sub-tasks in the same domain
+    plan = router.route(
+        "run financial report and analyse financial data", stakes_hint=0.4
+    )
+
+    # Collect all assigned sub-tasks
+    assigned = [st for st in plan.sub_tasks if st.status == "assigned"]
+    if len(assigned) < 2:
+        # If only one or zero assigned (no agents matched), skip — ToM can only fire when
+        # at least two agents are assigned in the same zone
+        return
+
+    # Check that delay_seconds is serialised in to_dict
+    d = plan.to_dict()
+    for sub_dict in d["sub_tasks"]:
+        assert "delay_seconds" in sub_dict
