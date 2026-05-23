@@ -330,7 +330,7 @@ export interface SubTask {
   assigned_agent_id: string | null;
   stakes: number;
   status: "pending" | "assigned" | "blocked" | "complete";
-  /** ToM stagger: seconds to wait before dispatching this sub-task. */
+  /** ToM stagger: seconds to wait before dispatching this sub-task (0 = no delay). */
   delay_seconds?: number;
 }
 

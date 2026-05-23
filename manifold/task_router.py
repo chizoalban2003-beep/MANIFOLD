@@ -31,7 +31,7 @@ class SubTask:
     depends_on: list = field(default_factory=list)  # list of sub-task index strings
     execution_mode: str = "sequential"  # "sequential" or "parallel"
     parallel_group: int = 0  # tasks with same group ID run together
-    delay_seconds: int = 0  # ToM stagger: seconds to wait before dispatching
+    delay_seconds: int = 0  # ToM stagger: seconds to wait before dispatching (0 = no delay)
 
 
 # ---------------------------------------------------------------------------
