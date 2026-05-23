@@ -9,12 +9,14 @@ that speaks MQTT 3.1.1 over TCP.
 
 from __future__ import annotations
 
+import json
 import logging
 import socket
 import struct
 import threading
-from dataclasses import dataclass, field
-from typing import Literal
+import time
+from dataclasses import dataclass
+from typing import Any, Callable, Literal
 
 from manifold_physical.sensor_bridge import ObstacleEvent, SensorBridge
 
@@ -30,6 +32,11 @@ _DEVICE_OBSTACLE_MAP: dict[str, tuple[str, float | None]] = {
     "door_sensor": ("unknown", None),
     "temperature": ("unknown", None),
 }
+
+_AGENT_TOPIC_PREFIX = "manifold/agent"
+_MIN_HEARTBEAT_INTERVAL = 0.05
+_RECONNECT_BACKOFF_INITIAL = 0.25
+_RECONNECT_BACKOFF_MAX = 5.0
 
 
 @dataclass
@@ -69,15 +76,32 @@ class MQTTBridge:
         TCP port of the MQTT broker (default: 1883).
     """
 
-    def __init__(self, broker_host: str, broker_port: int = 1883) -> None:
+    def __init__(
+        self,
+        broker_host: str,
+        broker_port: int = 1883,
+        *,
+        agent_id: str | None = None,
+        command_callback: Callable[[dict[str, Any]], None] | None = None,
+        heartbeat_interval: float = 0.5,
+    ) -> None:
         self.broker_host = broker_host
         self.broker_port = broker_port
+        self.agent_id = self._validate_agent_id(agent_id)
+        self.command_callback = command_callback
+        self.heartbeat_interval = max(_MIN_HEARTBEAT_INTERVAL, float(heartbeat_interval))
         self._mappings: dict[str, DeviceMapping] = {}
         self._sensor_bridge = SensorBridge()
         self._sock: socket.socket | None = None
         self._thread: threading.Thread | None = None
         self._running = False
+        self._heartbeat_running = False
+        self._heartbeat_thread: threading.Thread | None = None
         self._packet_id = 0
+        self._heartbeat_counter = 0
+        self._heartbeat_lock = threading.Lock()
+        self._socket_lock = threading.RLock()
+        self._publish_lock = threading.Lock()
 
     # ------------------------------------------------------------------
     # Public API
@@ -97,6 +121,21 @@ class MQTTBridge:
             except Exception as exc:  # noqa: BLE001
                 logging.debug("MQTTBridge: live subscribe failed: %s", exc)
 
+    def set_agent(self, agent_id: str) -> None:
+        """Bind the bridge to an agent-id topic namespace."""
+        self.agent_id = self._validate_agent_id(agent_id)
+        if self._sock is not None and self._running:
+            self._subscribe_runtime_topics(self._sock)
+
+    @staticmethod
+    def _validate_agent_id(agent_id: str | None) -> str | None:
+        """Reject agent IDs that would create invalid MQTT topic paths."""
+        if agent_id is None:
+            return None
+        if any(ch in agent_id for ch in "/+#\x00"):
+            raise ValueError("agent_id may not contain '/', '+', '#', or NUL")
+        return agent_id
+
     def start(self) -> None:
         """Connect to the broker and start the receive loop in a background thread."""
         self._running = True
@@ -110,16 +149,14 @@ class MQTTBridge:
             name=f"mqtt-recv-{self.broker_host}",
         )
         self._thread.start()
+        if self.agent_id is not None:
+            self.start_heartbeat()
 
     def disconnect(self) -> None:
         """Stop the receive loop and close the socket."""
         self._running = False
-        if self._sock:
-            try:
-                self._sock.close()
-            except OSError:
-                pass
-            self._sock = None
+        self.stop_heartbeat()
+        self._close_socket()
 
     def is_connected(self) -> bool:
         """Return True if the broker connection is active."""
@@ -149,6 +186,107 @@ class MQTTBridge:
             ),
         ]
 
+    @property
+    def agent_cmd_topic(self) -> str | None:
+        """MQTT topic for inbound commands for the bound agent."""
+        if self.agent_id is None:
+            return None
+        return f"{_AGENT_TOPIC_PREFIX}/{self.agent_id}/cmd"
+
+    @property
+    def agent_telemetry_topic(self) -> str | None:
+        """MQTT topic for outbound telemetry for the bound agent."""
+        if self.agent_id is None:
+            return None
+        return f"{_AGENT_TOPIC_PREFIX}/{self.agent_id}/telemetry"
+
+    @property
+    def agent_status_topic(self) -> str | None:
+        """MQTT topic for outbound system health/status for the bound agent."""
+        if self.agent_id is None:
+            return None
+        return f"{_AGENT_TOPIC_PREFIX}/{self.agent_id}/status"
+
+    def publish_telemetry(
+        self,
+        x: float,
+        y: float,
+        z: float = 0.0,
+        *,
+        state: str,
+        extra: dict[str, Any] | None = None,
+    ) -> bool:
+        """Publish the robot's live position/status on the telemetry topic."""
+        payload: dict[str, Any] = {
+            "x": round(float(x), 3),
+            "y": round(float(y), 3),
+            "z": round(float(z), 3),
+            "state": state,
+        }
+        if extra:
+            payload.update(extra)
+        return self._publish_json(self.agent_telemetry_topic, payload)
+
+    def publish_status(
+        self,
+        *,
+        state: str,
+        battery: float | int | None = None,
+        heartbeat: int | None = None,
+        extra: dict[str, Any] | None = None,
+    ) -> bool:
+        """Publish robot health to the status topic."""
+        if heartbeat is None:
+            with self._heartbeat_lock:
+                heartbeat = self._heartbeat_counter
+        payload: dict[str, Any] = {
+            "state": state,
+            "heartbeat": heartbeat,
+            "connected": self.is_connected(),
+        }
+        if battery is not None:
+            payload["battery"] = battery
+        if extra:
+            payload.update(extra)
+        return self._publish_json(self.agent_status_topic, payload)
+
+    def publish_command(
+        self,
+        command: str,
+        *,
+        payload: dict[str, Any] | None = None,
+    ) -> bool:
+        """Publish a command to the agent command topic."""
+        body: dict[str, Any] = {"command": command}
+        if payload:
+            body.update(payload)
+        return self._publish_json(self.agent_cmd_topic, body)
+
+    def start_heartbeat(self, interval: float | None = None) -> None:
+        """Start the periodic status heartbeat publisher."""
+        if interval is not None:
+            self.heartbeat_interval = max(_MIN_HEARTBEAT_INTERVAL, float(interval))
+        if self._heartbeat_running or self.agent_id is None:
+            return
+        self._heartbeat_running = True
+        self._heartbeat_thread = threading.Thread(
+            target=self._heartbeat_loop,
+            daemon=True,
+            name=f"mqtt-heartbeat-{self.agent_id}",
+        )
+        self._heartbeat_thread.start()
+
+    def stop_heartbeat(self) -> None:
+        """Stop the periodic status heartbeat publisher."""
+        self._heartbeat_running = False
+
+    def heartbeat_tick(self, *, state: str = "active", extra: dict[str, Any] | None = None) -> bool:
+        """Publish one heartbeat sample and increment the counter."""
+        with self._heartbeat_lock:
+            self._heartbeat_counter += 1
+            heartbeat = self._heartbeat_counter
+        return self.publish_status(state=state, heartbeat=heartbeat, extra=extra)
+
     # ------------------------------------------------------------------
     # MQTT 3.1.1 minimal client — connection
     # ------------------------------------------------------------------
@@ -164,13 +302,54 @@ class MQTTBridge:
                 sock.close()
                 return None
             sock.settimeout(None)  # blocking receive in background thread
-            for topic in self._mappings:
-                self._send_subscribe(sock, topic)
+            self._subscribe_runtime_topics(sock)
             return sock
         except Exception as exc:  # noqa: BLE001
             logging.error("MQTTBridge: connect to %s:%s failed: %s",
                           self.broker_host, self.broker_port, exc)
             return None
+
+    def _subscribe_runtime_topics(self, sock: socket.socket) -> None:
+        """Subscribe to configured sensor topics and the agent command topic."""
+        for topic in self._mappings:
+            self._send_subscribe(sock, topic)
+        if self.agent_cmd_topic is not None:
+            self._send_subscribe(sock, self.agent_cmd_topic)
+
+    def _close_socket(self) -> None:
+        """Close the current socket, swallowing transport errors."""
+        with self._socket_lock:
+            sock = self._sock
+            self._sock = None
+        if sock is None:
+            return
+        try:
+            sock.close()
+        except OSError:
+            pass
+
+    def _publish_json(self, topic: str | None, payload: dict[str, Any]) -> bool:
+        """Serialize *payload* to JSON and publish to *topic*."""
+        try:
+            message = json.dumps(payload, separators=(",", ":"), sort_keys=True)
+            with self._socket_lock:
+                sock = self._sock
+            if topic is None or sock is None or not self._running:
+                return False
+            self._publish(sock, topic, message)
+            return True
+        except Exception as exc:  # noqa: BLE001
+            logging.debug("MQTTBridge publish failed: %s", exc)
+            return False
+
+    def _publish(self, sock: socket.socket, topic: str, payload: str) -> None:
+        """Publish a UTF-8 payload to *topic* over the current socket."""
+        topic_bytes = topic.encode()
+        payload_bytes = payload.encode()
+        variable_header = struct.pack("!H", len(topic_bytes)) + topic_bytes
+        body = variable_header + payload_bytes
+        with self._publish_lock:
+            sock.sendall(b"\x30" + _encode_remaining(len(body)) + body)
 
     def _send_connect(self, sock: socket.socket) -> None:
         """Assemble and send an MQTT 3.1.1 CONNECT packet."""
@@ -221,27 +400,46 @@ class MQTTBridge:
     # ------------------------------------------------------------------
 
     def _receive_loop(self) -> None:
-        while self._running and self._sock:
+        backoff = _RECONNECT_BACKOFF_INITIAL
+        while self._running:
+            with self._socket_lock:
+                sock = self._sock
+            if sock is None:
+                sock = self._connect_to_broker()
+                with self._socket_lock:
+                    self._sock = sock
+                if sock is None:
+                    time.sleep(backoff)
+                    backoff = min(backoff * 2.0, _RECONNECT_BACKOFF_MAX)
+                    continue
+                backoff = _RECONNECT_BACKOFF_INITIAL
             try:
                 packet = self._recv_packet()
                 if packet is None:
-                    break
+                    raise OSError("MQTT connection dropped")
                 self._handle_packet(packet)
             except OSError:
-                break
+                logging.debug("MQTTBridge: connection dropped, reconnecting")
+                self._close_socket()
+                if not self._running:
+                    break
+                time.sleep(backoff)
+                backoff = min(backoff * 2.0, _RECONNECT_BACKOFF_MAX)
             except Exception as exc:  # noqa: BLE001
                 logging.debug("MQTTBridge recv error: %s", exc)
 
     def _recv_packet(self) -> tuple[int, bytes] | None:
         """Read one complete MQTT packet from the socket."""
-        if not self._sock:
+        with self._socket_lock:
+            sock = self._sock
+        if not sock:
             return None
-        first = _recv_exact(self._sock, 1)
+        first = _recv_exact(sock, 1)
         if not first:
             return None
         packet_type = first[0]
-        remaining = _decode_remaining(self._sock)
-        body = _recv_exact(self._sock, remaining) if remaining > 0 else b""
+        remaining = _decode_remaining(sock)
+        body = _recv_exact(sock, remaining) if remaining > 0 else b""
         if body is None:
             return None
         return (packet_type, body)
@@ -270,7 +468,12 @@ class MQTTBridge:
         qos = (ptype >> 1) & 0x03
         if qos > 0:
             offset += 2  # skip packet identifier
-        payload_raw = body[offset:].decode(errors="replace").strip().lower()
+        payload_text = body[offset:].decode(errors="replace").strip()
+        payload_raw = payload_text.lower()
+
+        if topic == self.agent_cmd_topic:
+            self._handle_agent_command(payload_text)
+            return
 
         mapping = self._match_topic(topic)
         if mapping is None:
@@ -299,6 +502,34 @@ class MQTTBridge:
             ttl=30.0,
         ))
 
+    def _handle_agent_command(self, payload_text: str) -> None:
+        """Parse a command payload and hand it to the configured callback."""
+        try:
+            command = json.loads(payload_text)
+        except json.JSONDecodeError:
+            command = {"command": payload_text}
+        if isinstance(command, str):
+            command = {"command": command}
+        if not isinstance(command, dict):
+            command = {"command": "UNKNOWN", "payload": command}
+        normalized = dict(command)
+        normalized.setdefault("agent_id", self.agent_id)
+        normalized.setdefault("topic", self.agent_cmd_topic)
+        if self.command_callback is not None:
+            try:
+                self.command_callback(normalized)
+            except Exception as exc:  # noqa: BLE001
+                logging.debug("MQTTBridge command callback failed: %s", exc)
+
+    def _heartbeat_loop(self) -> None:
+        """Background loop publishing a status heartbeat every interval."""
+        while self._running and self._heartbeat_running:
+            try:
+                self.heartbeat_tick()
+            except Exception as exc:  # noqa: BLE001
+                logging.debug("MQTTBridge heartbeat failed: %s", exc)
+            time.sleep(self.heartbeat_interval)
+
     def _match_topic(self, topic: str) -> DeviceMapping | None:
         """Match an incoming topic against registered patterns (supports + and #)."""
         if topic in self._mappings:
@@ -322,6 +553,68 @@ class MQTTBridge:
         # ptype = 0x30 (PUBLISH, QoS 0, no DUP, no RETAIN)
         body = struct.pack("!H", len(topic_bytes)) + topic_bytes + payload_bytes
         self._handle_publish(0x30, body)
+
+    def _simulate_command(self, payload: str) -> None:
+        """Convenience helper for tests: simulate an inbound command payload."""
+        if self.agent_cmd_topic is None:
+            raise ValueError("agent_id must be set before simulating commands")
+        self._simulate_publish(self.agent_cmd_topic, payload)
+
+
+@dataclass(slots=True)
+class ManifoldMQTTGateway:
+    """Output gateway that syncs a brain's live state to MQTT topics."""
+
+    brain: Any
+    bridge: MQTTBridge
+    agent_id: str | None = None
+
+    def __post_init__(self) -> None:
+        """Wire the bridge's command_callback to route policy commands to the brain."""
+        if self.bridge.command_callback is None:
+            self.bridge.command_callback = self._on_command
+
+    def _on_command(self, command: dict[str, Any]) -> None:
+        """Route inbound MQTT commands to the brain's policy handler."""
+        handle_command = getattr(self.brain, "handle_command", None)
+        if handle_command is None:
+            return
+        action_code = command.get("action_code")
+        if action_code is not None:
+            agent_id = command.get("agent_id")
+            handle_command(int(action_code), command.get("params") or {}, agent_id=agent_id)
+
+    def sync_to_hardware(self) -> bool:
+        """Push the brain's current physical state to MQTT telemetry/status."""
+        agent_id = self.agent_id or self.bridge.agent_id
+        if agent_id is None:
+            return False
+        if self.bridge.agent_id != agent_id:
+            self.bridge.set_agent(agent_id)
+
+        physical_pos = getattr(self.brain, "physical_pos", (0.0, 0.0, 0.0))
+        movement_state = getattr(self.brain, "movement_state", None)
+        state_name = getattr(movement_state, "name", None) or str(movement_state or "IDLE")
+        logical_pos = getattr(self.brain, "logical_pos", physical_pos)
+
+        telemetry_ok = self.bridge.publish_telemetry(
+            physical_pos[0],
+            physical_pos[1],
+            physical_pos[2] if len(physical_pos) > 2 else 0.0,
+            state=state_name,
+            extra={
+                "logical_pos": list(logical_pos),
+                "replan_pending": bool(getattr(self.brain, "replan_pending", False)),
+            },
+        )
+        status_ok = self.bridge.publish_status(
+            state=state_name,
+            extra={
+                "logical_pos": list(logical_pos),
+                "physical_pos": list(physical_pos),
+            },
+        )
+        return telemetry_ok and status_ok
 
 
 # ------------------------------------------------------------------

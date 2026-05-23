@@ -34,8 +34,6 @@ Config dict format::
 from __future__ import annotations
 
 import logging
-import time
-from typing import Any
 
 from manifold_physical.bridges.roomba_bridge import RoombaBridge
 from manifold_physical.bridges.mqtt_bridge import DeviceMapping, MQTTBridge
@@ -86,9 +84,12 @@ class PhysicalManager:
         # MQTT
         if "mqtt" in config:
             mc = config["mqtt"]
+            agent_id = mc.get("agent_id")
             self._mqtt = MQTTBridge(
                 broker_host=mc.get("broker_host", "localhost"),
                 broker_port=int(mc.get("broker_port", 1883)),
+                agent_id=None if agent_id is None else str(agent_id),
+                heartbeat_interval=float(mc.get("heartbeat_interval", 0.5)),
             )
             for dev in mc.get("devices", []):
                 mapping = DeviceMapping(
@@ -127,6 +128,8 @@ class PhysicalManager:
             self._mqtt.start()
             self._mqtt_connected = self._mqtt.is_connected()
             if self._mqtt_connected:
+                if self._mqtt.agent_id is not None:
+                    self._mqtt.start_heartbeat()
                 logging.debug("PhysicalManager: MQTT bridge started")
 
         for cam in self._cameras:

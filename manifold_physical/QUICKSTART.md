@@ -57,10 +57,16 @@ The bridge:
 from manifold_physical.bridges.mqtt_bridge import MQTTBridge, DeviceMapping
 
 # Option A — use the built-in Home Assistant profile
-bridge = MQTTBridge(broker_host="homeassistant.local", broker_port=1883)
+bridge = MQTTBridge(
+    broker_host="homeassistant.local",
+    broker_port=1883,
+    agent_id="roomba-01",
+)
 for dm in MQTTBridge.HomeAssistantProfile():
     bridge.subscribe(dm.topic, dm)
 bridge.start()
+bridge.publish_status(state="idle", battery=92)
+bridge.publish_telemetry(1.25, 2.50, state="idle")
 
 # Option B — custom device mappings
 bridge = MQTTBridge(broker_host="192.168.1.100")
@@ -94,6 +100,14 @@ Minimum config JSON (for `POST /physical/init`):
 
 Supported device types: `motion_sensor`, `door_sensor`, `temperature`,
 `smoke_detector`, `camera`.
+
+Structured agent topics:
+- `manifold/agent/{id}/cmd`
+- `manifold/agent/{id}/telemetry`
+- `manifold/agent/{id}/status`
+
+Heartbeat publishes on the status topic every 500 ms by default when
+`agent_id` is set, giving the hardware a simple 1.5 s failsafe window.
 
 ---
 

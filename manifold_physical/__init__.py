@@ -4,7 +4,7 @@
 from manifold_physical.space_ingestion import SpaceIngestion
 from manifold_physical.sensor_bridge import SensorBridge, ObstacleEvent, RoombaBridge
 from manifold_physical.bridges.roomba_bridge import RoombaBridge as RoombaBridgeFull
-from manifold_physical.bridges.mqtt_bridge import MQTTBridge, DeviceMapping
+from manifold_physical.bridges.mqtt_bridge import MQTTBridge, DeviceMapping, ManifoldMQTTGateway
 from manifold_physical.camera_detector import (
     CameraDetector,
     CameraRegistry,
@@ -21,6 +21,7 @@ __all__ = [
     "RoombaBridgeFull",
     "MQTTBridge",
     "DeviceMapping",
+    "ManifoldMQTTGateway",
     "CameraDetector",
     "CameraRegistry",
     "Detection",

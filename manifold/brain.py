@@ -9,11 +9,16 @@ rule pressure.
 from __future__ import annotations
 
 import logging
+import uuid
+import weakref
 
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Any, Literal
 
+from .cell_update_bus import CellUpdate, CellUpdateBus, get_bus
 from .gridmapper import AgentPopulation, GridOptimizationResult, GridWorld
+from .movement import MovementState, MovementStateMachine, PathPlanner, Watchdog
+from .policy_action import PolicyAction
 from .trustrouter import clamp01
 
 _logger = logging.getLogger(__name__)
@@ -558,13 +563,404 @@ class PriceAdapter:
 
 @dataclass
 class ManifoldBrain:
-    """Adaptive meta-controller for agent decisions."""
+    """Adaptive meta-controller for agent decisions.
+
+    Supports both single-agent (legacy) mode and **Fleet Orchestrator** mode
+    where multiple agents are tracked via :attr:`fleet` / :attr:`fleet_watchdogs`.
+    The default ``movement`` and ``watchdog`` attributes serve as the "primary"
+    agent (backward-compatible).  Use :meth:`register_agent` to add fleet members.
+    """
 
     config: BrainConfig = field(default_factory=BrainConfig)
     tools: list[ToolProfile] = field(default_factory=list)
     memory: BrainMemory = field(default_factory=BrainMemory)
     price_adapter: PriceAdapter | None = None
     asset_adapter: AssetAdapter | None = None
+    movement: MovementStateMachine = field(default_factory=MovementStateMachine)
+    movement_planner: PathPlanner | None = field(default=None, repr=False, compare=False)
+    movement_bus: CellUpdateBus | None = field(default=None, repr=False, compare=False)
+    watchdog: Watchdog = field(default_factory=Watchdog)
+    mqtt_gateway: object | None = field(default=None, repr=False, compare=False)
+
+    # Fleet Orchestrator state — populated via register_agent()
+    fleet: dict[str, MovementStateMachine] = field(default_factory=dict, repr=False)
+    fleet_watchdogs: dict[str, Watchdog] = field(default_factory=dict, repr=False)
+
+    def __post_init__(self) -> None:
+        if self.movement_planner is None:
+            from .planner import CRNAPlanner
+
+            self.movement_planner = CRNAPlanner()
+        if self.movement_bus is None:
+            self.movement_bus = get_bus()
+        subscriber_id = f"manifold-brain-movement-{uuid.uuid4().hex}"
+        brain_ref = weakref.ref(self)
+
+        def _movement_callback(update: CellUpdate) -> None:
+            brain = brain_ref()
+            if brain is not None:
+                brain._handle_movement_update(update)
+
+        self.movement_bus.subscribe(subscriber_id, _movement_callback)
+        if hasattr(self.movement_bus, "unsubscribe"):
+            weakref.finalize(self, self.movement_bus.unsubscribe, subscriber_id)
+
+    # ------------------------------------------------------------------
+    # Fleet Orchestrator — N-Agent registration
+    # ------------------------------------------------------------------
+
+    def register_agent(self, agent_id: str) -> None:
+        """Register a new agent into the fleet.
+
+        Creates a fresh :class:`MovementStateMachine` and :class:`Watchdog` for
+        the given *agent_id*.  If the agent is already registered, this is a no-op.
+
+        Parameters
+        ----------
+        agent_id:
+            Unique identifier for the agent (e.g. ``"robot-1"``).
+        """
+        if agent_id in self.fleet:
+            return
+        self.fleet[agent_id] = MovementStateMachine()
+        self.fleet_watchdogs[agent_id] = Watchdog(
+            timeout_seconds=self.watchdog.timeout_seconds,
+        )
+        _logger.info("Fleet agent registered: %s (total=%d)", agent_id, len(self.fleet))
+
+    def unregister_agent(self, agent_id: str) -> None:
+        """Remove an agent from the fleet.
+
+        Parameters
+        ----------
+        agent_id:
+            Identifier of the agent to remove.
+        """
+        self.fleet.pop(agent_id, None)
+        self.fleet_watchdogs.pop(agent_id, None)
+        _logger.info("Fleet agent unregistered: %s (total=%d)", agent_id, len(self.fleet))
+
+    def fleet_agent_ids(self) -> list[str]:
+        """Return a list of all currently registered fleet agent IDs."""
+        return list(self.fleet.keys())
+
+    @property
+    def logical_pos(self) -> tuple[int, int, int]:
+        """Current snapped grid position for movement."""
+        return self.movement.logical_pos
+
+    @logical_pos.setter
+    def logical_pos(self, value: tuple[int, int, int]) -> None:
+        self.movement.logical_pos = tuple(int(coord) for coord in value)
+
+    @property
+    def physical_pos(self) -> tuple[float, float, float]:
+        """Current continuous position for movement."""
+        return self.movement.physical_pos
+
+    @physical_pos.setter
+    def physical_pos(self, value: tuple[float, float, float]) -> None:
+        self.movement.physical_pos = tuple(float(coord) for coord in value)
+
+    @property
+    def next_safe_cell(self) -> tuple[int, int, int] | None:
+        """The next path cell the agent is moving toward."""
+        return self.movement.next_safe_cell
+
+    @next_safe_cell.setter
+    def next_safe_cell(self, value: tuple[int, int, int] | None) -> None:
+        self.movement.next_safe_cell = tuple(int(coord) for coord in value) if value is not None else None
+
+    @property
+    def movement_state(self) -> MovementState:
+        """Current movement state machine phase."""
+        return self.movement.state
+
+    @property
+    def replan_pending(self) -> bool:
+        """Whether a replan has been requested by a gatekeeper event."""
+        return self.movement.replan_pending
+
+    @replan_pending.setter
+    def replan_pending(self, value: bool) -> None:
+        self.movement.replan_pending = bool(value)
+
+    @property
+    def current_path_set(self) -> set[tuple[int, int, int]]:
+        """Current set of path cells used for O(1) membership checks."""
+        return self.movement.current_path_set
+
+    def set_movement_goal(self, target_cell: tuple[int, int, int], agent_id: str | None = None) -> None:
+        """Assign a new navigation target and request a fresh plan.
+
+        Parameters
+        ----------
+        target_cell:
+            The 3-D grid coordinate to navigate toward.
+        agent_id:
+            If provided, route the goal to the specified fleet agent.
+            If ``None``, route to the primary (legacy) movement machine.
+        """
+        if agent_id is not None and agent_id in self.fleet:
+            self.fleet[agent_id].set_goal(target_cell)
+        else:
+            self.movement.set_goal(target_cell)
+
+    def feed_watchdog(self, agent_id: str | None = None) -> None:
+        """Reset the watchdog timer — call this from the hardware heartbeat loop.
+
+        Parameters
+        ----------
+        agent_id:
+            If provided, feed the watchdog of a specific fleet agent.
+            If ``None``, feed the primary watchdog.
+        """
+        if agent_id is not None and agent_id in self.fleet_watchdogs:
+            self.fleet_watchdogs[agent_id].feed()
+        else:
+            self.watchdog.feed()
+
+    def tick(self, delta_time: float) -> None:
+        """Advance the control loop: safety → movement → telemetry sync.
+
+        The loop order is strictly:
+        1. **Safety check** — if the watchdog has expired, enter ERROR state and
+           issue EMERGENCY_STOP via the MQTT gateway.
+        2. **Movement logic** — delegate to the MovementStateMachine (which
+           handles replan_pending internally).
+        3. **MQTT telemetry sync** — push position/status to hardware.
+        4. **Fleet iteration** — repeat steps 1–2 for each fleet member.
+
+        Automatic recovery: once :meth:`feed_watchdog` is called again, the
+        ERROR state is cleared and normal operation resumes on the next tick.
+        """
+        # --- Primary agent ---
+        self._tick_single(self.movement, self.watchdog, delta_time)
+
+        # --- Fleet agents ---
+        for agent_id, movement in self.fleet.items():
+            wd = self.fleet_watchdogs.get(agent_id)
+            if wd is None:
+                continue
+            self._tick_single(movement, wd, delta_time, agent_id=agent_id)
+
+        # --- MQTT telemetry sync (skip if primary is in ERROR) ---
+        if (
+            self.movement.state is not MovementState.ERROR
+            and self.mqtt_gateway is not None
+            and hasattr(self.mqtt_gateway, "sync_to_hardware")
+        ):
+            try:
+                self.mqtt_gateway.sync_to_hardware()
+            except Exception as exc:  # noqa: BLE001
+                _logger.debug("MQTT sync failed: %s", exc)
+
+    def _tick_single(
+        self,
+        movement: MovementStateMachine,
+        watchdog: Watchdog,
+        delta_time: float,
+        agent_id: str | None = None,
+    ) -> None:
+        """Run one tick cycle for a single agent (primary or fleet member).
+
+        Parameters
+        ----------
+        movement:
+            The MovementStateMachine for this agent.
+        watchdog:
+            The Watchdog for this agent.
+        delta_time:
+            Elapsed time since last tick.
+        agent_id:
+            Agent identifier (for logging), or ``None`` for the primary.
+        """
+        # Safety: watchdog check
+        if watchdog.is_expired():
+            if movement.state is not MovementState.ERROR:
+                label = agent_id or "primary"
+                _logger.warning(
+                    "Watchdog expired (%.3fs) for %s — entering ERROR state",
+                    watchdog.elapsed, label,
+                )
+                movement.state = MovementState.ERROR
+                self._emit_emergency_stop()
+            return  # Do NOT advance movement while in ERROR
+
+        # Recovery from ERROR: watchdog was fed externally
+        if movement.state is MovementState.ERROR:
+            label = agent_id or "primary"
+            _logger.info("Watchdog recovered for %s — resuming from ERROR → IDLE", label)
+            movement.state = MovementState.IDLE
+
+        # Movement logic (includes interrupt/replan processing)
+        movement.tick(delta_time, planner=self.movement_planner)
+
+    def _emit_emergency_stop(self) -> None:
+        """Publish EMERGENCY_STOP via the MQTT gateway if available."""
+        if self.mqtt_gateway is None:
+            return
+        bridge = getattr(self.mqtt_gateway, "bridge", None)
+        if bridge is not None and hasattr(bridge, "publish_command"):
+            try:
+                bridge.publish_command("EMERGENCY_STOP")
+            except Exception as exc:  # noqa: BLE001
+                _logger.debug("EMERGENCY_STOP publish failed: %s", exc)
+
+    def _handle_movement_update(self, update: CellUpdate) -> None:
+        """Bridge bus updates into the movement gatekeeper logic.
+
+        Propagates cell updates to the primary movement machine and all fleet
+        members so that every agent benefits from shared obstacle awareness.
+        """
+        self.movement.on_cell_update(update)
+        for movement in self.fleet.values():
+            movement.on_cell_update(update)
+
+    # ------------------------------------------------------------------
+    # Policy Command Interface
+    # ------------------------------------------------------------------
+
+    def handle_command(
+        self,
+        action_code: int,
+        params: dict[str, Any] | None = None,
+        agent_id: str | None = None,
+    ) -> None:
+        """Central command dispatcher: maps a PolicyAction code to a Brain method.
+
+        This is the API endpoint for the UI / MQTT bridge.  The frontend sends
+        ``{"action_code": N, "params": {...}}`` on the ``cmd`` topic; the bridge
+        deserializes it and calls this method.
+
+        Parameters
+        ----------
+        action_code:
+            Integer matching a :class:`PolicyAction` member.
+        params:
+            Action-specific parameters (target coords, zone id, etc.).
+        agent_id:
+            If provided, route the command only to that fleet agent.
+            If ``None`` or ``"ALL"``, broadcast the command to the primary
+            agent and all fleet members.
+        """
+        if params is None:
+            params = {}
+        try:
+            action = PolicyAction(action_code)
+        except ValueError:
+            _logger.warning("Unknown policy action code: %d", action_code)
+            return
+
+        handler = self._policy_action_map().get(action)
+        if handler is None:
+            _logger.info("PolicyAction %s not yet implemented", action.name)
+            return
+
+        # Routing: broadcast or targeted
+        if agent_id is not None and agent_id != "ALL":
+            if agent_id in self.fleet:
+                # Targeted to a specific fleet agent
+                handler(params, agent_id=agent_id)
+            else:
+                _logger.warning("Command for unknown fleet agent: %s", agent_id)
+        elif agent_id == "ALL":
+            # Broadcast: primary + all fleet members
+            handler(params, agent_id=None)
+            for fleet_id in list(self.fleet.keys()):
+                handler(params, agent_id=fleet_id)
+        else:
+            # Default: primary agent only
+            handler(params, agent_id=None)
+
+    def _policy_action_map(self) -> dict[PolicyAction, Any]:
+        """Return the mapping of PolicyAction → handler method."""
+        return {
+            PolicyAction.DEPLOY_AGENT: self._cmd_deploy,
+            PolicyAction.GATHER_DATA: self._cmd_gather,
+            PolicyAction.RECALIBRATE: self._cmd_recalibrate,
+            PolicyAction.PATROL: self._cmd_patrol,
+            PolicyAction.MAINTENANCE: self._cmd_maintenance,
+            PolicyAction.SCAN_WORLD: self._cmd_scan_world,
+            PolicyAction.INTERACT_OBJECT: self._cmd_interact_object,
+            PolicyAction.DEFEND_ZONE: self._cmd_defend_zone,
+            PolicyAction.ESCALATE: self._cmd_escalate,
+            PolicyAction.RETURN_HOME: self._cmd_return_home,
+            PolicyAction.FORM_COALITION: self._cmd_form_coalition,
+            PolicyAction.RESEARCH: self._cmd_research,
+            PolicyAction.EMERGENCY_STOP: self._cmd_emergency_stop,
+        }
+
+    def _cmd_deploy(self, params: dict[str, Any], agent_id: str | None = None) -> None:
+        """Deploy the agent to a specified position."""
+        target = params.get("target")
+        if target and len(target) >= 3:
+            self.set_movement_goal(tuple(int(c) for c in target[:3]), agent_id=agent_id)
+            _logger.info("DEPLOY_AGENT → target=%s agent=%s", target, agent_id or "primary")
+
+    def _cmd_gather(self, params: dict[str, Any], agent_id: str | None = None) -> None:
+        """Navigate to a data-gathering waypoint."""
+        target = params.get("target")
+        if target and len(target) >= 3:
+            self.set_movement_goal(tuple(int(c) for c in target[:3]), agent_id=agent_id)
+            _logger.info("GATHER_DATA → target=%s agent=%s", target, agent_id or "primary")
+
+    def _cmd_recalibrate(self, params: dict[str, Any], agent_id: str | None = None) -> None:
+        """Trigger sensor recalibration (future: sensor_bridge integration)."""
+        _logger.info("RECALIBRATE requested (params=%s, agent=%s)", params, agent_id or "primary")
+
+    def _cmd_patrol(self, params: dict[str, Any], agent_id: str | None = None) -> None:
+        """Set a patrol goal — translate UI coordinates to brain pathing."""
+        end = params.get("end") or params.get("target")
+        if end and len(end) >= 3:
+            self.set_movement_goal(tuple(int(c) for c in end[:3]), agent_id=agent_id)
+            _logger.info("PATROL → end=%s agent=%s", end, agent_id or "primary")
+
+    def _cmd_maintenance(self, params: dict[str, Any], agent_id: str | None = None) -> None:
+        """Enter a maintenance/docking routine."""
+        _logger.info("MAINTENANCE requested (params=%s, agent=%s)", params, agent_id or "primary")
+
+    def _cmd_scan_world(self, params: dict[str, Any], agent_id: str | None = None) -> None:
+        """Initiate a full-world scan sweep."""
+        _logger.info("SCAN_WORLD requested (params=%s, agent=%s)", params, agent_id or "primary")
+
+    def _cmd_interact_object(self, params: dict[str, Any], agent_id: str | None = None) -> None:
+        """Interact with a specific object (future: manipulation subsystem)."""
+        _logger.info("INTERACT_OBJECT requested (params=%s, agent=%s)", params, agent_id or "primary")
+
+    def _cmd_defend_zone(self, params: dict[str, Any], agent_id: str | None = None) -> None:
+        """Move to and hold a defensive zone."""
+        target = params.get("zone_center") or params.get("target")
+        if target and len(target) >= 3:
+            self.set_movement_goal(tuple(int(c) for c in target[:3]), agent_id=agent_id)
+            _logger.info("DEFEND_ZONE → center=%s agent=%s", target, agent_id or "primary")
+
+    def _cmd_escalate(self, params: dict[str, Any], agent_id: str | None = None) -> None:
+        """Escalate current situation to a higher-level controller."""
+        _logger.info("ESCALATE requested (params=%s, agent=%s)", params, agent_id or "primary")
+
+    def _cmd_return_home(self, params: dict[str, Any], agent_id: str | None = None) -> None:
+        """Navigate back to the home/dock position."""
+        home = params.get("home", (0, 0, 0))
+        self.set_movement_goal(tuple(int(c) for c in home[:3]), agent_id=agent_id)
+        _logger.info("RETURN_HOME → %s agent=%s", home, agent_id or "primary")
+
+    def _cmd_form_coalition(self, params: dict[str, Any], agent_id: str | None = None) -> None:
+        """Request coalition formation with specified agent ids."""
+        _logger.info("FORM_COALITION requested (params=%s, agent=%s)", params, agent_id or "primary")
+
+    def _cmd_research(self, params: dict[str, Any], agent_id: str | None = None) -> None:
+        """Queue a research/exploration task."""
+        _logger.info("RESEARCH requested (params=%s, agent=%s)", params, agent_id or "primary")
+
+    def _cmd_emergency_stop(self, params: dict[str, Any], agent_id: str | None = None) -> None:
+        """Trigger immediate EMERGENCY_STOP — same as watchdog timeout."""
+        _logger.warning("EMERGENCY_STOP command received (agent=%s)", agent_id or "primary")
+        if agent_id is not None and agent_id in self.fleet:
+            self.fleet[agent_id].state = MovementState.ERROR
+        else:
+            self.movement.state = MovementState.ERROR
+        self._emit_emergency_stop()
 
     def decide(self, task: BrainTask) -> BrainDecision:
         task = task.normalized()

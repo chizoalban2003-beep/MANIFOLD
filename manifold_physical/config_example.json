@@ -12,6 +12,8 @@
   "mqtt": {
     "broker_host": "homeassistant.local",
     "broker_port": 1883,
+    "agent_id": "roomba-01",
+    "heartbeat_interval": 0.5,
     "devices": [
       {
         "topic": "homeassistant/binary_sensor/+/motion/state",
