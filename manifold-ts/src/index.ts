@@ -68,5 +68,12 @@ export type {
   TaskPlan,
   CRNAValues,
   WorldStatus,
+  VectorEntry,
+  VectorSearchResult,
+  VectorStats,
+  SwarmPeer,
+  SwarmRouteResult,
+  RemoteAlertResult,
+  VCGResult,
 } from "./types.js";
 

@@ -330,6 +330,8 @@ export interface SubTask {
   assigned_agent_id: string | null;
   stakes: number;
   status: "pending" | "assigned" | "blocked" | "complete";
+  /** ToM stagger: seconds to wait before dispatching this sub-task. */
+  delay_seconds?: number;
 }
 
 /** Task decomposition + routing plan produced by TaskRouter. */
@@ -338,6 +340,8 @@ export interface TaskPlan {
   original_prompt: string;
   sub_tasks: SubTask[];
   executable: boolean;
+  /** True if Theory-of-Mind stagger was applied to any sub-task. */
+  has_tom_stagger?: boolean;
 }
 
 /** CRNA (Cost / Risk / Neutrality / Asset) vector for a grid cell. */
@@ -362,4 +366,70 @@ export interface WorldStatus {
   planner_ready: boolean;
   /** Number of agents currently registered. */
   agents_registered: number;
+}
+
+// ---------------------------------------------------------------------------
+// v2.5.0 types — Vector memory, Swarm routing, Remote alerts
+// ---------------------------------------------------------------------------
+
+/** A single entry in the semantic vector index. */
+export interface VectorEntry {
+  id: string;
+  vector: number[];
+  metadata?: Record<string, unknown>;
+}
+
+/** One result from a vector similarity search. */
+export interface VectorSearchResult {
+  id: string;
+  /** Cosine similarity score [0, 1]. */
+  similarity: number;
+  metadata?: Record<string, unknown>;
+}
+
+/** Statistics for the in-process VectorIndex. */
+export interface VectorStats {
+  /** Number of entries in the index. */
+  size: number;
+  /** Dimensionality of stored vectors (null if index is empty). */
+  dim: number | null;
+  /** Number of LSH buckets. */
+  lsh_buckets: number;
+  bucket_summary?: Record<string, number>;
+}
+
+/** A peer in the MANIFOLD swarm routing table. */
+export interface SwarmPeer {
+  peer_id: string;
+  endpoint: string;
+  /** Routing value: higher = preferred for routing. */
+  routing_value: number;
+  domain?: string;
+}
+
+/** Result from swarm task routing (POST /swarm/route). */
+export interface SwarmRouteResult {
+  peer_id: string;
+  endpoint: string;
+  routing_value: number;
+  task_forwarded?: boolean;
+}
+
+/** Result from sending a mobile alert (POST /remote/alert). */
+export interface RemoteAlertResult {
+  delivered: boolean;
+  log_id: string;
+}
+
+/** VCG auction result embedded in POST /task responses when use_vcg=true. */
+export interface VCGResult {
+  winner?: string;
+  assignments?: Record<string, string>;
+  payments?: Record<string, number>;
+  social_welfare?: number;
+  /** Alias for social_welfare used in some contexts. */
+  total_welfare?: number;
+  domain?: string;
+  task_domain?: string;
+  mechanism?: string;
 }

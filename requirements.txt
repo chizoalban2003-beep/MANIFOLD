@@ -1,3 +1,12 @@
-pandas==3.0.2
-streamlit==1.57.0
-pytest==9.0.3
+# Core runtime dependencies (mirrors pyproject.toml [project].dependencies)
+pandas>=2.1
+pydantic>=2.0
+
+# UI extras
+streamlit>=1.40
+
+# Dev / test extras
+pytest>=9.0
+pytest-asyncio>=0.23
+aiosqlite>=0.19
+statsmodels>=0.14
