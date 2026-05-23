@@ -12,10 +12,10 @@
 > Built on **NERVATURA** — the governed intelligence framework.
 
 [![CI](https://github.com/chizoalban2003-beep/MANIFOLD/actions/workflows/manifold-ci.yml/badge.svg)](https://github.com/chizoalban2003-beep/MANIFOLD/actions/workflows/manifold-ci.yml)
-[![Tests](https://img.shields.io/badge/tests-2598%2B-brightgreen)]()
-[![Version](https://img.shields.io/badge/version-2.2.0-blue)]()
+[![Tests](https://img.shields.io/badge/tests-2594%2B-brightgreen)]()
+[![Version](https://img.shields.io/badge/version-2.4.0-blue)]()
 [![Python](https://img.shields.io/badge/python-3.12%2B-blue)]()
-[![Zero deps](https://img.shields.io/badge/external%20deps-0-success)]()
+[![Zero deps](https://img.shields.io/badge/external%20deps-pandas%2C%20pydantic-success)]()
 [![License](https://img.shields.io/badge/license-MIT-lightgrey)]()
 
 ---
@@ -337,6 +337,7 @@ See `manifold-ts/README.md` for full TypeScript documentation.
 | Phase | Status | Features |
 |---|---|---|
 | **v1.7.0** | ✅ Done | CRNA engine, ManifoldBrain (13 actions), PolicyRuleEngine, brain persistence, AgentRegistry, TaskRouter, CellUpdateBus, DynamicGrid (TTL), DigitalHealthMonitor, CRNAPlanner (A*), NERVATURAWorld (3D voxel), SpaceIngestion, SensorBridge, cell occupancy and right-of-way, manifold-world (CoC PWA), universal AI gateway, WebSocket, TypeScript client, federation, ATS trust network |
+| **v2.4.0** | ✅ Done | Fleet Orchestrator (Town Hall) — ManifoldBrain manages N agents via `register_agent()`, per-agent tick isolation, `handle_command(agent_id=...)` routing with `"ALL"` broadcast, MQTT `agent_id` passthrough, 2594 tests |
 | **Phase 1** | 🔄 In progress | Deploy to Railway/Fly/Heroku, onboard pilot orgs, real governance data collection, manifold-world as installable PWA on phone |
 | **Phase 2** | 📋 Roadmap | MANIFOLD Physical v0.1 — Roomba bridge with real hardware, MQTT IoT connector, camera-based obstacle detection pipeline |
 | **Phase 3** | 🔭 Vision | NERVATURA platform — digital + physical governance OS, brand restructure, commercial partnerships, managed cloud offering |
@@ -347,13 +348,13 @@ See `manifold-ts/README.md` for full TypeScript documentation.
 
 | Metric | Value |
 |---|---|
-| Tests | 2383 / 2383 ✅ |
+| Tests | 2594 / 2594 ✅ |
 | Python modules | 90+ |
 | API endpoints | 48+ |
 | Domain packs | 7 |
 | Brain actions | 13 |
 | Agent types | Unlimited |
-| External dependencies | **0** |
+| External dependencies | **pandas, pydantic** |
 
 ---
 
