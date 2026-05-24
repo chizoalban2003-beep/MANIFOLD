@@ -137,3 +137,13 @@ def handle_post_agent_command(
             "status": "queued",
         },
     )
+
+
+def handle_get_tasks_active(self: "ManifoldHandler") -> None:
+    """GET /tasks/active — return active sub-tasks with progress and animation_type."""
+    s = _srv()
+    try:
+        active = s._TASK_ROUTER.active_sub_tasks()
+        s._send_json(self, 200, {"active_sub_tasks": active, "count": len(active)})
+    except Exception as exc:  # noqa: BLE001
+        s._send_json(self, 500, {"error": str(exc)})

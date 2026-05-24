@@ -376,6 +376,20 @@ function drawTerrain(){
       ctx.restore();
     } else {
       const zc=zoneCols(ti,tj); drawDiamond(cx,cy,zc.base,zc.bevel);
+      // Zone work-progress colour blend — tiles lighten/tint as agents work
+      if(!isPath(ti,tj)&&!isCenter(ti,tj)){
+        const zk=ti<7&&tj<7?'finance':ti>=9&&tj<7?'devops':ti<7&&tj>=9?'healthcare':ti>=9&&tj>=9?'legal':'general';
+        const wp=_zoneWorkProgress[zk]||0;
+        if(wp>0.01){
+          // finance→lighter warm, devops→blue tint, healthcare→green tint, legal→purple tint
+          const tintCols={finance:'rgba(200,120,32,',devops:'rgba(24,95,165,',healthcare:'rgba(15,110,86,',legal:'rgba(83,74,183,',general:'rgba(175,169,236,'};
+          const tc=tintCols[zk]||tintCols.general;
+          ctx.save();ctx.globalAlpha=wp*0.22;
+          ctx.fillStyle=tc+'1)';
+          ctx.beginPath();ctx.moveTo(cx,cy-TH/2);ctx.lineTo(cx+TW/2,cy);ctx.lineTo(cx,cy+TH/2);ctx.lineTo(cx-TW/2,cy);ctx.closePath();ctx.fill();
+          ctx.globalAlpha=1;ctx.restore();
+        }
+      }
       if(isPath(ti,tj)&&!isCenter(ti,tj)){
         ctx.save();ctx.globalAlpha=.12;ctx.strokeStyle='#888';ctx.lineWidth=.5;
         for(let ln=0;ln<3;ln++){
@@ -594,22 +608,54 @@ function drawManifoldTower(){
       ctx.restore();
     }
   }
-  // Orb
+  // Orb — colour based on system state
   const orbY=cy-52;
   const orbR=8+4*Math.sin(clock*1.5);
-  ctx.save();ctx.shadowBlur=24+8*Math.sin(clock*1.5);ctx.shadowColor='#7F77DD';
-  ctx.beginPath();ctx.arc(cx,orbY,orbR,0,Math.PI*2);ctx.fillStyle='#AFA9EC';ctx.fill();
+  const allWorking=WS.agents.length>0&&WS.agents.every(a=>a._state==='working');
+  const anyEscalation=_adversarialFlash>0||_currentEscalation!=null;
+  const orbCol=anyEscalation?'#E24B4A':allWorking?'#FFD700':'#AFA9EC';
+  const glowCol=anyEscalation?'#E24B4A':allWorking?'#FFB800':'#7F77DD';
+  ctx.save();ctx.shadowBlur=24+8*Math.sin(clock*1.5);ctx.shadowColor=glowCol;
+  ctx.beginPath();ctx.arc(cx,orbY,orbR,0,Math.PI*2);ctx.fillStyle=orbCol;ctx.fill();
   ctx.shadowBlur=0;ctx.restore();
   // Sparks
   if(WS.world_health>50){
     for(let i=0;i<4;i++){
       const ang=clock*1.5+i*Math.PI/2;
       ctx.beginPath();ctx.arc(cx+Math.cos(ang)*18,orbY+Math.sin(ang)*8,2,0,Math.PI*2);
-      ctx.fillStyle='#AFA9EC';ctx.fill();
+      ctx.fillStyle=orbCol;ctx.fill();
     }
   }
-  // Label
-  ctx.fillStyle='#AFA9EC';ctx.font='bold 9px sans-serif';ctx.textAlign='center';
+  // Agent-count dots ring around orb (one dot per registered agent, pulsing)
+  const agCount=WS.agents.length;
+  if(agCount>0){
+    const ringR=orbR+8;
+    for(let i=0;i<agCount;i++){
+      const ag=WS.agents[i];
+      const ang=clock*(0.8+i*0.05)+i*(Math.PI*2/agCount);
+      const dx=cx+Math.cos(ang)*ringR, dy=orbY+Math.sin(ang)*ringR*0.4;
+      const pulse=0.5+0.5*Math.sin(clock*(2+i*0.3)+i);
+      const dotCol=ag._state==='working'?'#1D9E75':ag._state==='idle'?'#c87820':'#AFA9EC';
+      ctx.save();ctx.globalAlpha=0.6+0.4*pulse;
+      ctx.beginPath();ctx.arc(dx,dy,2,0,Math.PI*2);ctx.fillStyle=dotCol;ctx.fill();
+      ctx.restore();
+    }
+  }
+  // "TH Lv.X" gold badge — X = number of research tree nodes unlocked
+  const unlockedCount=Object.values(_researchUnlocked||{}).filter(Boolean).length;
+  const thLevel=Math.max(1,unlockedCount+1);
+  // Badge background
+  const badgeW=36,badgeH=12,badgeX=cx-badgeW/2,badgeY=orbY-orbR-22;
+  ctx.save();
+  ctx.shadowBlur=6;ctx.shadowColor='#FFD700';
+  ctx.fillStyle='rgba(40,30,0,0.85)';ctx.strokeStyle='#FFD700';ctx.lineWidth=1;
+  ctx.beginPath();ctx.roundRect(badgeX,badgeY,badgeW,badgeH,3);ctx.fill();ctx.stroke();
+  ctx.shadowBlur=0;
+  ctx.fillStyle='#FFD700';ctx.font='bold 8px sans-serif';ctx.textAlign='center';
+  ctx.fillText('TH Lv.'+thLevel,cx,badgeY+9);
+  ctx.restore();
+  // Tower label
+  ctx.fillStyle=orbCol;ctx.font='bold 9px sans-serif';ctx.textAlign='center';
   ctx.fillText(`MANIFOLD L${WS.tower_level}`,cx,orbY-orbR-6);
   ctx.restore();
 }
@@ -748,6 +794,161 @@ function drawParticlesAndFloats(){
   ctx.globalAlpha=1;ctx.restore();
 }
 
+// ========== ZONE WORK PROGRESS ==========
+// per-zone 0–1 progress — drives tile colour blend as agents work
+const _zoneWorkProgress={finance:0,devops:0,healthcare:0,legal:0,general:0};
+const _ZONE_DECAY=0.05; // rate of decay per second when no agent working
+
+function _agentZoneKey(domain){
+  if(domain==='finance') return 'finance';
+  if(domain==='devops') return 'devops';
+  if(domain==='healthcare') return 'healthcare';
+  if(domain==='legal') return 'legal';
+  return 'general';
+}
+
+// ========== AGENT TASK ANIMATIONS ==========
+// Maps agent id → {type, progress} received from task_progress WS events
+const _agentAnimState={};
+
+function _drawTaskAnim(ag,sx,sy){
+  const anim=_agentAnimState[ag.id];
+  const type=anim?anim.type:ag._animType||'idle';
+  const prog=anim?anim.progress:(ag._progress||0);
+  if(type==='idle'||!ag||ag._state!=='working') return;
+  ctx.save();
+  if(type==='sweep'){
+    // Rotating brush arc below agent body + dust motes + clean trail
+    const arcR=10+4*Math.sin(clock*3);
+    const arcStart=clock*2, arcEnd=arcStart+Math.PI*1.2;
+    ctx.save();ctx.strokeStyle='rgba(180,255,120,0.7)';ctx.lineWidth=2.5;
+    ctx.shadowBlur=6;ctx.shadowColor='#90EE60';
+    ctx.beginPath();ctx.arc(sx,sy+4,arcR,arcStart,arcEnd);ctx.stroke();
+    ctx.shadowBlur=0;ctx.restore();
+    // Dust motes
+    for(let d=0;d<4;d++){
+      const da=arcStart+d*(Math.PI/4)+clock;
+      const mx=sx+Math.cos(da)*(arcR+4), my=sy+4+Math.sin(da)*(arcR+4)*0.5;
+      ctx.globalAlpha=0.5+0.3*Math.sin(clock*5+d);
+      ctx.fillStyle='#D4C89A';ctx.beginPath();ctx.arc(mx,my,1.5,0,Math.PI*2);ctx.fill();
+    }
+    ctx.globalAlpha=1;
+    // Clean-trail line behind agent
+    if(ag._trail&&ag._trail.length>2){
+      ctx.save();ctx.strokeStyle='rgba(64,200,64,0.25)';ctx.lineWidth=3;
+      ctx.beginPath();ctx.moveTo(ag._trail[0].sx,ag._trail[0].sy);
+      for(const pt of ag._trail) ctx.lineTo(pt.sx,pt.sy);
+      ctx.stroke();ctx.restore();
+    }
+    // Progress: tile brightens (zone tint already handled in drawTerrain)
+  }else if(type==='scan'){
+    // Radar sweep arc centred on agent
+    const sweepAngle=clock*1.8;
+    ctx.save();ctx.strokeStyle='rgba(100,200,255,0.6)';ctx.lineWidth=1.5;
+    ctx.shadowBlur=8;ctx.shadowColor='#64C8FF';
+    const radarR=18;
+    ctx.beginPath();
+    ctx.moveTo(sx,sy-10);
+    ctx.arc(sx,sy-10,radarR,sweepAngle-0.4,sweepAngle);
+    ctx.lineTo(sx,sy-10);ctx.stroke();
+    // Sweep fill sector
+    ctx.globalAlpha=0.15;ctx.fillStyle='#64C8FF';
+    ctx.beginPath();ctx.moveTo(sx,sy-10);
+    ctx.arc(sx,sy-10,radarR,sweepAngle-0.4,sweepAngle);
+    ctx.lineTo(sx,sy-10);ctx.fill();
+    ctx.globalAlpha=1;ctx.shadowBlur=0;
+    // N-reduction sparks at sweep edge
+    const sx2=sx+Math.cos(sweepAngle)*radarR, sy2=sy-10+Math.sin(sweepAngle)*radarR;
+    ctx.fillStyle='#80E0FF';
+    for(let sp=0;sp<3;sp++){
+      ctx.globalAlpha=0.7+0.3*Math.sin(clock*8+sp);
+      ctx.beginPath();ctx.arc(sx2+(sp-1)*3,sy2,1.5,0,Math.PI*2);ctx.fill();
+    }
+    ctx.globalAlpha=1;ctx.restore();
+  }else if(type==='stream'){
+    // 4 vertical data-stream columns scrolling upward
+    const cols=['#185FA5','#c87820','#0F6E56','#534AB7'];
+    const icons=['$','%','#','@'];
+    for(let c=0;c<4;c++){
+      const cx2=sx-18+c*12;
+      for(let r=0;r<5;r++){
+        const oy=((sy-70+r*10)-(clock*40+c*7))%40;
+        const ry=sy-70+((oy%40+40)%40);
+        const a=0.3+0.5*Math.sin(clock*4+c+r);
+        ctx.globalAlpha=a;ctx.fillStyle=cols[c];
+        ctx.fillRect(cx2-3,ry-4,6,4);
+      }
+    }
+    ctx.globalAlpha=1;
+    // Rotating domain icons around agent
+    for(let i=0;i<4;i++){
+      const ia=clock*1.2+i*(Math.PI/2);
+      const ix=sx+Math.cos(ia)*14, iy=sy-14+Math.sin(ia)*7;
+      ctx.globalAlpha=0.6+0.4*Math.sin(clock*3+i);
+      ctx.fillStyle='#FFD700';ctx.font='8px sans-serif';ctx.textAlign='center';
+      ctx.fillText(icons[i],ix,iy);
+    }
+    ctx.globalAlpha=1;
+  }else if(type==='write'){
+    // Pen moving left-right above agent
+    const penX=sx-10+20*(0.5+0.5*Math.sin(clock*2));
+    const penY=sy-40;
+    ctx.save();ctx.strokeStyle='#AAA';ctx.lineWidth=1.5;
+    ctx.beginPath();ctx.moveTo(penX,penY);ctx.lineTo(penX+4,penY+8);ctx.stroke();
+    ctx.fillStyle='#FFD700';ctx.beginPath();ctx.arc(penX,penY,2,0,Math.PI*2);ctx.fill();
+    // Document lines materialising with progress
+    const lines=Math.floor(prog*5);
+    for(let l=0;l<lines;l++){
+      ctx.globalAlpha=0.7;ctx.strokeStyle='#CCC';ctx.lineWidth=1;
+      ctx.beginPath();ctx.moveTo(sx-12,penY+12+l*5);ctx.lineTo(sx+12,penY+12+l*5);ctx.stroke();
+    }
+    ctx.globalAlpha=1;ctx.restore();
+  }else if(type==='deploy'){
+    // Rocket rising with progress
+    const rocketProg=Math.min(1,prog);
+    const rocketY=sy-20-rocketProg*30;
+    ctx.save();ctx.font='12px sans-serif';ctx.textAlign='center';
+    ctx.fillText('🚀',sx,rocketY);
+    // Exhaust trail
+    ctx.globalAlpha=0.4;ctx.strokeStyle='#FF8844';ctx.lineWidth=2;
+    ctx.beginPath();ctx.moveTo(sx,rocketY+8);ctx.lineTo(sx,rocketY+20);ctx.stroke();
+    ctx.globalAlpha=1;
+    // Green checkmarks appearing with progress
+    const checks=Math.floor(rocketProg*4);
+    for(let ch=0;ch<checks;ch++){
+      ctx.globalAlpha=0.9;ctx.fillStyle='#1D9E75';ctx.font='9px sans-serif';ctx.textAlign='left';
+      ctx.fillText('✓',sx-14+ch*9,sy-8);
+    }
+    ctx.globalAlpha=1;ctx.restore();
+  }else if(type==='collab'){
+    // Find cooperative partner agent
+    const partner=WS.agents.find(a=>a.id!==ag.id&&a._state==='working'&&
+      a.domain===ag.domain&&a._animType==='collab');
+    if(partner){
+      const ps=tileToScreen(partner.tx,partner.tz);
+      const mx=(sx+ps.x)/2, my=(sy+ps.y)/2-20;
+      // Pulsing ring
+      const pr=8+4*Math.sin(clock*3);
+      ctx.save();ctx.strokeStyle='rgba(175,169,236,0.6)';ctx.lineWidth=1.5;
+      ctx.shadowBlur=8;ctx.shadowColor='#AFA9EC';
+      ctx.beginPath();ctx.arc(sx,sy-10,pr,0,Math.PI*2);ctx.stroke();
+      ctx.beginPath();ctx.arc(ps.x,ps.y-10,pr,0,Math.PI*2);ctx.stroke();
+      ctx.shadowBlur=0;ctx.restore();
+      // Animated dashed pipe between agents
+      ctx.save();ctx.setLineDash([4,4]);ctx.lineDashOffset=-clock*12;
+      ctx.strokeStyle='rgba(175,169,236,0.5)';ctx.lineWidth=1.5;
+      ctx.beginPath();ctx.moveTo(sx,sy-10);ctx.lineTo(ps.x,ps.y-10);ctx.stroke();
+      ctx.setLineDash([]);ctx.restore();
+      // Shared task bubble at midpoint
+      ctx.save();ctx.fillStyle='rgba(40,35,70,0.9)';ctx.strokeStyle='#AFA9EC';ctx.lineWidth=1;
+      ctx.beginPath();ctx.roundRect(mx-20,my-8,40,14,4);ctx.fill();ctx.stroke();
+      ctx.fillStyle='#AFA9EC';ctx.font='7px sans-serif';ctx.textAlign='center';
+      ctx.fillText('⚡ Collab',mx,my+3);ctx.restore();
+    }
+  }
+  ctx.restore();
+}
+
 // ========== AGENTS ==========
 function initAgent(ag){
   if(ag._init) return; ag._init=true;
@@ -767,6 +968,15 @@ function agentZone(domain){
 }
 
 function updateAgents(dt){
+  // Decay zone work progress when no agent is working there
+  for(const zone of Object.keys(_zoneWorkProgress)){
+    let hasWorker=false;
+    for(const ag of WS.agents){
+      if(ag._state==='working'&&_agentZoneKey(ag.domain)===zone){hasWorker=true;break;}
+    }
+    if(hasWorker) _zoneWorkProgress[zone]=Math.min(1,_zoneWorkProgress[zone]+0.08*dt);
+    else _zoneWorkProgress[zone]=Math.max(0,_zoneWorkProgress[zone]-_ZONE_DECAY*dt);
+  }
   for(const ag of WS.agents){
     initAgent(ag);
     if(ag._paused) continue;
@@ -910,6 +1120,8 @@ function drawAgent(ag){
     ctx.beginPath();ctx.arc(0,0,16,0,Math.PI*2);ctx.stroke();
     ctx.restore();
   }
+  // Task animation overlay (sweep/scan/stream/write/deploy/collab)
+  if(working) _drawTaskAnim(ag,sx,sy);
   // Governance pulse
   if(ag._govPulse>0){
     ctx.save();ctx.globalAlpha=ag._govPulse;
@@ -1584,6 +1796,19 @@ function handleWSMsg(msg){
   if(msg.vcg_result) showVCGToast(msg.vcg_result);
   if(msg.type==='task_update') showToast('Task '+msg.status+': '+(msg.task_id||'').slice(0,8));
   if(msg.type==='world_stats') WS.world_health=msg.system_health*100;
+  // task_progress — update agent animation state
+  if(msg.event==='task_progress'){
+    const agId=msg.agent_id;
+    if(agId){
+      _agentAnimState[agId]={type:msg.animation_type||'idle',progress:msg.progress||0};
+      const ag=WS.agents.find(a=>a.id===agId);
+      if(ag) ag._animType=msg.animation_type||'idle';
+    }
+  }
+  // task_handoff — show toast
+  if(msg.event==='task_handoff'){
+    showToast('⚡ Handoff: '+msg.from_agent+' → '+msg.to_agent+(msg.zone?' ('+msg.zone+')':''),'#AFA9EC');
+  }
 }
 setInterval(async()=>{
   if(wsConnected) return;
@@ -1801,6 +2026,28 @@ async function _pollConvergence(){
 setInterval(_pollConvergence,30000);
 // Initial poll after 2 seconds (wait for API key to be set)
 setTimeout(_pollConvergence,2000);
+
+// ── Active Tasks Poll (fetch animation_type on load + every 10s) ─────────
+async function _pollActiveTasks(){
+  const apiBase=(localStorage.getItem('manifold_url')||'').replace(/\/$/,'');
+  const apiKey=localStorage.getItem('manifold_key')||'';
+  if(!apiBase) return;
+  try{
+    const resp=await fetch(apiBase+'/tasks/active',{headers:{'Authorization':'Bearer '+apiKey}});
+    if(!resp.ok) return;
+    const data=await resp.json();
+    for(const st of (data.active_sub_tasks||[])){
+      const agId=st.agent_id;
+      if(agId){
+        _agentAnimState[agId]={type:st.animation_type||'idle',progress:st.progress||0};
+        const ag=WS.agents.find(a=>a.id===agId);
+        if(ag) ag._animType=st.animation_type||'idle';
+      }
+    }
+  }catch(e){}
+}
+setInterval(_pollActiveTasks,10000);
+setTimeout(_pollActiveTasks,3000);
 </script>
 
 <!-- Convergence sparkline widget (bottom-right of world panel) -->

@@ -86,6 +86,7 @@ def handle_ws_upgrade(self: "ManifoldHandler") -> None:
 
     last_agent_push = 0.0
     last_stats_push = 0.0
+    last_task_progress_push = 0.0
 
     def _agents_payload() -> bytes:
         agents = s._AGENT_REGISTRY.all_agents()
@@ -118,6 +119,56 @@ def handle_ws_upgrade(self: "ManifoldHandler") -> None:
         }
         return json.dumps(data).encode()
 
+    def _task_progress_payloads() -> list[bytes]:
+        """Return one task_progress frame per active sub-task."""
+        frames = []
+        for st in s._TASK_ROUTER.active_sub_tasks():
+            data = {
+                "event": "task_progress",
+                "plan_id": st["plan_id"],
+                "sub_task_id": st["sub_task_id"],
+                "agent_id": st["agent_id"],
+                "progress": st["progress"],
+                "animation_type": st["animation_type"],
+                "domain": st["domain"],
+            }
+            frames.append(json.dumps(data).encode())
+        return frames
+
+    def _task_handoff_payloads() -> list[bytes]:
+        """Return task_handoff frames for cooperative sub-task pairs in the same parallel group."""
+        frames = []
+        seen: set = set()
+        for plan in s._TASK_ROUTER.all_plans():
+            # Group assigned sub-tasks by parallel_group
+            groups: dict = {}
+            for st in plan.sub_tasks:
+                if st.status in ("assigned", "running") and st.assigned_to and st.execution_mode == "parallel":
+                    groups.setdefault(st.parallel_group, []).append(st)
+            for group_sts in groups.values():
+                if len(group_sts) < 2:
+                    continue
+                for i in range(len(group_sts) - 1):
+                    a, b = group_sts[i], group_sts[i + 1]
+                    if a.assigned_to == b.assigned_to:
+                        continue
+                    key = (plan.task_id, a.index, b.index)
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    from manifold.workspace import GlobalWorkspace  # noqa: PLC0415
+                    ws_obj = GlobalWorkspace()
+                    zone, _ = ws_obj.route(a.domain)
+                    data = {
+                        "event": "task_handoff",
+                        "from_agent": a.assigned_to,
+                        "to_agent": b.assigned_to,
+                        "payload_description": a.prompt[:60],
+                        "zone": zone,
+                    }
+                    frames.append(json.dumps(data).encode())
+        return frames
+
     try:
         while True:
             now = time.time()
@@ -127,6 +178,12 @@ def handle_ws_upgrade(self: "ManifoldHandler") -> None:
             if now - last_stats_push >= 30.0:
                 s._ws_send_frame(conn, _stats_payload())
                 last_stats_push = now
+            if now - last_task_progress_push >= 5.0:
+                for frame in _task_progress_payloads():
+                    s._ws_send_frame(conn, frame)
+                for frame in _task_handoff_payloads():
+                    s._ws_send_frame(conn, frame)
+                last_task_progress_push = now
             try:
                 frame = s._ws_read_frame(conn)
                 if frame is None:

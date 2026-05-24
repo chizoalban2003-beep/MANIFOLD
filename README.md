@@ -339,6 +339,8 @@ See `manifold-ts/README.md` for full TypeScript documentation.
 | **v1.7.0** | ✅ Done | CRNA engine, ManifoldBrain (13 actions), PolicyRuleEngine, brain persistence, AgentRegistry, TaskRouter, CellUpdateBus, DynamicGrid (TTL), DigitalHealthMonitor, CRNAPlanner (A*), NERVATURAWorld (3D voxel), SpaceIngestion, SensorBridge, cell occupancy and right-of-way, manifold-world (CoC PWA), universal AI gateway, WebSocket, TypeScript client, federation, ATS trust network |
 | **v2.4.0** | ✅ Done | Fleet Orchestrator (Town Hall) — ManifoldBrain manages N agents via `register_agent()`, per-agent tick isolation, `handle_command(agent_id=...)` routing with `"ALL"` broadcast, MQTT `agent_id` passthrough, 2594 tests |
 | **v2.5.0** | ✅ Done | CoC world complete — zone deploy panel, agent army bar, escalation overlay, pan+zoom, BFT indicator, VCG toasts, adversarial alerts, research tree; ToM in TaskRouter; remote/vector/swarm endpoints |
+| **v2.6.0** | ✅ Done | Agent onboarding — `agent_profiles.py` (12 profiles), CLI `agent add`, world ➕ Add Agent modal; Research Agenda (5 theoretical gaps) |
+| **v2.7.0** | ✅ Done | Living world — Town Hall identity (gold TH badge, orb colour, agent-count dots), per-agent task animations (sweep/scan/stream/write/deploy/collab), zone environment response; `SubTask.progress`/`animation_type`; WebSocket `task_progress`/`task_handoff` events; `GET /tasks/active` |
 | **Phase 1** | 🔄 In progress | Deploy to Railway/Fly/Heroku, onboard pilot orgs, real governance data collection, manifold-world as installable PWA on phone |
 | **Phase 2** | 📋 Roadmap | MANIFOLD Physical v0.1 — Roomba bridge with real hardware, MQTT IoT connector, camera-based obstacle detection pipeline |
 | **Phase 3** | 🔭 Vision | NERVATURA platform — digital + physical governance OS, brand restructure, commercial partnerships, managed cloud offering |
@@ -453,16 +455,16 @@ provides the empirical baseline all theoretical work should improve upon.
 
 ---
 
-## MANIFOLD World (v2.5.0)
+## MANIFOLD World (v2.7.0)
 
-MANIFOLD World (`/world`) is an isometric real-time governance game built on the MANIFOLD API — a Clash of Clans-style command interface for your agent fleet.
+MANIFOLD World (`/world`) is an isometric real-time governance game built on the MANIFOLD API — a Clash of Clans/Sims/Minecraft-style command interface for your agent fleet.
 
 ### Interactive Features
 
 | Feature | Description |
 |---|---|
 | **Zone-Tap Deploy** | Tap any zone tile to open a bottom-sheet with CRNA bars, domain quick-tasks, custom input, stakes radio, and one-tap deployment |
-| **Agent Army Bar** | Fixed bottom bar showing all agents with status dots and episode badges; drag-to-deploy to any zone tile |
+| **Agent Army Bar** | Fixed bottom bar showing all agents with status dots and episode badges; drag-to-deploy to any zone tile; ➕ Add Agent button for profile-picker onboarding |
 | **Escalation Overlay** | Auto-shown when WebSocket receives `escalation` events with risk > 0.85; shows risk bar, 60s countdown, Approve/Deny buttons |
 | **Pan + Zoom** | Drag to pan the isometric grid; scroll to zoom (0.4×–2.2×); double-click to reset; pinch-zoom on mobile |
 | **Mini-Map** | 80×60 canvas in bottom-right corner showing all tiles and viewport rectangle; click to jump |
@@ -470,6 +472,9 @@ MANIFOLD World (`/world`) is an isometric real-time governance game built on the
 | **VCG Auction Toast** | Shown after `POST /task` when response contains `vcg_result`; purple toast with winner, domain, welfare efficiency |
 | **Adversarial Alert** | Dismissible banner at top when WebSocket receives `adversarial` event; MANIFOLD tower flashes 3 red pulses |
 | **Research Tree** | 5-level token-gated governance capability tree (tap tower → Research); localStorage persistence; unlocks flags on task requests |
+| **Town Hall Identity** | MANIFOLD tower shows gold `TH Lv.X` badge (X = unlocked capabilities), colour-reactive orb (gold=all working, red=escalation, purple=idle), and pulsing agent-count dots ring |
+| **Task Animations** | Per-agent overlays driven by `animation_type` from `task_progress` WebSocket events: sweep (Roomba), scan (Drone radar), stream (LLM data), write (Legal pen), deploy (DevOps rocket), collab (shared task pipe) |
+| **Zone Environment** | Tiles gradually tint as agents work there; per-zone `work_progress` (0–1) drives colour blend; decays when agents leave |
 
 ---
 
