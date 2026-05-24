@@ -378,7 +378,7 @@ function drawTerrain(){
       const zc=zoneCols(ti,tj); drawDiamond(cx,cy,zc.base,zc.bevel);
       // Zone work-progress colour blend — tiles lighten/tint as agents work
       if(!isPath(ti,tj)&&!isCenter(ti,tj)){
-        const zk=_agentZoneKey(ti<7&&tj<7?'finance':ti>=9&&tj<7?'devops':ti<7&&tj>=9?'healthcare':ti>=9&&tj>=9?'legal':'general');
+        const zk=_tileZoneKey(ti,tj); // MC2 + zone work tint lookup
         const wp=_zoneWorkProgress[zk]||0;
         if(wp>0.01){
           // finance→warm, devops→blue, healthcare→green, legal→purple, general→lavender
@@ -815,6 +815,14 @@ function _agentZoneKey(domain){
   return 'general';
 }
 
+function _tileZoneKey(ti,tj){
+  if(ti<7&&tj<7) return 'finance';
+  if(ti>=9&&tj<7) return 'devops';
+  if(ti<7&&tj>=9) return 'healthcare';
+  if(ti>=9&&tj>=9) return 'legal';
+  return 'general';
+}
+
 // ========== AGENT TASK ANIMATIONS ==========
 // Maps agent id → {type, progress} received from task_progress WS events
 const _agentAnimState={};
@@ -1095,7 +1103,7 @@ function updateTileSubState(dt){
 }
 function drawTileSubTransform(ti,tj,cx2,cy2){
   if(isPath(ti,tj)||isCenter(ti,tj)||isWater(ti,tj)) return;
-  const zk=ti<7&&tj<7?'finance':ti>=9&&tj<7?'devops':ti<7&&tj>=9?'healthcare':ti>=9&&tj>=9?'legal':'general';
+  const zk=_tileZoneKey(ti,tj);
   const steps=Math.round(_tileSubState[zk]*4); // 0-4
   if(steps<=0) return;
   // Sub-square colours for each zone (dirty → clean)
@@ -1268,7 +1276,6 @@ function updateAgents(dt){
         ag._state='complete'; ag._timer=2;
         spawnParticles(pos.x,pos.y,'complete',ag.col);
         spawnFloat(pos.x,pos.y-30,'+50 XP','#FFD700');
-        spawnFloat(pos.x,pos.y-42,'+XP','#FFD700');
         ag._skillFlash=2.0; // start 2-second ATS skill bar flash
         _spawnSkillBar(ag,pos.x,pos.y);
         ag._task=null; ag._progress=0;
@@ -1407,18 +1414,18 @@ function drawAgent(ag){
   }
   // ── SIMS 3 — ATS skill bar flash (triggered externally via ag._skillFlash) ─
   if(ag._skillFlash&&ag._skillFlash>0){
-    const sf=ag._skillFlash; // 0→2 second countdown
+    const sf=ag._skillFlash; // 0→2 second countdown (decremented in updateAgents)
     ctx.save();ctx.globalAlpha=Math.min(1,sf);
     // 20×4px skill bar
     const bx=sx-10, by=sy-50;
     ctx.fillStyle='#333';ctx.fillRect(bx,by,20,4);
     ctx.fillStyle='#FFD700';ctx.fillRect(bx,by,20*(1-sf/2+0.5),4);
     ctx.globalAlpha=Math.min(1,sf);ctx.restore();
-    ag._skillFlash-=0; // decrement handled in updateAgents
   }
   // ── SIMS 1 — Plumbob diamond above agent (bobs, colour-codes state) ───────
   {
-    const bobY=Math.sin(clock*((2*Math.PI)/0.3))*3;
+    const PLUMBOB_BOB_PERIOD=0.3; // seconds per bob cycle
+    const bobY=Math.sin(clock*((2*Math.PI)/PLUMBOB_BOB_PERIOD))*3;
     const diamondY=sy-50+bobY;
     const dSize=8;
     const cooperating=ag._animType==='collab';
