@@ -345,6 +345,114 @@ See `manifold-ts/README.md` for full TypeScript documentation.
 
 ---
 
+## Research Agenda — Open Theoretical Gaps
+
+These five gaps are documented for future contributors.
+Each one requires something Copilot cannot provide — a mathematician,
+deployed hardware, or distributed infrastructure.
+
+### 1. Formal Convergence Proof (Lyapunov Stability)
+**What:** NERVATURA's emergent governance dynamics converge empirically
+— V(t) decreases 39.5% over 500 steps, Mann-Kendall τ=−0.979,
+p=5.6×10⁻²³⁵. But there is no formal proof.
+
+**Why it matters:** Without a Lyapunov stability theorem, convergence
+cannot be guaranteed for all grid configurations, agent counts, or
+CRNA domains. The empirical result could be a large-grid effect.
+
+**What closes it:** Construct a valid Lyapunov function V: X→ℝ that is
+positive definite and provably decreasing along all NERVATURA
+trajectories. The current candidate V=Σ|CRNA−mean|² is a useful
+approximation but not a formal Lyapunov function.
+
+**Prerequisites:** Applied mathematician or dynamical systems researcher
+with access to the NERVATURA update rules as a formal dynamical system.
+
+---
+
+### 2. Full Nash Equilibrium (Adversarial Planning)
+**What:** AdversarialMinimax uses a bounded adversary model with a
+hardcoded action space. Full Nash equilibrium requires knowing the
+adversary's type distribution P(adversary_type).
+
+**Why it matters:** A determined adversary who knows MANIFOLD's
+governance policy can find strategies outside the bounded model.
+True Nash equilibrium strategies are robust to this.
+
+**What closes it:** Collect adversarial event data from production
+deployments. Estimate P(adversary_type) from observed attack
+patterns. Apply iterative best-response or support enumeration
+to compute the full Nash equilibrium.
+
+**Prerequisites:** Real deployment data — at least 500 adversarial
+events across multiple domains. Game-theoretic expertise.
+
+---
+
+### 3. Full SLAM — Simultaneous Localisation and Mapping
+**What:** Physical robots currently navigate a manually-ingested floor
+plan (SpaceIngestion). Real environments change and robots need to
+build their own maps while navigating.
+
+**Why it matters:** Without SLAM, physical agents cannot adapt to
+structural changes, unexpected obstacles, or new environments.
+
+**What closes it:** Deploy ROS2 with Cartographer SLAM or ORB-SLAM3.
+The bridge layer (manifold_physical/) is ready to receive occupancy
+grid output — the SLAM algorithm runs as an external process and
+feeds DynamicGrid via SensorBridge. The integration is ~200 lines.
+
+**Prerequisites:** Physical robot with lidar or stereo camera. ROS2
+installation on the deployment machine.
+
+---
+
+### 4. Recursive Theory of Mind (I-POMDP)
+**What:** Theory of mind Level 1 (predict_agent_action) infers other
+agents' likely next actions from episode history. Recursive ToM
+requires agents to model "what agent B believes about what agent A
+believes" — nested belief states.
+
+**Why it matters:** In complex multi-agent scenarios (security,
+competitive markets) agents that can reason recursively about
+other agents' beliefs gain significant strategic advantage.
+
+**What closes it:** Interactive POMDPs (I-POMDPs) with bounded
+recursion depth. Level 2 is tractable at small state spaces.
+Full recursive ToM requires modern multi-agent RL research.
+
+**Prerequisites:** Multi-agent reinforcement learning expertise.
+Significant compute for training nested belief models.
+
+---
+
+### 5. Raft Consensus (Distributed MANIFOLD)
+**What:** MANIFOLD runs as a single server. BFT-lite (bft_enabled)
+provides quorum voting for trust scores in the federation, but the
+MANIFOLD governance state itself has no replication or failover.
+
+**Why it matters:** A single-server deployment is a single point of
+failure. For production hospital, factory, or financial deployments,
+MANIFOLD needs 99.99% uptime with automatic leader election.
+
+**What closes it:** Implement MANIFOLD as a Raft replicated state
+machine. The py-raft library exists. Requires 3 MANIFOLD nodes
+minimum. The state machine is the brain, vault, and grid state.
+All writes go through Raft consensus. Reads from any follower.
+
+**Prerequisites:** Multi-node deployment infrastructure (3 VMs or
+Kubernetes). Network engineering for leader election timeouts.
+
+---
+
+Contributors who address any of these gaps are encouraged to open
+a research PR with benchmark results, proofs, or hardware test data.
+The experiment framework in manifold/experiments/ is ready to receive
+new benchmarks and the convergence monitor (GET /nervatura/convergence)
+provides the empirical baseline all theoretical work should improve upon.
+
+---
+
 ## MANIFOLD World (v2.5.0)
 
 MANIFOLD World (`/world`) is an isometric real-time governance game built on the MANIFOLD API — a Clash of Clans-style command interface for your agent fleet.

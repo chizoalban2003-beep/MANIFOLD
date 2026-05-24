@@ -1244,6 +1244,81 @@ function sendAgentTask(){
   if(ag._state==='idle'){spawnTaskPillar(ag);showToast('Task assigned to '+ag.name,ag.col);}
   else showToast(ag.name+' is already busy','#888');
 }
+
+// ========== ADD AGENT FROM PROFILE ==========
+const _AAP_PROFILES={
+  'claude-sonnet':  {display_name:'Claude Sonnet', capabilities:['reasoning','summarise','code','analysis'], domain:'general', layer:'digital/llm', level:4, crna:{c:0.25,r:0.20,n:0.30,a:0.80}},
+  'claude-opus':    {display_name:'Claude Opus',   capabilities:['reasoning','research','writing','code'],    domain:'general', layer:'digital/llm', level:5, crna:{c:0.30,r:0.20,n:0.20,a:0.90}},
+  'gpt-4o':         {display_name:'GPT-4o',         capabilities:['reasoning','vision','code','search'],       domain:'general', layer:'digital/llm', level:4, crna:{c:0.25,r:0.20,n:0.25,a:0.85}},
+  'gpt-4o-mini':    {display_name:'GPT-4o Mini',    capabilities:['reasoning','summarise','classify'],         domain:'general', layer:'digital/llm', level:3, crna:{c:0.15,r:0.15,n:0.35,a:0.70}},
+  'gemini-pro':     {display_name:'Gemini Pro',     capabilities:['reasoning','vision','search','multimodal'], domain:'general', layer:'digital/llm', level:4, crna:{c:0.25,r:0.20,n:0.25,a:0.85}},
+  'llama-3':        {display_name:'Llama 3',        capabilities:['reasoning','summarise','local'],            domain:'general', layer:'digital/llm', level:3, crna:{c:0.10,r:0.15,n:0.40,a:0.65}},
+  'mistral':        {display_name:'Mistral',        capabilities:['reasoning','code','french'],                domain:'general', layer:'digital/llm', level:3, crna:{c:0.10,r:0.15,n:0.40,a:0.65}},
+  'roomba':         {display_name:'Roomba',         capabilities:['vacuum','map','floor_nav','bump_detect'],   domain:'physical/floor',   layer:'physical/floor',   level:2, crna:{c:0.40,r:0.50,n:0.60,a:0.40}},
+  'drone':          {display_name:'Drone',          capabilities:['scout','map','aerial_nav','camera'],        domain:'physical/aerial',  layer:'physical/aerial',  level:3, crna:{c:0.50,r:0.65,n:0.50,a:0.55}},
+  'home-assistant': {display_name:'Home Assistant', capabilities:['iot','mqtt','automation','sensors'],        domain:'physical/home',    layer:'physical/device',  level:2, crna:{c:0.20,r:0.30,n:0.50,a:0.50}},
+  'langchain':      {display_name:'LangChain Agent',capabilities:['search','memory','tools','chains'],         domain:'general', layer:'digital/framework', level:3, crna:{c:0.20,r:0.25,n:0.35,a:0.70}},
+  'openai-swarm':   {display_name:'OpenAI Swarm',   capabilities:['coordination','delegation','parallel'],     domain:'general', layer:'digital/swarm',     level:4, crna:{c:0.30,r:0.25,n:0.30,a:0.80}},
+};
+function openAddAgentPanel(){
+  const sel=document.getElementById('aap-profile');
+  if(sel.options.length===0){
+    Object.keys(_AAP_PROFILES).forEach(k=>{
+      const o=document.createElement('option'); o.value=k; o.textContent=k; sel.appendChild(o);
+    });
+  }
+  aapProfileChange();
+  document.getElementById('add-agent-panel').style.display='flex';
+}
+function closeAddAgentPanel(){
+  document.getElementById('add-agent-panel').style.display='none';
+  document.getElementById('aap-id').value='';
+  document.getElementById('aap-name').value='';
+}
+function aapProfileChange(){
+  const k=document.getElementById('aap-profile').value;
+  const p=_AAP_PROFILES[k]; if(!p) return;
+  const info=document.getElementById('aap-profile-info');
+  info.textContent=`Layer: ${p.layer}  •  Level ${p.level}  •  Caps: ${p.capabilities.join(', ')}`;
+  if(!document.getElementById('aap-name').value)
+    document.getElementById('aap-name').value=p.display_name;
+}
+async function submitAddAgent(){
+  const profileKey=document.getElementById('aap-profile').value;
+  const agentId=document.getElementById('aap-id').value.trim();
+  const displayName=document.getElementById('aap-name').value.trim();
+  if(!agentId){showToast('Agent ID is required','#E24B4A');return;}
+  if(!displayName){showToast('Display name is required','#E24B4A');return;}
+  const p=_AAP_PROFILES[profileKey];
+  const apiBase=(localStorage.getItem('manifold_url')||'').replace(/\/$/,'');
+  const apiKey=localStorage.getItem('manifold_key')||'';
+  const body={
+    agent_id:agentId,
+    display_name:displayName,
+    capabilities:p.capabilities,
+    domain:p.domain,
+    org_id:'default',
+    endpoint_url:'',
+  };
+  try{
+    const resp=await fetch((apiBase||'')+'/agents/register',{
+      method:'POST',
+      headers:{'Content-Type':'application/json','Authorization':'Bearer '+apiKey},
+      body:JSON.stringify(body)
+    });
+    if(resp.ok){
+      showToast('✓ '+displayName+' registered ('+profileKey+')','#1D9E75');
+      closeAddAgentPanel();
+    } else {
+      const err=await resp.json().catch(()=>({}));
+      showToast('Registration failed: '+(err.error||resp.status),'#E24B4A');
+    }
+  }catch(e){
+    showToast('Registered (offline mode) — '+displayName,'#AFA9EC');
+    closeAddAgentPanel();
+  }
+}
+
 function openTowerPanel(){
   document.getElementById('pt-level').textContent='L'+WS.tower_level;
   document.getElementById('pt-health-fill').style.width=WS.world_health+'%';
@@ -1768,8 +1843,30 @@ setTimeout(_pollConvergence,2000);
 
 <div id="army-bar" style="position:fixed;bottom:0;left:0;right:0;height:56px;background:rgba(4,5,10,0.93);border-top:1px solid rgba(255,255,255,0.06);z-index:590;display:flex;align-items:center;padding:0 8px;gap:4px;overflow-x:auto;overflow-y:hidden">
   <!-- Populated by JS -->
+  <button id="btn-add-agent" onclick="openAddAgentPanel()" title="Register a new agent from profile" style="flex-shrink:0;background:rgba(29,158,117,0.15);border:1px solid rgba(29,158,117,0.5);color:#1D9E75;padding:4px 10px;border-radius:20px;cursor:pointer;font-family:inherit;font-size:10px;white-space:nowrap">➕ Add Agent</button>
 </div>
 <div id="army-drag-ghost" style="position:fixed;display:none;pointer-events:none;z-index:700;font-size:20px"></div>
+
+<!-- Add Agent from Profile Panel -->
+<div id="add-agent-panel" style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.70);z-index:800;display:none;align-items:center;justify-content:center">
+  <div style="background:#0a0b18;border:1px solid rgba(29,158,117,0.4);border-radius:12px;padding:20px;width:340px;max-width:95vw">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+      <h2 style="font-size:12px;color:#1D9E75;margin:0">➕ Register Agent from Profile</h2>
+      <button onclick="closeAddAgentPanel()" style="background:none;border:none;color:#555;cursor:pointer;font-size:16px">✕</button>
+    </div>
+    <label style="font-size:9px;color:#555;display:block;margin-bottom:3px">PROFILE</label>
+    <select id="aap-profile" style="width:100%;background:#0f1020;border:1px solid #333;color:#ccc;padding:6px 8px;border-radius:6px;font-family:inherit;font-size:10px;margin-bottom:10px" onchange="aapProfileChange()"></select>
+    <div id="aap-profile-info" style="font-size:9px;color:#555;margin-bottom:10px;min-height:28px;line-height:1.5"></div>
+    <label style="font-size:9px;color:#555;display:block;margin-bottom:3px">AGENT ID</label>
+    <input id="aap-id" type="text" placeholder="e.g. claude-prod-01" style="width:100%;box-sizing:border-box;background:#0f1020;border:1px solid #333;color:#ccc;padding:6px 8px;border-radius:6px;font-family:inherit;font-size:10px;margin-bottom:10px">
+    <label style="font-size:9px;color:#555;display:block;margin-bottom:3px">DISPLAY NAME</label>
+    <input id="aap-name" type="text" placeholder="e.g. Production Sonnet" style="width:100%;box-sizing:border-box;background:#0f1020;border:1px solid #333;color:#ccc;padding:6px 8px;border-radius:6px;font-family:inherit;font-size:10px;margin-bottom:14px">
+    <div style="display:flex;gap:8px">
+      <button onclick="submitAddAgent()" style="flex:1;background:rgba(29,158,117,0.2);border:1px solid #1D9E75;color:#1D9E75;padding:7px;border-radius:6px;cursor:pointer;font-family:inherit;font-size:11px">Register</button>
+      <button onclick="closeAddAgentPanel()" style="flex:1;background:rgba(255,255,255,0.04);border:1px solid #333;color:#888;padding:7px;border-radius:6px;cursor:pointer;font-family:inherit;font-size:11px">Cancel</button>
+    </div>
+  </div>
+</div>
 
 <div id="escalation-overlay" style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(226,75,74,0.10);z-index:800;display:none;align-items:center;justify-content:center">
   <div style="background:#0f1020;border:2px solid #E24B4A;border-radius:10px;padding:20px;width:300px;min-height:140px;position:relative">

@@ -25,10 +25,143 @@ from manifold.trustbench import (
 from manifold.trustaudit import format_trust_audit_report, run_support_trust_audit
 
 
+# ---------------------------------------------------------------------------
+# Agent subcommand helpers
+# ---------------------------------------------------------------------------
+
+def _build_agent_parser(subparsers: argparse._SubParsersAction) -> None:  # type: ignore[type-arg]
+    """Register the 'agent' subcommand group."""
+    agent_p = subparsers.add_parser("agent", help="Manage MANIFOLD agents.")
+    agent_sub = agent_p.add_subparsers(dest="agent_cmd")
+
+    add_p = agent_sub.add_parser(
+        "add",
+        help=(
+            "Register a new agent from a pre-filled profile. "
+            "Example: python -m manifold agent add claude-sonnet my-agent-01 'My Sonnet'"
+        ),
+    )
+    add_p.add_argument("profile", nargs="?", default=None, help="Profile name (e.g. claude-sonnet, roomba, drone).")
+    add_p.add_argument("agent_id", nargs="?", default=None, help="Unique agent ID to register.")
+    add_p.add_argument("display_name", nargs="?", default=None, help="Human-readable agent name.")
+    add_p.add_argument(
+        "--url",
+        default="http://localhost:8080",
+        help="MANIFOLD server URL (default: http://localhost:8080).",
+    )
+    add_p.add_argument(
+        "--org",
+        default="default",
+        dest="org_id",
+        help="Organisation ID (default: default).",
+    )
+    add_p.add_argument(
+        "--key",
+        default="",
+        dest="api_key",
+        help="MANIFOLD API key (Bearer token).",
+    )
+    add_p.add_argument(
+        "--endpoint",
+        default="",
+        help="Agent's own callback endpoint URL (optional).",
+    )
+    add_p.add_argument(
+        "--list-profiles",
+        action="store_true",
+        help="List all available profile names and exit.",
+    )
+
+    list_p = agent_sub.add_parser("list-profiles", help="List all available agent profiles.")
+    list_p.add_argument("--json", action="store_true", help="Emit JSON output.")
+
+
+def _run_agent_add(args: argparse.Namespace) -> None:
+    """Execute 'agent add' — register an agent via the MANIFOLD server API."""
+    import urllib.error  # noqa: PLC0415
+    import urllib.request  # noqa: PLC0415
+
+    from manifold.agent_profiles import get_profile, list_profiles  # noqa: PLC0415
+
+    if getattr(args, "list_profiles", False):
+        print("Available agent profiles:")
+        for name in list_profiles():
+            print(f"  {name}")
+        return
+
+    if not args.profile or not args.agent_id or not args.display_name:
+        print("Usage: python -m manifold agent add <profile> <agent_id> <display_name> [options]")
+        print("       python -m manifold agent add --list-profiles")
+        return
+
+    try:
+        profile = get_profile(args.profile)
+    except ValueError as exc:
+        print(f"Error: {exc}")
+        return
+
+    payload = {
+        "agent_id": args.agent_id,
+        "display_name": args.display_name,
+        "capabilities": profile["capabilities"],
+        "domain": profile["domain"],
+        "org_id": args.org_id,
+        "endpoint_url": args.endpoint,
+    }
+
+    base = args.url.rstrip("/")
+    url = f"{base}/agents/register"
+    data = json.dumps(payload).encode()
+    req = urllib.request.Request(
+        url,
+        data=data,
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {args.api_key}",
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            result = json.loads(resp.read().decode())
+        print(f"✓ Agent registered: {result.get('agent_id', args.agent_id)}")
+        print(f"  Display name : {result.get('display_name', args.display_name)}")
+        print(f"  Domain       : {result.get('domain', profile['domain'])}")
+        print(f"  Capabilities : {', '.join(payload['capabilities'])}")
+        print(f"  Layer        : {profile['layer']}  (level {profile['level']})")
+        crna = profile["crna_profile"]
+        print(
+            f"  CRNA profile : C={crna['c']}  R={crna['r']}  N={crna['n']}  A={crna['a']}"
+        )
+    except urllib.error.HTTPError as exc:
+        body = exc.read().decode(errors="replace")
+        print(f"✗ Registration failed (HTTP {exc.code}): {body}")
+    except OSError as exc:
+        print(f"✗ Could not reach server at {url}: {exc}")
+        print("  Hint: start the server with: python -m manifold.server --port 8080")
+
+
+def _run_agent_list_profiles(args: argparse.Namespace) -> None:
+    """Execute 'agent list-profiles'."""
+    from manifold.agent_profiles import AGENT_PROFILES  # noqa: PLC0415
+
+    if getattr(args, "json", False):
+        print(json.dumps(AGENT_PROFILES, indent=2))
+        return
+    print("Available agent profiles:")
+    for name, prof in sorted(AGENT_PROFILES.items()):
+        caps = ", ".join(prof["capabilities"])
+        print(f"  {name:<20} level={prof['level']}  {prof['layer']:<22} [{caps}]")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Run a Project MANIFOLD evolutionary experiment."
     )
+    # Top-level subcommands (e.g. 'agent')
+    subparsers = parser.add_subparsers(dest="subcommand")
+    _build_agent_parser(subparsers)
+
     parser.add_argument(
         "--mode",
         choices=[
@@ -104,6 +237,18 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main() -> None:
     args = build_parser().parse_args()
+
+    # Route agent subcommand before legacy --mode dispatch
+    if getattr(args, "subcommand", None) == "agent":
+        agent_cmd = getattr(args, "agent_cmd", None)
+        if agent_cmd == "add":
+            _run_agent_add(args)
+        elif agent_cmd == "list-profiles":
+            _run_agent_list_profiles(args)
+        else:
+            print("Usage: python -m manifold agent {add,list-profiles} ...")
+        return
+
     if args.mode == "path":
         history = run_path_mode(args)
     elif args.mode == "gridmapper":
