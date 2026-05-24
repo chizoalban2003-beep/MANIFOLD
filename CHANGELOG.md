@@ -2,6 +2,58 @@
 
 ## Unreleased
 
+## [2.8.0] — Sims + Minecraft Living World
+
+### Added — World (Sims + Minecraft parity)
+- **Plumbob diamond** bobs above every agent (PLUMBOB_BOB_PERIOD = 0.3 s); accent colour when working, grey/0.4 opacity when idle, red when governance-blocked, purple pulse when cooperating; shows task icon emoji inside the diamond; flashes white on `task_handoff` receipt
+- **Moodlet status strip** — three 5 px circles under name badge: ⚙ (work state green/grey), ♥ (ATS health tier green/amber/red), ⛓ (cooperation purple, hidden when solo)
+- **ATS skill bar flash** — on task completion a 20 × 4 px gold bar fades over 2 s alongside a "+XP" floating text; implemented as `_skillBars` render system + `ag._skillFlash` countdown decremented in `updateAgents`
+- **Cooperation speech bubble** — joint 60 × 20 px rounded bubble at agent-pair midpoint cycling "thinking…" → `icon₁→icon₂` → "✓ done!" every 2 s via `drawCoopBubbles()`
+- **Task tokens (Minecraft)** — pulsing 12 px item spawns at zone centre on successful `POST /task`; bobs and rotates; agent proximity triggers collect animation with particle burst via `spawnTaskToken()` / `updateTaskTokens()`
+- **Tile block-by-block sub-square transform** — each zone tile's 2 × 2 sub-grid fills one square at each 0.25 `work_progress` step with a 200 ms colour-blend fade; `_tileZoneKey(ti, tj)` helper centralises all tile-zone lookups
+- **Item arc on `task_handoff`** — task icon flies a 600 ms ease-in-out arc (40 px peak) from `from_agent` to `to_agent`; arrival sparkles + plumbob white flash via `spawnItemArc()` / `updateItemArcs()`
+- **Block particles** — 3 zone-coloured 2 px rising blocks emit from agent tile every 0.5 s while working via `_spawnBlockParticles()` / `updateBlockParticles()`
+
+### Fixed
+- Extracted `_tileZoneKey(ti, tj)` helper to eliminate three-site inline duplication of zone-from-tile ternary
+- Removed redundant second "+XP" float that fired alongside the skill bar
+- Added `PLUMBOB_BOB_PERIOD` named constant (was magic literal `0.3`)
+- Clarified skill-flash draw comment (dead `ag._skillFlash -= 0` line removed)
+- Version bumped to 2.8.0 in `manifold/__init__.py`, `pyproject.toml`, and `manifold-ts/package.json`
+
+## [2.7.0] — Town Hall framing + agent task animations + infrastructure
+
+### Added — Infrastructure
+- `SubTask` dataclass gains `progress: float = 0.0` and `animation_type: str = "idle"` fields
+- `_animation_for_sub_task(domain, execution_mode)` in `TaskRouter` maps domain keywords → `sweep / scan / stream / write / deploy`; parallel cooperative mode → `collab`
+- `TaskRouter.active_sub_tasks()` returns all assigned/running sub-tasks with animation metadata
+- `GET /tasks/active` endpoint returns active sub-tasks with `progress` and `animation_type` for initial page load
+- WebSocket broadcast: `task_progress` event (every 5 s per active sub-task with `plan_id`, `sub_task_id`, `agent_id`, `progress`, `animation_type`, `domain`)
+- WebSocket broadcast: `task_handoff` event fires when cooperative routing passes a result between agents (with `from_agent`, `to_agent`, `payload_description`, `zone`)
+
+### Added — World (Town Hall + animations)
+- **Town Hall identity** — MANIFOLD tower shows gold `TH Lv.X` badge (X = research tree unlocks from localStorage), colour-reactive orb (gold = all working, red = escalation, purple = idle), pulsing agent-count dots ring
+- **Per-agent task animation overlays** driven by `animation_type` from `task_progress` WS events: `sweep` (rotating brush arc + dust motes + clean trail), `scan` (radar sector + N-reduction sparks), `stream` (scrolling data columns + rotating domain icons), `write` (pen + materialising document lines), `deploy` (rising rocket + checkmarks), `collab` (shared dashed pipe + midpoint task bubble)
+- **Zone environment response** — per-zone `_zoneWorkProgress` (0–1) increases while agents work and decays when they leave; applied as colour blend tint on terrain tiles (warm/blue/green/purple by domain)
+- `task_handoff` WebSocket event handled in world client: spawns purple toast + `spawnItemArc()`
+- `GET /tasks/active` polled on page load to seed `_agentAnimState` before first WS event arrives
+- All animations driven by `requestAnimationFrame` clock; degrade gracefully when server is offline
+
+### Fixed
+- Version bumped to 2.7.0 in `manifold/__init__.py` and `pyproject.toml`
+
+## [2.6.0] — Agent Profiles + CLI onboarding + Research Agenda
+
+### Added
+- `manifold/agent_profiles.py` — `AGENT_PROFILES` dict with 12 pre-built profiles (`get_profile()`, `list_profiles()`)
+- CLI subcommands `manifold agent add --profile <name>` and `manifold agent list-profiles`
+- MANIFOLD World: ➕ Add Agent button in army bar opens a profile-picker modal with domain, icon, ATS, level pre-fills
+- `README.md` — "## Research Agenda — Open Theoretical Gaps" section added after Roadmap table; five gaps documented (Lyapunov convergence proof, full Nash equilibrium, full SLAM, recursive Theory of Mind, Raft consensus) each with what/why/closes/prerequisites
+- 22 new tests in `tests/test_agent_profiles.py`
+
+### Fixed
+- Version bumped to 2.6.0 in `manifold/__init__.py` and `pyproject.toml`
+
 ## [2.5.0] — CoC World Complete + Infrastructure Wiring
 
 ### Added — World (CoC parity complete)

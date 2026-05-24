@@ -1,6 +1,6 @@
 {
   "name": "@manifold/client",
-  "version": "2.5.0",
+  "version": "2.8.0",
   "description": "TypeScript client for the MANIFOLD Trust API — the Trust Operating System for AI agents.",
   "main": "dist/index.js",
   "module": "dist/index.esm.js",
