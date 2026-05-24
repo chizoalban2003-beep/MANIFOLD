@@ -640,6 +640,11 @@ class ManifoldHandler(BaseHTTPRequestHandler):
                 self._handle_get_connect()
                 return
 
+            # GET /tasks/active  (active sub-tasks with progress + animation_type)
+            if path == "/tasks/active":
+                self._handle_get_tasks_active()
+                return
+
             # GET /agents  (list all registered agents)
             if path == "/agents":
                 self._handle_get_agents()
@@ -3758,6 +3763,12 @@ def _handle_get_agents(self: "ManifoldHandler") -> None:
     return handle_get_agents(self)
 
 
+def _handle_get_tasks_active(self: "ManifoldHandler") -> None:
+    """GET /tasks/active — active sub-tasks with progress and animation_type."""
+    from manifold.routes.agents import handle_get_tasks_active  # noqa: PLC0415
+    return handle_get_tasks_active(self)
+
+
 def _handle_post_agents_register(self: "ManifoldHandler", body: dict) -> None:
     """POST /agents/register — agent announces itself."""
     from manifold.routes.agents import handle_post_agents_register  # noqa: PLC0415
@@ -3883,6 +3894,7 @@ ManifoldHandler._handle_get_brain_state = _handle_get_brain_state  # type: ignor
 
 
 ManifoldHandler._handle_get_agents = _handle_get_agents  # type: ignore[attr-defined]
+ManifoldHandler._handle_get_tasks_active = _handle_get_tasks_active  # type: ignore[attr-defined]
 ManifoldHandler._handle_post_agents_register = _handle_post_agents_register  # type: ignore[attr-defined]
 ManifoldHandler._handle_post_agent_heartbeat = _handle_post_agent_heartbeat  # type: ignore[attr-defined]
 ManifoldHandler._handle_post_agent_pause = _handle_post_agent_pause  # type: ignore[attr-defined]

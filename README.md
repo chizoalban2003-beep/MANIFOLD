@@ -339,22 +339,133 @@ See `manifold-ts/README.md` for full TypeScript documentation.
 | **v1.7.0** | ✅ Done | CRNA engine, ManifoldBrain (13 actions), PolicyRuleEngine, brain persistence, AgentRegistry, TaskRouter, CellUpdateBus, DynamicGrid (TTL), DigitalHealthMonitor, CRNAPlanner (A*), NERVATURAWorld (3D voxel), SpaceIngestion, SensorBridge, cell occupancy and right-of-way, manifold-world (CoC PWA), universal AI gateway, WebSocket, TypeScript client, federation, ATS trust network |
 | **v2.4.0** | ✅ Done | Fleet Orchestrator (Town Hall) — ManifoldBrain manages N agents via `register_agent()`, per-agent tick isolation, `handle_command(agent_id=...)` routing with `"ALL"` broadcast, MQTT `agent_id` passthrough, 2594 tests |
 | **v2.5.0** | ✅ Done | CoC world complete — zone deploy panel, agent army bar, escalation overlay, pan+zoom, BFT indicator, VCG toasts, adversarial alerts, research tree; ToM in TaskRouter; remote/vector/swarm endpoints |
+| **v2.6.0** | ✅ Done | Agent onboarding — `agent_profiles.py` (12 profiles), CLI `agent add`, world ➕ Add Agent modal; Research Agenda (5 theoretical gaps) |
+| **v2.7.0** | ✅ Done | Living world — Town Hall identity (gold TH badge, orb colour, agent-count dots), per-agent task animations (sweep/scan/stream/write/deploy/collab), zone environment response; `SubTask.progress`/`animation_type`; WebSocket `task_progress`/`task_handoff` events; `GET /tasks/active` |
+| **v2.8.0** | ✅ Done | Sims+Minecraft world — Plumbob diamond above each agent (bobs, colour-codes state), moodlet strip (⚙♥⛓), ATS skill bar flash on completion, cooperation speech bubble; MC item tokens (physical task objects), tile block-by-block sub-square transformation, item arc on handoff (600ms arc+sparkles), block particles while agents work |
 | **Phase 1** | 🔄 In progress | Deploy to Railway/Fly/Heroku, onboard pilot orgs, real governance data collection, manifold-world as installable PWA on phone |
 | **Phase 2** | 📋 Roadmap | MANIFOLD Physical v0.1 — Roomba bridge with real hardware, MQTT IoT connector, camera-based obstacle detection pipeline |
 | **Phase 3** | 🔭 Vision | NERVATURA platform — digital + physical governance OS, brand restructure, commercial partnerships, managed cloud offering |
 
 ---
 
-## MANIFOLD World (v2.5.0)
+## Research Agenda — Open Theoretical Gaps
 
-MANIFOLD World (`/world`) is an isometric real-time governance game built on the MANIFOLD API — a Clash of Clans-style command interface for your agent fleet.
+These five gaps are documented for future contributors.
+Each one requires something Copilot cannot provide — a mathematician,
+deployed hardware, or distributed infrastructure.
+
+### 1. Formal Convergence Proof (Lyapunov Stability)
+**What:** NERVATURA's emergent governance dynamics converge empirically
+— V(t) decreases 39.5% over 500 steps, Mann-Kendall τ=−0.979,
+p=5.6×10⁻²³⁵. But there is no formal proof.
+
+**Why it matters:** Without a Lyapunov stability theorem, convergence
+cannot be guaranteed for all grid configurations, agent counts, or
+CRNA domains. The empirical result could be a large-grid effect.
+
+**What closes it:** Construct a valid Lyapunov function V: X→ℝ that is
+positive definite and provably decreasing along all NERVATURA
+trajectories. The current candidate V=Σ|CRNA−mean|² is a useful
+approximation but not a formal Lyapunov function.
+
+**Prerequisites:** Applied mathematician or dynamical systems researcher
+with access to the NERVATURA update rules as a formal dynamical system.
+
+---
+
+### 2. Full Nash Equilibrium (Adversarial Planning)
+**What:** AdversarialMinimax uses a bounded adversary model with a
+hardcoded action space. Full Nash equilibrium requires knowing the
+adversary's type distribution P(adversary_type).
+
+**Why it matters:** A determined adversary who knows MANIFOLD's
+governance policy can find strategies outside the bounded model.
+True Nash equilibrium strategies are robust to this.
+
+**What closes it:** Collect adversarial event data from production
+deployments. Estimate P(adversary_type) from observed attack
+patterns. Apply iterative best-response or support enumeration
+to compute the full Nash equilibrium.
+
+**Prerequisites:** Real deployment data — at least 500 adversarial
+events across multiple domains. Game-theoretic expertise.
+
+---
+
+### 3. Full SLAM — Simultaneous Localisation and Mapping
+**What:** Physical robots currently navigate a manually-ingested floor
+plan (SpaceIngestion). Real environments change and robots need to
+build their own maps while navigating.
+
+**Why it matters:** Without SLAM, physical agents cannot adapt to
+structural changes, unexpected obstacles, or new environments.
+
+**What closes it:** Deploy ROS2 with Cartographer SLAM or ORB-SLAM3.
+The bridge layer (manifold_physical/) is ready to receive occupancy
+grid output — the SLAM algorithm runs as an external process and
+feeds DynamicGrid via SensorBridge. The integration is ~200 lines.
+
+**Prerequisites:** Physical robot with lidar or stereo camera. ROS2
+installation on the deployment machine.
+
+---
+
+### 4. Recursive Theory of Mind (I-POMDP)
+**What:** Theory of mind Level 1 (predict_agent_action) infers other
+agents' likely next actions from episode history. Recursive ToM
+requires agents to model "what agent B believes about what agent A
+believes" — nested belief states.
+
+**Why it matters:** In complex multi-agent scenarios (security,
+competitive markets) agents that can reason recursively about
+other agents' beliefs gain significant strategic advantage.
+
+**What closes it:** Interactive POMDPs (I-POMDPs) with bounded
+recursion depth. Level 2 is tractable at small state spaces.
+Full recursive ToM requires modern multi-agent RL research.
+
+**Prerequisites:** Multi-agent reinforcement learning expertise.
+Significant compute for training nested belief models.
+
+---
+
+### 5. Raft Consensus (Distributed MANIFOLD)
+**What:** MANIFOLD runs as a single server. BFT-lite (bft_enabled)
+provides quorum voting for trust scores in the federation, but the
+MANIFOLD governance state itself has no replication or failover.
+
+**Why it matters:** A single-server deployment is a single point of
+failure. For production hospital, factory, or financial deployments,
+MANIFOLD needs 99.99% uptime with automatic leader election.
+
+**What closes it:** Implement MANIFOLD as a Raft replicated state
+machine. The py-raft library exists. Requires 3 MANIFOLD nodes
+minimum. The state machine is the brain, vault, and grid state.
+All writes go through Raft consensus. Reads from any follower.
+
+**Prerequisites:** Multi-node deployment infrastructure (3 VMs or
+Kubernetes). Network engineering for leader election timeouts.
+
+---
+
+Contributors who address any of these gaps are encouraged to open
+a research PR with benchmark results, proofs, or hardware test data.
+The experiment framework in manifold/experiments/ is ready to receive
+new benchmarks and the convergence monitor (GET /nervatura/convergence)
+provides the empirical baseline all theoretical work should improve upon.
+
+---
+
+## MANIFOLD World (v2.8.0)
+
+MANIFOLD World (`/world`) is an isometric real-time governance game built on the MANIFOLD API — a Clash of Clans/Sims/Minecraft-style command interface for your agent fleet.
 
 ### Interactive Features
 
 | Feature | Description |
 |---|---|
 | **Zone-Tap Deploy** | Tap any zone tile to open a bottom-sheet with CRNA bars, domain quick-tasks, custom input, stakes radio, and one-tap deployment |
-| **Agent Army Bar** | Fixed bottom bar showing all agents with status dots and episode badges; drag-to-deploy to any zone tile |
+| **Agent Army Bar** | Fixed bottom bar showing all agents with status dots and episode badges; drag-to-deploy to any zone tile; ➕ Add Agent button for profile-picker onboarding |
 | **Escalation Overlay** | Auto-shown when WebSocket receives `escalation` events with risk > 0.85; shows risk bar, 60s countdown, Approve/Deny buttons |
 | **Pan + Zoom** | Drag to pan the isometric grid; scroll to zoom (0.4×–2.2×); double-click to reset; pinch-zoom on mobile |
 | **Mini-Map** | 80×60 canvas in bottom-right corner showing all tiles and viewport rectangle; click to jump |
@@ -362,6 +473,17 @@ MANIFOLD World (`/world`) is an isometric real-time governance game built on the
 | **VCG Auction Toast** | Shown after `POST /task` when response contains `vcg_result`; purple toast with winner, domain, welfare efficiency |
 | **Adversarial Alert** | Dismissible banner at top when WebSocket receives `adversarial` event; MANIFOLD tower flashes 3 red pulses |
 | **Research Tree** | 5-level token-gated governance capability tree (tap tower → Research); localStorage persistence; unlocks flags on task requests |
+| **Town Hall Identity** | MANIFOLD tower shows gold `TH Lv.X` badge (X = unlocked capabilities), colour-reactive orb (gold=all working, red=escalation, purple=idle), and pulsing agent-count dots ring |
+| **Task Animations** | Per-agent overlays driven by `animation_type` from `task_progress` WebSocket events: sweep (Roomba), scan (Drone radar), stream (LLM data), write (Legal pen), deploy (DevOps rocket), collab (shared task pipe) |
+| **Zone Environment** | Tiles gradually tint as agents work there; per-zone `work_progress` (0–1) drives colour blend; decays when agents leave |
+| **Plumbob Diamond** | Bobs above every agent; accent colour when working, grey when idle, red when blocked, purple pulse when cooperating; shows task icon emoji inside |
+| **Moodlet Strip** | Three tiny icons under name badge: ⚙ (working state), ♥ (ATS health), ⛓ (cooperation); colour-coded exactly like Sims moodlets |
+| **ATS Skill Flash** | On task completion: 20×4px gold skill bar flashes for 2s + "+XP" float, mirroring Sims skill increase animation |
+| **Cooperation Bubble** | Joint speech bubble between cooperating agents cycling "thinking…" → icon₁→icon₂ → "✓ done!" over task duration |
+| **Task Tokens (MC)** | Physical item token spawns at zone centre on task dispatch; bobs and rotates; collected by agent with sparkle burst |
+| **Tile Sub-Square Transform (MC)** | Zone tiles divide into 2×2 sub-squares transforming one-by-one (at 0.25/0.5/0.75/1.0 progress) from dirty to clean texture |
+| **Item Arc (MC)** | On `task_handoff` WS event: task icon flies in a 600ms ease-in-out arc between agents with arrival sparkles + plumbob flash |
+| **Block Particles (MC)** | 3 coloured block particles rise from the agent's tile every 0.5s while working — Minecraft mining/building feedback |
 
 ---
 

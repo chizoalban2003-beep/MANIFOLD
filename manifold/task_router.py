@@ -32,6 +32,38 @@ class SubTask:
     execution_mode: str = "sequential"  # "sequential" or "parallel"
     parallel_group: int = 0  # tasks with same group ID run together
     delay_seconds: int = 0  # ToM stagger: seconds to wait before dispatching (0 = no delay)
+    progress: float = 0.0  # 0.0–1.0 execution progress (updated externally or via simulation)
+    animation_type: str = "idle"  # world animation hint: idle|sweep|scan|stream|write|deploy|collab
+
+
+# ---------------------------------------------------------------------------
+# Animation-type mapping (domain keyword → world animation)
+# ---------------------------------------------------------------------------
+
+_DOMAIN_ANIMATION_MAP: dict[str, str] = {
+    "physical/kitchen": "sweep",
+    "physical/floor": "sweep",
+    "vacuum": "sweep",
+    "physical/aerial": "scan",
+    "scout": "scan",
+    "aerial": "scan",
+    "finance": "stream",
+    "billing": "stream",
+    "legal": "write",
+    "devops": "deploy",
+    "deploy": "deploy",
+}
+
+
+def _animation_for_sub_task(domain: str, execution_mode: str) -> str:
+    """Return the world animation type for a sub-task based on its domain and mode."""
+    if execution_mode == "parallel":
+        return "collab"
+    dl = domain.lower()
+    for key, anim in _DOMAIN_ANIMATION_MAP.items():
+        if key in dl:
+            return anim
+    return "idle"
 
 
 # ---------------------------------------------------------------------------
@@ -169,6 +201,8 @@ class TaskPlan:
                     "execution_mode": s.execution_mode,
                     "parallel_group": s.parallel_group,
                     "delay_seconds": s.delay_seconds,
+                    "progress": round(s.progress, 4),
+                    "animation_type": s.animation_type,
                 }
                 for s in self.sub_tasks
             ],
@@ -344,6 +378,10 @@ class TaskRouter:
                         reason=reason,
                         execution_mode="parallel" if len(slot) > 1 else "sequential",
                         parallel_group=group_id,
+                        animation_type=_animation_for_sub_task(
+                            domain,
+                            "parallel" if len(slot) > 1 else "sequential",
+                        ),
                     )
                 )
                 index += 1
@@ -505,6 +543,26 @@ class TaskRouter:
 
     def all_plans(self) -> list[TaskPlan]:
         return list(self._plans.values())
+
+    def active_sub_tasks(self) -> list[dict]:
+        """Return all sub-tasks with status 'assigned' or 'running', with progress and animation_type."""
+        result = []
+        for plan in self._plans.values():
+            for st in plan.sub_tasks:
+                if st.status in ("assigned", "running"):
+                    result.append({
+                        "plan_id": plan.task_id,
+                        "sub_task_id": str(st.index),
+                        "agent_id": st.assigned_to,
+                        "domain": st.domain,
+                        "prompt": st.prompt[:80],
+                        "progress": round(st.progress, 4),
+                        "animation_type": st.animation_type,
+                        "status": st.status,
+                        "parallel_group": st.parallel_group,
+                        "execution_mode": st.execution_mode,
+                    })
+        return result
 
 
 # ---------------------------------------------------------------------------

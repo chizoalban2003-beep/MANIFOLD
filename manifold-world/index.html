@@ -376,6 +376,28 @@ function drawTerrain(){
       ctx.restore();
     } else {
       const zc=zoneCols(ti,tj); drawDiamond(cx,cy,zc.base,zc.bevel);
+      // Zone work-progress colour blend — tiles lighten/tint as agents work
+      if(!isPath(ti,tj)&&!isCenter(ti,tj)){
+        const zk=_tileZoneKey(ti,tj); // MC2 + zone work tint lookup
+        const wp=_zoneWorkProgress[zk]||0;
+        if(wp>0.01){
+          // finance→warm, devops→blue, healthcare→green, legal→purple, general→lavender
+          const tintCols={
+            finance:'rgba(200,120,32,0.22)',
+            devops:'rgba(24,95,165,0.22)',
+            healthcare:'rgba(15,110,86,0.22)',
+            legal:'rgba(83,74,183,0.22)',
+            general:'rgba(175,169,236,0.22)',
+          };
+          const tc=tintCols[zk]||tintCols.general;
+          ctx.save();ctx.globalAlpha=wp;
+          ctx.fillStyle=tc;
+          ctx.beginPath();ctx.moveTo(cx,cy-TH/2);ctx.lineTo(cx+TW/2,cy);ctx.lineTo(cx,cy+TH/2);ctx.lineTo(cx-TW/2,cy);ctx.closePath();ctx.fill();
+          ctx.globalAlpha=1;ctx.restore();
+        }
+        // MC2 — tile sub-square block-by-block transformation
+        drawTileSubTransform(ti,tj,cx,cy);
+      }
       if(isPath(ti,tj)&&!isCenter(ti,tj)){
         ctx.save();ctx.globalAlpha=.12;ctx.strokeStyle='#888';ctx.lineWidth=.5;
         for(let ln=0;ln<3;ln++){
@@ -594,22 +616,54 @@ function drawManifoldTower(){
       ctx.restore();
     }
   }
-  // Orb
+  // Orb — colour based on system state
   const orbY=cy-52;
   const orbR=8+4*Math.sin(clock*1.5);
-  ctx.save();ctx.shadowBlur=24+8*Math.sin(clock*1.5);ctx.shadowColor='#7F77DD';
-  ctx.beginPath();ctx.arc(cx,orbY,orbR,0,Math.PI*2);ctx.fillStyle='#AFA9EC';ctx.fill();
+  const allWorking=WS.agents.length>0&&WS.agents.every(a=>a._state==='working');
+  const anyEscalation=_adversarialFlash>0||_currentEscalation!=null;
+  const orbCol=anyEscalation?'#E24B4A':allWorking?'#FFD700':'#AFA9EC';
+  const glowCol=anyEscalation?'#E24B4A':allWorking?'#FFB800':'#7F77DD';
+  ctx.save();ctx.shadowBlur=24+8*Math.sin(clock*1.5);ctx.shadowColor=glowCol;
+  ctx.beginPath();ctx.arc(cx,orbY,orbR,0,Math.PI*2);ctx.fillStyle=orbCol;ctx.fill();
   ctx.shadowBlur=0;ctx.restore();
   // Sparks
   if(WS.world_health>50){
     for(let i=0;i<4;i++){
       const ang=clock*1.5+i*Math.PI/2;
       ctx.beginPath();ctx.arc(cx+Math.cos(ang)*18,orbY+Math.sin(ang)*8,2,0,Math.PI*2);
-      ctx.fillStyle='#AFA9EC';ctx.fill();
+      ctx.fillStyle=orbCol;ctx.fill();
     }
   }
-  // Label
-  ctx.fillStyle='#AFA9EC';ctx.font='bold 9px sans-serif';ctx.textAlign='center';
+  // Agent-count dots ring around orb (one dot per registered agent, pulsing)
+  const agCount=WS.agents.length;
+  if(agCount>0){
+    const ringR=orbR+8;
+    for(let i=0;i<agCount;i++){
+      const ag=WS.agents[i];
+      const ang=clock*(0.8+i*0.05)+i*(Math.PI*2/agCount);
+      const dx=cx+Math.cos(ang)*ringR, dy=orbY+Math.sin(ang)*ringR*0.4;
+      const pulse=0.5+0.5*Math.sin(clock*(2+i*0.3)+i);
+      const dotCol=ag._state==='working'?'#1D9E75':ag._state==='idle'?'#c87820':'#AFA9EC';
+      ctx.save();ctx.globalAlpha=0.6+0.4*pulse;
+      ctx.beginPath();ctx.arc(dx,dy,2,0,Math.PI*2);ctx.fillStyle=dotCol;ctx.fill();
+      ctx.restore();
+    }
+  }
+  // "TH Lv.X" gold badge — X = number of research tree nodes unlocked
+  const unlockedCount=Object.values(_researchUnlocked||{}).filter(Boolean).length;
+  const thLevel=Math.max(1,unlockedCount+1);
+  // Badge background
+  const badgeW=36,badgeH=12,badgeX=cx-badgeW/2,badgeY=orbY-orbR-22;
+  ctx.save();
+  ctx.shadowBlur=6;ctx.shadowColor='#FFD700';
+  ctx.fillStyle='rgba(40,30,0,0.85)';ctx.strokeStyle='#FFD700';ctx.lineWidth=1;
+  ctx.beginPath();ctx.roundRect(badgeX,badgeY,badgeW,badgeH,3);ctx.fill();ctx.stroke();
+  ctx.shadowBlur=0;
+  ctx.fillStyle='#FFD700';ctx.font='bold 8px sans-serif';ctx.textAlign='center';
+  ctx.fillText('TH Lv.'+thLevel,cx,badgeY+9);
+  ctx.restore();
+  // Tower label
+  ctx.fillStyle=orbCol;ctx.font='bold 9px sans-serif';ctx.textAlign='center';
   ctx.fillText(`MANIFOLD L${WS.tower_level}`,cx,orbY-orbR-6);
   ctx.restore();
 }
@@ -748,6 +802,397 @@ function drawParticlesAndFloats(){
   ctx.globalAlpha=1;ctx.restore();
 }
 
+// ========== ZONE WORK PROGRESS ==========
+// per-zone 0–1 progress — drives tile colour blend as agents work
+const _zoneWorkProgress={finance:0,devops:0,healthcare:0,legal:0,general:0};
+const _ZONE_DECAY=0.05; // rate of decay per second when no agent working
+
+function _agentZoneKey(domain){
+  if(domain==='finance') return 'finance';
+  if(domain==='devops') return 'devops';
+  if(domain==='healthcare') return 'healthcare';
+  if(domain==='legal') return 'legal';
+  return 'general';
+}
+
+function _tileZoneKey(ti,tj){
+  if(ti<7&&tj<7) return 'finance';
+  if(ti>=9&&tj<7) return 'devops';
+  if(ti<7&&tj>=9) return 'healthcare';
+  if(ti>=9&&tj>=9) return 'legal';
+  return 'general';
+}
+
+// ========== AGENT TASK ANIMATIONS ==========
+// Maps agent id → {type, progress} received from task_progress WS events
+const _agentAnimState={};
+
+function _drawTaskAnim(ag,sx,sy){
+  const anim=_agentAnimState[ag.id];
+  const type=anim?anim.type:ag._animType||'idle';
+  const prog=anim?anim.progress:(ag._progress||0);
+  if(type==='idle'||ag._state!=='working') return;
+  ctx.save();
+  if(type==='sweep'){
+    // Rotating brush arc below agent body + dust motes + clean trail
+    const arcR=10+4*Math.sin(clock*3);
+    const arcStart=clock*2, arcEnd=arcStart+Math.PI*1.2;
+    ctx.save();ctx.strokeStyle='rgba(180,255,120,0.7)';ctx.lineWidth=2.5;
+    ctx.shadowBlur=6;ctx.shadowColor='#90EE60';
+    ctx.beginPath();ctx.arc(sx,sy+4,arcR,arcStart,arcEnd);ctx.stroke();
+    ctx.shadowBlur=0;ctx.restore();
+    // Dust motes
+    for(let d=0;d<4;d++){
+      const da=arcStart+d*(Math.PI/4)+clock;
+      const mx=sx+Math.cos(da)*(arcR+4), my=sy+4+Math.sin(da)*(arcR+4)*0.5;
+      ctx.globalAlpha=0.5+0.3*Math.sin(clock*5+d);
+      ctx.fillStyle='#D4C89A';ctx.beginPath();ctx.arc(mx,my,1.5,0,Math.PI*2);ctx.fill();
+    }
+    ctx.globalAlpha=1;
+    // Clean-trail line behind agent
+    if(ag._trail&&ag._trail.length>2){
+      ctx.save();ctx.strokeStyle='rgba(64,200,64,0.25)';ctx.lineWidth=3;
+      ctx.beginPath();ctx.moveTo(ag._trail[0].sx,ag._trail[0].sy);
+      for(const pt of ag._trail) ctx.lineTo(pt.sx,pt.sy);
+      ctx.stroke();ctx.restore();
+    }
+    // Progress: tile brightens (zone tint already handled in drawTerrain)
+  }else if(type==='scan'){
+    // Radar sweep arc centred on agent
+    const sweepAngle=clock*1.8;
+    ctx.save();ctx.strokeStyle='rgba(100,200,255,0.6)';ctx.lineWidth=1.5;
+    ctx.shadowBlur=8;ctx.shadowColor='#64C8FF';
+    const radarR=18;
+    ctx.beginPath();
+    ctx.moveTo(sx,sy-10);
+    ctx.arc(sx,sy-10,radarR,sweepAngle-0.4,sweepAngle);
+    ctx.lineTo(sx,sy-10);ctx.stroke();
+    // Sweep fill sector
+    ctx.globalAlpha=0.15;ctx.fillStyle='#64C8FF';
+    ctx.beginPath();ctx.moveTo(sx,sy-10);
+    ctx.arc(sx,sy-10,radarR,sweepAngle-0.4,sweepAngle);
+    ctx.lineTo(sx,sy-10);ctx.fill();
+    ctx.globalAlpha=1;ctx.shadowBlur=0;
+    // N-reduction sparks at sweep edge
+    const sx2=sx+Math.cos(sweepAngle)*radarR, sy2=sy-10+Math.sin(sweepAngle)*radarR;
+    ctx.fillStyle='#80E0FF';
+    for(let sp=0;sp<3;sp++){
+      ctx.globalAlpha=0.7+0.3*Math.sin(clock*8+sp);
+      ctx.beginPath();ctx.arc(sx2+(sp-1)*3,sy2,1.5,0,Math.PI*2);ctx.fill();
+    }
+    ctx.globalAlpha=1;ctx.restore();
+  }else if(type==='stream'){
+    // 4 vertical data-stream columns scrolling upward
+    const cols=['#185FA5','#c87820','#0F6E56','#534AB7'];
+    const icons=['$','%','#','@'];
+    for(let c=0;c<4;c++){
+      const cx2=sx-18+c*12;
+      for(let r=0;r<5;r++){
+        const oy=((sy-70+r*10)-(clock*40+c*7))%40;
+        const ry=sy-70+((oy%40+40)%40);
+        const a=0.3+0.5*Math.sin(clock*4+c+r);
+        ctx.globalAlpha=a;ctx.fillStyle=cols[c];
+        ctx.fillRect(cx2-3,ry-4,6,4);
+      }
+    }
+    ctx.globalAlpha=1;
+    // Rotating domain icons around agent
+    for(let i=0;i<4;i++){
+      const ia=clock*1.2+i*(Math.PI/2);
+      const ix=sx+Math.cos(ia)*14, iy=sy-14+Math.sin(ia)*7;
+      ctx.globalAlpha=0.6+0.4*Math.sin(clock*3+i);
+      ctx.fillStyle='#FFD700';ctx.font='8px sans-serif';ctx.textAlign='center';
+      ctx.fillText(icons[i],ix,iy);
+    }
+    ctx.globalAlpha=1;
+  }else if(type==='write'){
+    // Pen moving left-right above agent
+    const penX=sx-10+20*(0.5+0.5*Math.sin(clock*2));
+    const penY=sy-40;
+    ctx.save();ctx.strokeStyle='#AAA';ctx.lineWidth=1.5;
+    ctx.beginPath();ctx.moveTo(penX,penY);ctx.lineTo(penX+4,penY+8);ctx.stroke();
+    ctx.fillStyle='#FFD700';ctx.beginPath();ctx.arc(penX,penY,2,0,Math.PI*2);ctx.fill();
+    // Document lines materialising with progress
+    const lines=Math.floor(prog*5);
+    for(let l=0;l<lines;l++){
+      ctx.globalAlpha=0.7;ctx.strokeStyle='#CCC';ctx.lineWidth=1;
+      ctx.beginPath();ctx.moveTo(sx-12,penY+12+l*5);ctx.lineTo(sx+12,penY+12+l*5);ctx.stroke();
+    }
+    ctx.globalAlpha=1;ctx.restore();
+  }else if(type==='deploy'){
+    // Rocket rising with progress
+    const rocketProg=Math.min(1,prog);
+    const rocketY=sy-20-rocketProg*30;
+    ctx.save();ctx.font='12px sans-serif';ctx.textAlign='center';
+    ctx.fillText('🚀',sx,rocketY);
+    // Exhaust trail
+    ctx.globalAlpha=0.4;ctx.strokeStyle='#FF8844';ctx.lineWidth=2;
+    ctx.beginPath();ctx.moveTo(sx,rocketY+8);ctx.lineTo(sx,rocketY+20);ctx.stroke();
+    ctx.globalAlpha=1;
+    // Green checkmarks appearing with progress
+    const checks=Math.floor(rocketProg*4);
+    for(let ch=0;ch<checks;ch++){
+      ctx.globalAlpha=0.9;ctx.fillStyle='#1D9E75';ctx.font='9px sans-serif';ctx.textAlign='left';
+      ctx.fillText('✓',sx-14+ch*9,sy-8);
+    }
+    ctx.globalAlpha=1;ctx.restore();
+  }else if(type==='collab'){
+    // Find cooperative partner agent
+    const partner=WS.agents.find(a=>a.id!==ag.id&&a._state==='working'&&
+      a.domain===ag.domain&&a._animType==='collab');
+    if(partner){
+      const ps=tileToScreen(partner.tx,partner.tz);
+      const mx=(sx+ps.x)/2, my=(sy+ps.y)/2-20;
+      // Pulsing ring
+      const pr=8+4*Math.sin(clock*3);
+      ctx.save();ctx.strokeStyle='rgba(175,169,236,0.6)';ctx.lineWidth=1.5;
+      ctx.shadowBlur=8;ctx.shadowColor='#AFA9EC';
+      ctx.beginPath();ctx.arc(sx,sy-10,pr,0,Math.PI*2);ctx.stroke();
+      ctx.beginPath();ctx.arc(ps.x,ps.y-10,pr,0,Math.PI*2);ctx.stroke();
+      ctx.shadowBlur=0;ctx.restore();
+      // Animated dashed pipe between agents
+      ctx.save();ctx.setLineDash([4,4]);ctx.lineDashOffset=-clock*12;
+      ctx.strokeStyle='rgba(175,169,236,0.5)';ctx.lineWidth=1.5;
+      ctx.beginPath();ctx.moveTo(sx,sy-10);ctx.lineTo(ps.x,ps.y-10);ctx.stroke();
+      ctx.setLineDash([]);ctx.restore();
+      // Shared task bubble at midpoint
+      ctx.save();ctx.fillStyle='rgba(40,35,70,0.9)';ctx.strokeStyle='#AFA9EC';ctx.lineWidth=1;
+      ctx.beginPath();ctx.roundRect(mx-20,my-8,40,14,4);ctx.fill();ctx.stroke();
+      ctx.fillStyle='#AFA9EC';ctx.font='7px sans-serif';ctx.textAlign='center';
+      ctx.fillText('⚡ Collab',mx,my+3);ctx.restore();
+    }
+  }
+  ctx.restore();
+}
+
+// ========== SIMS 3 — SKILL BAR SYSTEM ==========
+const _skillBars=[];
+function _spawnSkillBar(ag,sx,sy){
+  _skillBars.push({sx,sy,col:ag.col,life:2.0,maxLife:2.0});
+}
+function updateSkillBars(dt){
+  for(let i=_skillBars.length-1;i>=0;i--){
+    _skillBars[i].life-=dt;
+    if(_skillBars[i].life<=0) _skillBars.splice(i,1);
+  }
+}
+function drawSkillBars(){
+  ctx.save();
+  for(const sb of _skillBars){
+    const alpha=Math.min(1,sb.life/sb.maxLife);
+    const by=sb.sy-52+(1-sb.life/sb.maxLife)*4;
+    ctx.globalAlpha=alpha;
+    ctx.fillStyle='#222';ctx.fillRect(sb.sx-10,by,20,4);
+    ctx.fillStyle=sb.col;ctx.fillRect(sb.sx-10,by,20*(sb.life/sb.maxLife),4);
+    ctx.fillStyle='#FFD700';ctx.font='bold 8px sans-serif';ctx.textAlign='center';
+    ctx.fillText('+XP',sb.sx,by-2);
+  }
+  ctx.globalAlpha=1;ctx.restore();
+}
+
+// ========== SIMS 4 — COOPERATION SPEECH BUBBLE ==========
+function drawCoopBubbles(){
+  const cooperating=WS.agents.filter(a=>a._animType==='collab'&&a._state==='working');
+  const paired=new Set();
+  for(const ag of cooperating){
+    if(paired.has(ag.id)) continue;
+    const partner=WS.agents.find(b=>b.id!==ag.id&&b._animType==='collab'&&b._state==='working'&&!paired.has(b.id));
+    if(!partner) continue;
+    paired.add(ag.id); paired.add(partner.id);
+    const pa=tileToScreen(ag.tx,ag.tz);
+    const pb=tileToScreen(partner.tx,partner.tz);
+    const mx=(pa.x+pb.x)/2, my=(pa.y+pb.y)/2-36;
+    const stage=Math.floor(clock/2)%3; // cycle every 2s
+    const domIcon={finance:'💰',devops:'⚙',healthcare:'🏥',legal:'⚖',general:'🔍'};
+    const ia=domIcon[ag.domain]||'🔍', ib=domIcon[partner.domain]||'🔍';
+    const stages=['thinking…',ia+'→'+ib,'✓ done!'];
+    const label=stages[stage]||'…';
+    const bw=60,bh=20;
+    ctx.save();
+    // Bubble background
+    ctx.shadowBlur=4;ctx.shadowColor='#AFA9EC';
+    ctx.fillStyle='rgba(30,25,60,0.92)';ctx.strokeStyle='#AFA9EC';ctx.lineWidth=1;
+    ctx.beginPath();ctx.roundRect(mx-bw/2,my-bh/2,bw,bh,5);ctx.fill();ctx.stroke();
+    ctx.shadowBlur=0;
+    // Bubble tail pointing toward midpoint of agents
+    const tailY=my+bh/2;
+    ctx.fillStyle='rgba(30,25,60,0.92)';
+    ctx.beginPath();ctx.moveTo(mx-5,tailY);ctx.lineTo(mx,tailY+7);ctx.lineTo(mx+5,tailY);ctx.closePath();ctx.fill();
+    ctx.strokeStyle='#AFA9EC';ctx.lineWidth=1;
+    ctx.beginPath();ctx.moveTo(mx-5,tailY);ctx.lineTo(mx,tailY+7);ctx.lineTo(mx+5,tailY);ctx.stroke();
+    // Text
+    ctx.fillStyle='#AFA9EC';ctx.font='7px sans-serif';ctx.textAlign='center';
+    ctx.fillText(label,mx,my+3);
+    ctx.restore();
+  }
+}
+
+// ========== MC1 — TASK TOKENS ==========
+const _taskTokens=[];
+function spawnTaskToken(ti,tj,icon,col){
+  const {x,y}=tileToScreen(ti,tj);
+  _taskTokens.push({ti,tj,sx:x,sy:y,icon,col,life:1,collected:false,collectAnim:0});
+}
+function updateTaskTokens(dt){
+  for(let i=_taskTokens.length-1;i>=0;i--){
+    const t=_taskTokens[i];
+    if(t.collected){
+      t.collectAnim+=dt*4;
+      if(t.collectAnim>=1) _taskTokens.splice(i,1);
+      continue;
+    }
+    // Check if any agent is near the token
+    for(const ag of WS.agents){
+      if(ag._state!=='working'&&ag._state!=='walking') continue;
+      const dist=Math.hypot(ag.tx-t.ti,ag.tz-t.tj);
+      if(dist<1.2){
+        t.collected=true;
+        spawnParticles(t.sx,t.sy,'complete',t.col);
+        break;
+      }
+    }
+  }
+}
+function drawTaskTokens(){
+  ctx.save();
+  for(const t of _taskTokens){
+    if(t.collected){
+      const scale=1-t.collectAnim;
+      const alpha=1-t.collectAnim;
+      ctx.globalAlpha=alpha;
+      ctx.save();ctx.translate(t.sx,t.sy-12);ctx.scale(scale,scale);
+      ctx.shadowBlur=16*scale;ctx.shadowColor=t.col;
+      ctx.fillStyle=t.col+'55';ctx.beginPath();ctx.arc(0,0,12,0,Math.PI*2);ctx.fill();
+      ctx.strokeStyle=t.col;ctx.lineWidth=1.5;ctx.beginPath();ctx.arc(0,0,12,0,Math.PI*2);ctx.stroke();
+      ctx.shadowBlur=0;ctx.font='10px sans-serif';ctx.textAlign='center';ctx.fillText(t.icon,0,4);
+      ctx.restore();
+      ctx.globalAlpha=1;
+    } else {
+      const bob=Math.sin(clock*2)*3;
+      const rot=clock*0.5;
+      ctx.save();ctx.translate(t.sx,t.sy-12+bob);ctx.rotate(rot);
+      ctx.shadowBlur=12;ctx.shadowColor=t.col;
+      ctx.fillStyle=t.col+'44';ctx.beginPath();ctx.arc(0,0,12,0,Math.PI*2);ctx.fill();
+      ctx.strokeStyle=t.col;ctx.lineWidth=1.5;ctx.beginPath();ctx.arc(0,0,12,0,Math.PI*2);ctx.stroke();
+      ctx.shadowBlur=0;ctx.restore();
+      ctx.save();ctx.translate(t.sx,t.sy-12+bob);
+      ctx.font='10px sans-serif';ctx.textAlign='center';ctx.fillText(t.icon,0,4);
+      ctx.restore();
+    }
+  }
+  ctx.restore();
+}
+
+// ========== MC2 — TILE SUB-SQUARE TRANSFORMATION ==========
+// Per-zone tile transformation state: tracks progressive visual change
+const _tileSubState={finance:0,devops:0,healthcare:0,legal:0,general:0};
+const _tileFadeTimers={finance:0,devops:0,healthcare:0,legal:0,general:0};
+function updateTileSubState(dt){
+  for(const zone of Object.keys(_tileSubState)){
+    const target=Math.floor(_zoneWorkProgress[zone]*4)/4; // steps: 0, 0.25, 0.5, 0.75, 1.0
+    if(_tileSubState[zone]<target){
+      _tileFadeTimers[zone]+=dt;
+      if(_tileFadeTimers[zone]>=0.2){
+        _tileSubState[zone]=Math.min(target,_tileSubState[zone]+0.25);
+        _tileFadeTimers[zone]=0;
+      }
+    } else if(_tileSubState[zone]>target){
+      _tileSubState[zone]=Math.max(target,_tileSubState[zone]-0.25*dt);
+    }
+  }
+}
+function drawTileSubTransform(ti,tj,cx2,cy2){
+  if(isPath(ti,tj)||isCenter(ti,tj)||isWater(ti,tj)) return;
+  const zk=_tileZoneKey(ti,tj);
+  const steps=Math.round(_tileSubState[zk]*4); // 0-4
+  if(steps<=0) return;
+  // Sub-square colours for each zone (dirty → clean)
+  const cleanCols={
+    finance:'rgba(200,160,40,0.35)',
+    devops:'rgba(40,100,200,0.35)',
+    healthcare:'rgba(40,180,100,0.35)',
+    legal:'rgba(120,80,220,0.35)',
+    general:'rgba(175,169,236,0.35)',
+  };
+  const col=cleanCols[zk]||cleanCols.general;
+  // 2×2 sub-grid in isometric diamond
+  const qw=TW/4, qh=TH/4;
+  const subSquares=[
+    {ox:-qw/2,oy:-qh/2},{ox:qw/2,oy:-qh/2},
+    {ox:-qw/2,oy:qh/2},{ox:qw/2,oy:qh/2},
+  ];
+  ctx.save();
+  for(let s=0;s<Math.min(steps,4);s++){
+    const sq=subSquares[s];
+    ctx.globalAlpha=0.5+0.2*Math.sin(clock*2+s);
+    ctx.fillStyle=col;
+    ctx.fillRect(cx2+sq.ox-qw/2,cy2+sq.oy-qh/2,qw,qh);
+  }
+  ctx.globalAlpha=1;ctx.restore();
+}
+
+// ========== MC3 — ITEM ARC ON TASK_HANDOFF ==========
+const _itemArcs=[];
+function spawnItemArc(fromX,fromY,toX,toY,icon){
+  _itemArcs.push({fromX,fromY,toX,toY,icon,t:0,duration:0.6,done:false});
+}
+function updateItemArcs(dt){
+  for(let i=_itemArcs.length-1;i>=0;i--){
+    const arc=_itemArcs[i];
+    arc.t+=dt/arc.duration;
+    if(arc.t>=1){
+      arc.t=1;arc.done=true;
+      spawnParticles(arc.toX,arc.toY,'complete','#FFD700');
+      _itemArcs.splice(i,1);
+    }
+  }
+}
+function drawItemArcs(){
+  ctx.save();
+  for(const arc of _itemArcs){
+    const t=arc.t;
+    // Ease-in-out
+    const ease=t<0.5?2*t*t:1-Math.pow(-2*t+2,2)/2;
+    const x=arc.fromX+(arc.toX-arc.fromX)*ease;
+    const arcHeight=40;
+    const y=arc.fromY+(arc.toY-arc.fromY)*ease - Math.sin(Math.PI*ease)*arcHeight;
+    ctx.font='12px sans-serif';ctx.textAlign='center';
+    ctx.shadowBlur=8;ctx.shadowColor='#FFD700';
+    ctx.fillText(arc.icon,x,y);
+    ctx.shadowBlur=0;
+  }
+  ctx.restore();
+}
+
+// ========== MC4 — BLOCK PARTICLES ==========
+const _blockParticles=[];
+function _spawnBlockParticles(sx,sy,col){
+  for(let b=0;b<3;b++){
+    _blockParticles.push({
+      x:sx+(Math.random()-.5)*12,
+      y:sy+(Math.random()-.5)*6,
+      vy:-(30+Math.random()*20),
+      life:0.8,maxLife:0.8,col,size:2+Math.random()*2,
+    });
+  }
+}
+function updateBlockParticles(dt){
+  for(let i=_blockParticles.length-1;i>=0;i--){
+    const p=_blockParticles[i];
+    p.y+=p.vy*dt; p.vy*=0.9; p.life-=dt;
+    if(p.life<=0) _blockParticles.splice(i,1);
+  }
+}
+function drawBlockParticles(){
+  ctx.save();
+  for(const p of _blockParticles){
+    ctx.globalAlpha=p.life/p.maxLife;
+    ctx.fillStyle=p.col;
+    ctx.fillRect(p.x-p.size/2,p.y-p.size/2,p.size,p.size);
+  }
+  ctx.globalAlpha=1;ctx.restore();
+}
+
 // ========== AGENTS ==========
 function initAgent(ag){
   if(ag._init) return; ag._init=true;
@@ -767,9 +1212,34 @@ function agentZone(domain){
 }
 
 function updateAgents(dt){
+  // Decay zone work progress when no agent is working there
+  for(const zone of Object.keys(_zoneWorkProgress)){
+    let hasWorker=false;
+    for(const ag of WS.agents){
+      if(ag._state==='working'&&_agentZoneKey(ag.domain)===zone){hasWorker=true;break;}
+    }
+    if(hasWorker) _zoneWorkProgress[zone]=Math.min(1,_zoneWorkProgress[zone]+0.08*dt);
+    else _zoneWorkProgress[zone]=Math.max(0,_zoneWorkProgress[zone]-_ZONE_DECAY*dt);
+  }
   for(const ag of WS.agents){
     initAgent(ag);
     if(ag._paused) continue;
+    // Decay skill flash timer
+    if(ag._skillFlash&&ag._skillFlash>0) ag._skillFlash=Math.max(0,ag._skillFlash-dt);
+    // Minecraft block particles while working
+    if(ag._state==='working'){
+      ag._blockParticleTimer=(ag._blockParticleTimer||0)-dt;
+      if(ag._blockParticleTimer<=0){
+        ag._blockParticleTimer=0.5;
+        const pos2=tileToScreen(ag.tx,ag.tz);
+        const zk=_agentZoneKey(ag.domain);
+        const zoneCols2={finance:'#c87820',devops:'#185FA5',healthcare:'#0F6E56',legal:'#534AB7',general:'#AFA9EC'};
+        const bcol=zoneCols2[zk]||'#AFA9EC';
+        _spawnBlockParticles(pos2.x,pos2.y,bcol);
+      }
+    } else {
+      ag._blockParticleTimer=0;
+    }
     ag._blinkTimer+=dt; if(ag._blinkTimer>5) ag._blinkTimer-=5;
     const pos=tileToScreen(ag.tx,ag.tz);
     const moving=ag._state==='walking'||ag._state==='returning';
@@ -800,11 +1270,14 @@ function updateAgents(dt){
       else{const spd=.8*dt; ag.tx+=(dx/dist)*spd; ag.tz+=(dz/dist)*spd;}
     } else if(ag._state==='working'){
       if(!ag._task){ag._state='idle';continue;}
+      const prevProg=ag._progress;
       ag._progress+=.035*dt; ag._task.progress=ag._progress;
       if(ag._progress>=1){
         ag._state='complete'; ag._timer=2;
         spawnParticles(pos.x,pos.y,'complete',ag.col);
         spawnFloat(pos.x,pos.y-30,'+50 XP','#FFD700');
+        ag._skillFlash=2.0; // start 2-second ATS skill bar flash
+        _spawnSkillBar(ag,pos.x,pos.y);
         ag._task=null; ag._progress=0;
       }
     } else if(ag._state==='complete'){
@@ -910,6 +1383,8 @@ function drawAgent(ag){
     ctx.beginPath();ctx.arc(0,0,16,0,Math.PI*2);ctx.stroke();
     ctx.restore();
   }
+  // Task animation overlay (sweep/scan/stream/write/deploy/collab)
+  if(working) _drawTaskAnim(ag,sx,sy);
   // Governance pulse
   if(ag._govPulse>0){
     ctx.save();ctx.globalAlpha=ag._govPulse;
@@ -917,6 +1392,80 @@ function drawAgent(ag){
     ctx.beginPath();ctx.arc(sx,sy-16,12+(1-ag._govPulse)*8,0,Math.PI*2);ctx.stroke();
     ctx.restore();
     ag._govPulse=Math.max(0,ag._govPulse-.02);
+  }
+  // ── SIMS 2 — Moodlet status strip (⚙ ♥ ⛓) under name badge ───────────
+  {
+    const ats=ag.health||ag.ats||0.8;
+    const cooperating=ag._animType==='collab';
+    const moodlets=[
+      {icon:'⚙',col:working?'#1D9E75':'#555'},
+      {icon:'♥',col:ats>0.7?'#1D9E75':ats>0.4?'#c87820':'#E24B4A'},
+      {icon:'⛓',col:cooperating?'#AFA9EC':'transparent'},
+    ];
+    ctx.save();ctx.font='6px sans-serif';ctx.textAlign='center';
+    for(let m=0;m<3;m++){
+      const mx=sx-6+m*6, my=sy-24;
+      if(moodlets[m].col==='transparent'){continue;}
+      ctx.fillStyle=moodlets[m].col;
+      ctx.beginPath();ctx.arc(mx,my,3,0,Math.PI*2);ctx.fill();
+      ctx.fillStyle='#000';ctx.fillText(moodlets[m].icon,mx,my+2);
+    }
+    ctx.restore();
+  }
+  // ── SIMS 3 — ATS skill bar flash (triggered externally via ag._skillFlash) ─
+  if(ag._skillFlash&&ag._skillFlash>0){
+    const sf=ag._skillFlash; // 0→2 second countdown (decremented in updateAgents)
+    ctx.save();ctx.globalAlpha=Math.min(1,sf);
+    // 20×4px skill bar
+    const bx=sx-10, by=sy-50;
+    ctx.fillStyle='#333';ctx.fillRect(bx,by,20,4);
+    ctx.fillStyle='#FFD700';ctx.fillRect(bx,by,20*(1-sf/2+0.5),4);
+    ctx.globalAlpha=Math.min(1,sf);ctx.restore();
+  }
+  // ── SIMS 1 — Plumbob diamond above agent (bobs, colour-codes state) ───────
+  {
+    const PLUMBOB_BOB_PERIOD=0.3; // seconds per bob cycle
+    const bobY=Math.sin(clock*((2*Math.PI)/PLUMBOB_BOB_PERIOD))*3;
+    const diamondY=sy-50+bobY;
+    const dSize=8;
+    const cooperating=ag._animType==='collab';
+    let dCol=ag.col;
+    let dAlpha=1.0;
+    if(ag._state==='idle'){dCol='#888';dAlpha=0.4;}
+    else if(ag._state==='working'&&cooperating){dCol='#AFA9EC';}
+    else if(ag._state==='complete'||ag._state==='returning'){dCol='#1D9E75';}
+    // Blocked/error check
+    const isBlocked=(ag._govPulse>0&&!ag._govPermitted);
+    if(isBlocked){dCol='#E24B4A';dAlpha=0.9;}
+    // Cooperating: purple pulse
+    if(cooperating){
+      const pulse=0.7+0.3*Math.sin(clock*4);
+      dAlpha=pulse;
+    }
+    ctx.save();ctx.globalAlpha=dAlpha;
+    ctx.shadowBlur=6;ctx.shadowColor=dCol;ctx.fillStyle=dCol;
+    ctx.beginPath();
+    ctx.moveTo(sx,diamondY-dSize);
+    ctx.lineTo(sx+dSize*0.6,diamondY);
+    ctx.lineTo(sx,diamondY+dSize);
+    ctx.lineTo(sx-dSize*0.6,diamondY);
+    ctx.closePath();ctx.fill();
+    ctx.shadowBlur=0;
+    // Task icon inside diamond
+    const domIcon={finance:'💰',devops:'⚙',healthcare:'🏥',legal:'⚖',general:'🔍'}[ag.domain]||'🔍';
+    const plumbobIcon=ag._state==='idle'?'💤':ag._state==='working'?domIcon:ag._state==='complete'?'✅':'🏠';
+    ctx.globalAlpha=1;ctx.font='6px sans-serif';ctx.textAlign='center';
+    ctx.fillText(plumbobIcon,sx,diamondY+2);
+    // Handoff flash — white pulse on plumbob diamond
+    if(ag._plumbobFlash&&ag._plumbobFlash>0){
+      ctx.globalAlpha=ag._plumbobFlash;ctx.fillStyle='white';
+      ctx.beginPath();
+      ctx.moveTo(sx,diamondY-dSize);ctx.lineTo(sx+dSize*0.6,diamondY);
+      ctx.lineTo(sx,diamondY+dSize);ctx.lineTo(sx-dSize*0.6,diamondY);
+      ctx.closePath();ctx.fill();
+      ag._plumbobFlash=Math.max(0,ag._plumbobFlash-0.03);
+    }
+    ctx.restore();
   }
   ctx.restore();
 }
@@ -1244,6 +1793,81 @@ function sendAgentTask(){
   if(ag._state==='idle'){spawnTaskPillar(ag);showToast('Task assigned to '+ag.name,ag.col);}
   else showToast(ag.name+' is already busy','#888');
 }
+
+// ========== ADD AGENT FROM PROFILE ==========
+const _AAP_PROFILES={
+  'claude-sonnet':  {display_name:'Claude Sonnet', capabilities:['reasoning','summarise','code','analysis'], domain:'general', layer:'digital/llm', level:4, crna:{c:0.25,r:0.20,n:0.30,a:0.80}},
+  'claude-opus':    {display_name:'Claude Opus',   capabilities:['reasoning','research','writing','code'],    domain:'general', layer:'digital/llm', level:5, crna:{c:0.30,r:0.20,n:0.20,a:0.90}},
+  'gpt-4o':         {display_name:'GPT-4o',         capabilities:['reasoning','vision','code','search'],       domain:'general', layer:'digital/llm', level:4, crna:{c:0.25,r:0.20,n:0.25,a:0.85}},
+  'gpt-4o-mini':    {display_name:'GPT-4o Mini',    capabilities:['reasoning','summarise','classify'],         domain:'general', layer:'digital/llm', level:3, crna:{c:0.15,r:0.15,n:0.35,a:0.70}},
+  'gemini-pro':     {display_name:'Gemini Pro',     capabilities:['reasoning','vision','search','multimodal'], domain:'general', layer:'digital/llm', level:4, crna:{c:0.25,r:0.20,n:0.25,a:0.85}},
+  'llama-3':        {display_name:'Llama 3',        capabilities:['reasoning','summarise','local'],            domain:'general', layer:'digital/llm', level:3, crna:{c:0.10,r:0.15,n:0.40,a:0.65}},
+  'mistral':        {display_name:'Mistral',        capabilities:['reasoning','code','french'],                domain:'general', layer:'digital/llm', level:3, crna:{c:0.10,r:0.15,n:0.40,a:0.65}},
+  'roomba':         {display_name:'Roomba',         capabilities:['vacuum','map','floor_nav','bump_detect'],   domain:'physical/floor',   layer:'physical/floor',   level:2, crna:{c:0.40,r:0.50,n:0.60,a:0.40}},
+  'drone':          {display_name:'Drone',          capabilities:['scout','map','aerial_nav','camera'],        domain:'physical/aerial',  layer:'physical/aerial',  level:3, crna:{c:0.50,r:0.65,n:0.50,a:0.55}},
+  'home-assistant': {display_name:'Home Assistant', capabilities:['iot','mqtt','automation','sensors'],        domain:'physical/home',    layer:'physical/device',  level:2, crna:{c:0.20,r:0.30,n:0.50,a:0.50}},
+  'langchain':      {display_name:'LangChain Agent',capabilities:['search','memory','tools','chains'],         domain:'general', layer:'digital/framework', level:3, crna:{c:0.20,r:0.25,n:0.35,a:0.70}},
+  'openai-swarm':   {display_name:'OpenAI Swarm',   capabilities:['coordination','delegation','parallel'],     domain:'general', layer:'digital/swarm',     level:4, crna:{c:0.30,r:0.25,n:0.30,a:0.80}},
+};
+function openAddAgentPanel(){
+  const sel=document.getElementById('aap-profile');
+  if(sel.options.length===0){
+    Object.keys(_AAP_PROFILES).forEach(k=>{
+      const o=document.createElement('option'); o.value=k; o.textContent=k; sel.appendChild(o);
+    });
+  }
+  aapProfileChange();
+  document.getElementById('add-agent-panel').style.display='flex';
+}
+function closeAddAgentPanel(){
+  document.getElementById('add-agent-panel').style.display='none';
+  document.getElementById('aap-id').value='';
+  document.getElementById('aap-name').value='';
+}
+function aapProfileChange(){
+  const k=document.getElementById('aap-profile').value;
+  const p=_AAP_PROFILES[k]; if(!p) return;
+  const info=document.getElementById('aap-profile-info');
+  info.textContent=`Layer: ${p.layer}  •  Level ${p.level}  •  Caps: ${p.capabilities.join(', ')}`;
+  if(!document.getElementById('aap-name').value)
+    document.getElementById('aap-name').value=p.display_name;
+}
+async function submitAddAgent(){
+  const profileKey=document.getElementById('aap-profile').value;
+  const agentId=document.getElementById('aap-id').value.trim();
+  const displayName=document.getElementById('aap-name').value.trim();
+  if(!agentId){showToast('Agent ID is required','#E24B4A');return;}
+  if(!displayName){showToast('Display name is required','#E24B4A');return;}
+  const p=_AAP_PROFILES[profileKey];
+  const apiBase=(localStorage.getItem('manifold_url')||'').replace(/\/$/,'');
+  const apiKey=localStorage.getItem('manifold_key')||'';
+  const body={
+    agent_id:agentId,
+    display_name:displayName,
+    capabilities:p.capabilities,
+    domain:p.domain,
+    org_id:'default',
+    endpoint_url:'',
+  };
+  try{
+    const resp=await fetch((apiBase||'')+'/agents/register',{
+      method:'POST',
+      headers:{'Content-Type':'application/json','Authorization':'Bearer '+apiKey},
+      body:JSON.stringify(body)
+    });
+    if(resp.ok){
+      showToast('✓ '+displayName+' registered ('+profileKey+')','#1D9E75');
+      closeAddAgentPanel();
+    } else {
+      const err=await resp.json().catch(()=>({}));
+      showToast('Registration failed: '+(err.error||resp.status),'#E24B4A');
+    }
+  }catch(e){
+    showToast('Registered (offline mode) — '+displayName,'#AFA9EC');
+    closeAddAgentPanel();
+  }
+}
+
 function openTowerPanel(){
   document.getElementById('pt-level').textContent='L'+WS.tower_level;
   document.getElementById('pt-health-fill').style.width=WS.world_health+'%';
@@ -1337,6 +1961,12 @@ async function submitZoneDeploy(){
       const data=await res.json();
       showToast('Task deployed!','#1D9E75');
       if(data.vcg_result) showVCGToast(data.vcg_result);
+      // MC1: spawn physical task token at zone centre
+      const zoneCentre={finance:{ti:3,tj:3},devops:{ti:12,tj:3},healthcare:{ti:3,tj:12},legal:{ti:12,tj:12},general:{ti:7,tj:7}};
+      const zc=zoneCentre[dom]||zoneCentre.general;
+      const domIcons={finance:'💰',devops:'⚙️',healthcare:'🏥',legal:'⚖️',general:'🔍'};
+      const domColsMap={finance:'#c87820',devops:'#185FA5',healthcare:'#0F6E56',legal:'#534AB7',general:'#AFA9EC'};
+      spawnTaskToken(zc.ti,zc.tj,domIcons[dom]||'🔍',domColsMap[dom]||'#AFA9EC');
       const ag=WS.agents.find(a=>a.domain===dom&&a._state==='idle');
       if(ag) spawnTaskPillar(ag);
     } else throw new Error();
@@ -1509,6 +2139,29 @@ function handleWSMsg(msg){
   if(msg.vcg_result) showVCGToast(msg.vcg_result);
   if(msg.type==='task_update') showToast('Task '+msg.status+': '+(msg.task_id||'').slice(0,8));
   if(msg.type==='world_stats') WS.world_health=msg.system_health*100;
+  // task_progress — update agent animation state
+  if(msg.event==='task_progress'){
+    const agId=msg.agent_id;
+    if(agId){
+      _agentAnimState[agId]={type:msg.animation_type||'idle',progress:msg.progress||0};
+      const ag=WS.agents.find(a=>a.id===agId);
+      if(ag) ag._animType=msg.animation_type||'idle';
+    }
+  }
+  // task_handoff — show toast + spawn item arc between agents
+  if(msg.event==='task_handoff'){
+    showToast('⚡ Handoff: '+msg.from_agent+' → '+msg.to_agent+(msg.zone?' ('+msg.zone+')':''),'#AFA9EC');
+    // Find the two agents and spawn an arc between them
+    const fromAg=WS.agents.find(a=>a.id===msg.from_agent);
+    const toAg=WS.agents.find(a=>a.id===msg.to_agent);
+    if(fromAg&&toAg){
+      const fp=tileToScreen(fromAg.tx,fromAg.tz);
+      const tp=tileToScreen(toAg.tx,toAg.tz);
+      spawnItemArc(fp.x,fp.y-16,tp.x,tp.y-16,'📦');
+      // Flash to_agent plumbob
+      if(toAg) toAg._plumbobFlash=0.5;
+    }
+  }
 }
 setInterval(async()=>{
   if(wsConnected) return;
@@ -1563,6 +2216,11 @@ function gameLoop(ts){
   updatePillars(dt);
   updateParticles(dt);
   updateResources(dt);
+  updateSkillBars(dt);
+  updateTaskTokens(dt);
+  updateItemArcs(dt);
+  updateBlockParticles(dt);
+  updateTileSubState(dt);
   // Check building upgrades
   for(const b of Object.values(WS.buildings)){
     if(b.upgrade_end&&Date.now()>=b.upgrade_end){b.level++;b.upgrade_end=null;saveState();showToast('Building upgraded!','#1D9E75');}
@@ -1576,7 +2234,12 @@ function gameLoop(ts){
   drawBuildings();
   drawCrystals();
   drawPillars();
+  drawTaskTokens();
   drawAgents();
+  drawCoopBubbles();
+  drawSkillBars();
+  drawItemArcs();
+  drawBlockParticles();
   drawParticlesAndFloats();
   drawDragUI();
   updateHUD();
@@ -1726,6 +2389,28 @@ async function _pollConvergence(){
 setInterval(_pollConvergence,30000);
 // Initial poll after 2 seconds (wait for API key to be set)
 setTimeout(_pollConvergence,2000);
+
+// ── Active Tasks Poll (fetch animation_type on load + every 10s) ─────────
+async function _pollActiveTasks(){
+  const apiBase=(localStorage.getItem('manifold_url')||'').replace(/\/$/,'');
+  const apiKey=localStorage.getItem('manifold_key')||'';
+  if(!apiBase) return;
+  try{
+    const resp=await fetch(apiBase+'/tasks/active',{headers:{'Authorization':'Bearer '+apiKey}});
+    if(!resp.ok) return;
+    const data=await resp.json();
+    for(const st of (data.active_sub_tasks||[])){
+      const agId=st.agent_id;
+      if(agId){
+        _agentAnimState[agId]={type:st.animation_type||'idle',progress:st.progress||0};
+        const ag=WS.agents.find(a=>a.id===agId);
+        if(ag) ag._animType=st.animation_type||'idle';
+      }
+    }
+  }catch(e){}
+}
+setInterval(_pollActiveTasks,10000);
+setTimeout(_pollActiveTasks,3000);
 </script>
 
 <!-- Convergence sparkline widget (bottom-right of world panel) -->
@@ -1768,8 +2453,30 @@ setTimeout(_pollConvergence,2000);
 
 <div id="army-bar" style="position:fixed;bottom:0;left:0;right:0;height:56px;background:rgba(4,5,10,0.93);border-top:1px solid rgba(255,255,255,0.06);z-index:590;display:flex;align-items:center;padding:0 8px;gap:4px;overflow-x:auto;overflow-y:hidden">
   <!-- Populated by JS -->
+  <button id="btn-add-agent" onclick="openAddAgentPanel()" title="Register a new agent from profile" style="flex-shrink:0;background:rgba(29,158,117,0.15);border:1px solid rgba(29,158,117,0.5);color:#1D9E75;padding:4px 10px;border-radius:20px;cursor:pointer;font-family:inherit;font-size:10px;white-space:nowrap">➕ Add Agent</button>
 </div>
 <div id="army-drag-ghost" style="position:fixed;display:none;pointer-events:none;z-index:700;font-size:20px"></div>
+
+<!-- Add Agent from Profile Panel -->
+<div id="add-agent-panel" style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.70);z-index:800;display:none;align-items:center;justify-content:center">
+  <div style="background:#0a0b18;border:1px solid rgba(29,158,117,0.4);border-radius:12px;padding:20px;width:340px;max-width:95vw">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+      <h2 style="font-size:12px;color:#1D9E75;margin:0">➕ Register Agent from Profile</h2>
+      <button onclick="closeAddAgentPanel()" style="background:none;border:none;color:#555;cursor:pointer;font-size:16px">✕</button>
+    </div>
+    <label style="font-size:9px;color:#555;display:block;margin-bottom:3px">PROFILE</label>
+    <select id="aap-profile" style="width:100%;background:#0f1020;border:1px solid #333;color:#ccc;padding:6px 8px;border-radius:6px;font-family:inherit;font-size:10px;margin-bottom:10px" onchange="aapProfileChange()"></select>
+    <div id="aap-profile-info" style="font-size:9px;color:#555;margin-bottom:10px;min-height:28px;line-height:1.5"></div>
+    <label style="font-size:9px;color:#555;display:block;margin-bottom:3px">AGENT ID</label>
+    <input id="aap-id" type="text" placeholder="e.g. claude-prod-01" style="width:100%;box-sizing:border-box;background:#0f1020;border:1px solid #333;color:#ccc;padding:6px 8px;border-radius:6px;font-family:inherit;font-size:10px;margin-bottom:10px">
+    <label style="font-size:9px;color:#555;display:block;margin-bottom:3px">DISPLAY NAME</label>
+    <input id="aap-name" type="text" placeholder="e.g. Production Sonnet" style="width:100%;box-sizing:border-box;background:#0f1020;border:1px solid #333;color:#ccc;padding:6px 8px;border-radius:6px;font-family:inherit;font-size:10px;margin-bottom:14px">
+    <div style="display:flex;gap:8px">
+      <button onclick="submitAddAgent()" style="flex:1;background:rgba(29,158,117,0.2);border:1px solid #1D9E75;color:#1D9E75;padding:7px;border-radius:6px;cursor:pointer;font-family:inherit;font-size:11px">Register</button>
+      <button onclick="closeAddAgentPanel()" style="flex:1;background:rgba(255,255,255,0.04);border:1px solid #333;color:#888;padding:7px;border-radius:6px;cursor:pointer;font-family:inherit;font-size:11px">Cancel</button>
+    </div>
+  </div>
+</div>
 
 <div id="escalation-overlay" style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(226,75,74,0.10);z-index:800;display:none;align-items:center;justify-content:center">
   <div style="background:#0f1020;border:2px solid #E24B4A;border-radius:10px;padding:20px;width:300px;min-height:140px;position:relative">

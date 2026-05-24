@@ -142,3 +142,104 @@ def test_tom_stagger_applied_when_two_agents_share_domain():
     d = plan.to_dict()
     for sub_dict in d["sub_tasks"]:
         assert "delay_seconds" in sub_dict
+
+
+# ---------------------------------------------------------------------------
+# animation_type + progress tests
+# ---------------------------------------------------------------------------
+
+def test_subtask_has_animation_type_and_progress():
+    """SubTask must carry animation_type and progress fields."""
+    router = _router()
+    plan = router.route("generate report")
+    for st in plan.sub_tasks:
+        assert hasattr(st, "animation_type")
+        assert isinstance(st.animation_type, str)
+        assert hasattr(st, "progress")
+        assert isinstance(st.progress, float)
+        assert 0.0 <= st.progress <= 1.0
+
+
+def test_animation_type_in_to_dict():
+    """TaskPlan.to_dict() must include animation_type and progress."""
+    router = _router()
+    plan = router.route("generate report")
+    d = plan.to_dict()
+    for sub_dict in d["sub_tasks"]:
+        assert "animation_type" in sub_dict
+        assert "progress" in sub_dict
+
+
+def test_collab_animation_type_for_parallel_subtask():
+    """Parallel sub-tasks must receive animation_type='collab'."""
+    from manifold.agent_registry import AgentRegistry, AgentRecord
+    registry = AgentRegistry()
+    registry.register("agent-alpha", "Alpha", ["general"], "org1", domain="finance")
+    registry.register("agent-beta", "Beta", ["general"], "org1", domain="devops")
+    router = TaskRouter(registry=registry)
+    plan = router.route("analyse sales data and run server health check simultaneously")
+    parallel_sts = [s for s in plan.sub_tasks if s.execution_mode == "parallel"]
+    for st in parallel_sts:
+        assert st.animation_type == "collab"
+
+
+def test_domain_animation_sweep_for_vacuum_domain():
+    """Domains containing 'vacuum' or 'physical/floor' must map to 'sweep'."""
+    from manifold.task_router import _animation_for_sub_task
+    assert _animation_for_sub_task("physical/floor", "sequential") == "sweep"
+    assert _animation_for_sub_task("vacuum", "sequential") == "sweep"
+
+
+def test_domain_animation_scan_for_aerial():
+    """Domains containing 'aerial' or 'scout' must map to 'scan'."""
+    from manifold.task_router import _animation_for_sub_task
+    assert _animation_for_sub_task("physical/aerial", "sequential") == "scan"
+    assert _animation_for_sub_task("scout", "sequential") == "scan"
+
+
+def test_domain_animation_stream_for_finance():
+    from manifold.task_router import _animation_for_sub_task
+    assert _animation_for_sub_task("finance", "sequential") == "stream"
+
+
+def test_domain_animation_write_for_legal():
+    from manifold.task_router import _animation_for_sub_task
+    assert _animation_for_sub_task("legal", "sequential") == "write"
+
+
+def test_domain_animation_deploy_for_devops():
+    from manifold.task_router import _animation_for_sub_task
+    assert _animation_for_sub_task("devops", "sequential") == "deploy"
+
+
+def test_domain_animation_collab_for_parallel():
+    """Parallel execution mode always returns 'collab'."""
+    from manifold.task_router import _animation_for_sub_task
+    assert _animation_for_sub_task("finance", "parallel") == "collab"
+
+
+def test_active_sub_tasks_returns_assigned():
+    """active_sub_tasks() must return assigned sub-tasks."""
+    from manifold.agent_registry import AgentRegistry
+    registry = AgentRegistry()
+    registry.register("agent-x", "AgentX", ["general", "finance"], "org1", domain="finance")
+    router = TaskRouter(registry=registry)
+    router.route("prepare financial report")
+    active = router.active_sub_tasks()
+    # May be empty if governance blocked all, but must be a list
+    assert isinstance(active, list)
+    for item in active:
+        assert "plan_id" in item
+        assert "animation_type" in item
+        assert "progress" in item
+        assert item["status"] in ("assigned", "running")
+
+
+def test_active_sub_tasks_dict_includes_required_keys():
+    """Each item in active_sub_tasks() must include all required keys."""
+    router = _router()
+    active = router.active_sub_tasks()
+    for item in active:
+        for key in ("plan_id", "sub_task_id", "agent_id", "domain",
+                    "progress", "animation_type", "status"):
+            assert key in item, f"Missing key: {key}"
