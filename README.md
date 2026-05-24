@@ -20,7 +20,7 @@
 
 <p align="center">
   <img src="assets/manifold-preview.svg" width="800"
-       alt="MANIFOLD v2.5.0 — isometric governance world showing 6 agent types (Roomba, Drone, LLM agents), MANIFOLD Town Hall, Sims plumbob task indicators, Minecraft item tokens and fog of war, and cooperation arcs. All 2596 tests passing."/>
+       alt="MANIFOLD v2.5.0 — isometric governance world showing 6 agent types (Roomba, Drone, LLM agents), MANIFOLD Town Hall, Sims plumbob task indicators, Minecraft item tokens and fog of war, and cooperation arcs. All 2,596 tests passing."/>
 </p>
 
 ---

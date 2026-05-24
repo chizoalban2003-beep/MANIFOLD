@@ -404,7 +404,7 @@
 <text x="580" y="71" fill="#4488ff" font-size="9" font-family="monospace">&#x25B8; METRICS</text>
 <rect x="576" y="75" width="206" height="82" rx="4" fill="#0a0e1a" stroke="#1a2a4a" stroke-width="0.8"/>
 <text x="588" y="90"  fill="#556677" font-size="8" font-family="monospace">Tests passing</text>
-<text x="774" y="90"  text-anchor="end" fill="#00e676" font-size="8" font-family="monospace">2 596 &#x2713;</text>
+<text x="774" y="90"  text-anchor="end" fill="#00e676" font-size="8" font-family="monospace">2,596 &#x2713;</text>
 <text x="588" y="103" fill="#556677" font-size="8" font-family="monospace">Python modules</text>
 <text x="774" y="103" text-anchor="end" fill="#00d4ff" font-size="8" font-family="monospace">133</text>
 <text x="588" y="116" fill="#556677" font-size="8" font-family="monospace">Lines of code</text>
