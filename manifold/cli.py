@@ -76,6 +76,9 @@ def _build_agent_parser(subparsers: argparse._SubParsersAction) -> None:  # type
     list_p.add_argument("--json", action="store_true", help="Emit JSON output.")
 
 
+_AGENT_ADD_TIMEOUT = 10  # seconds
+
+
 def _run_agent_add(args: argparse.Namespace) -> None:
     """Execute 'agent add' — register an agent via the MANIFOLD server API."""
     import urllib.error  # noqa: PLC0415
@@ -122,7 +125,7 @@ def _run_agent_add(args: argparse.Namespace) -> None:
         method="POST",
     )
     try:
-        with urllib.request.urlopen(req, timeout=10) as resp:
+        with urllib.request.urlopen(req, timeout=_AGENT_ADD_TIMEOUT) as resp:
             result = json.loads(resp.read().decode())
         print(f"✓ Agent registered: {result.get('agent_id', args.agent_id)}")
         print(f"  Display name : {result.get('display_name', args.display_name)}")
@@ -138,7 +141,7 @@ def _run_agent_add(args: argparse.Namespace) -> None:
         print(f"✗ Registration failed (HTTP {exc.code}): {body}")
     except OSError as exc:
         print(f"✗ Could not reach server at {url}: {exc}")
-        print("  Hint: start the server with: python -m manifold.server --port 8080")
+        print(f"  Hint: start the server with: python -m manifold.server --port {base.split(':')[-1]}")
 
 
 def _run_agent_list_profiles(args: argparse.Namespace) -> None:
