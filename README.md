@@ -341,6 +341,7 @@ See `manifold-ts/README.md` for full TypeScript documentation.
 | **v2.5.0** | ✅ Done | CoC world complete — zone deploy panel, agent army bar, escalation overlay, pan+zoom, BFT indicator, VCG toasts, adversarial alerts, research tree; ToM in TaskRouter; remote/vector/swarm endpoints |
 | **v2.6.0** | ✅ Done | Agent onboarding — `agent_profiles.py` (12 profiles), CLI `agent add`, world ➕ Add Agent modal; Research Agenda (5 theoretical gaps) |
 | **v2.7.0** | ✅ Done | Living world — Town Hall identity (gold TH badge, orb colour, agent-count dots), per-agent task animations (sweep/scan/stream/write/deploy/collab), zone environment response; `SubTask.progress`/`animation_type`; WebSocket `task_progress`/`task_handoff` events; `GET /tasks/active` |
+| **v2.8.0** | ✅ Done | Sims+Minecraft world — Plumbob diamond above each agent (bobs, colour-codes state), moodlet strip (⚙♥⛓), ATS skill bar flash on completion, cooperation speech bubble; MC item tokens (physical task objects), tile block-by-block sub-square transformation, item arc on handoff (600ms arc+sparkles), block particles while agents work |
 | **Phase 1** | 🔄 In progress | Deploy to Railway/Fly/Heroku, onboard pilot orgs, real governance data collection, manifold-world as installable PWA on phone |
 | **Phase 2** | 📋 Roadmap | MANIFOLD Physical v0.1 — Roomba bridge with real hardware, MQTT IoT connector, camera-based obstacle detection pipeline |
 | **Phase 3** | 🔭 Vision | NERVATURA platform — digital + physical governance OS, brand restructure, commercial partnerships, managed cloud offering |
@@ -455,7 +456,7 @@ provides the empirical baseline all theoretical work should improve upon.
 
 ---
 
-## MANIFOLD World (v2.7.0)
+## MANIFOLD World (v2.8.0)
 
 MANIFOLD World (`/world`) is an isometric real-time governance game built on the MANIFOLD API — a Clash of Clans/Sims/Minecraft-style command interface for your agent fleet.
 
@@ -475,6 +476,14 @@ MANIFOLD World (`/world`) is an isometric real-time governance game built on the
 | **Town Hall Identity** | MANIFOLD tower shows gold `TH Lv.X` badge (X = unlocked capabilities), colour-reactive orb (gold=all working, red=escalation, purple=idle), and pulsing agent-count dots ring |
 | **Task Animations** | Per-agent overlays driven by `animation_type` from `task_progress` WebSocket events: sweep (Roomba), scan (Drone radar), stream (LLM data), write (Legal pen), deploy (DevOps rocket), collab (shared task pipe) |
 | **Zone Environment** | Tiles gradually tint as agents work there; per-zone `work_progress` (0–1) drives colour blend; decays when agents leave |
+| **Plumbob Diamond** | Bobs above every agent; accent colour when working, grey when idle, red when blocked, purple pulse when cooperating; shows task icon emoji inside |
+| **Moodlet Strip** | Three tiny icons under name badge: ⚙ (working state), ♥ (ATS health), ⛓ (cooperation); colour-coded exactly like Sims moodlets |
+| **ATS Skill Flash** | On task completion: 20×4px gold skill bar flashes for 2s + "+XP" float, mirroring Sims skill increase animation |
+| **Cooperation Bubble** | Joint speech bubble between cooperating agents cycling "thinking…" → icon₁→icon₂ → "✓ done!" over task duration |
+| **Task Tokens (MC)** | Physical item token spawns at zone centre on task dispatch; bobs and rotates; collected by agent with sparkle burst |
+| **Tile Sub-Square Transform (MC)** | Zone tiles divide into 2×2 sub-squares transforming one-by-one (at 0.25/0.5/0.75/1.0 progress) from dirty to clean texture |
+| **Item Arc (MC)** | On `task_handoff` WS event: task icon flies in a 600ms ease-in-out arc between agents with arrival sparkles + plumbob flash |
+| **Block Particles (MC)** | 3 coloured block particles rise from the agent's tile every 0.5s while working — Minecraft mining/building feedback |
 
 ---
 

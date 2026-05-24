@@ -395,6 +395,8 @@ function drawTerrain(){
           ctx.beginPath();ctx.moveTo(cx,cy-TH/2);ctx.lineTo(cx+TW/2,cy);ctx.lineTo(cx,cy+TH/2);ctx.lineTo(cx-TW/2,cy);ctx.closePath();ctx.fill();
           ctx.globalAlpha=1;ctx.restore();
         }
+        // MC2 — tile sub-square block-by-block transformation
+        drawTileSubTransform(ti,tj,cx,cy);
       }
       if(isPath(ti,tj)&&!isCenter(ti,tj)){
         ctx.save();ctx.globalAlpha=.12;ctx.strokeStyle='#888';ctx.lineWidth=.5;
@@ -955,6 +957,234 @@ function _drawTaskAnim(ag,sx,sy){
   ctx.restore();
 }
 
+// ========== SIMS 3 — SKILL BAR SYSTEM ==========
+const _skillBars=[];
+function _spawnSkillBar(ag,sx,sy){
+  _skillBars.push({sx,sy,col:ag.col,life:2.0,maxLife:2.0});
+}
+function updateSkillBars(dt){
+  for(let i=_skillBars.length-1;i>=0;i--){
+    _skillBars[i].life-=dt;
+    if(_skillBars[i].life<=0) _skillBars.splice(i,1);
+  }
+}
+function drawSkillBars(){
+  ctx.save();
+  for(const sb of _skillBars){
+    const alpha=Math.min(1,sb.life/sb.maxLife);
+    const by=sb.sy-52+(1-sb.life/sb.maxLife)*4;
+    ctx.globalAlpha=alpha;
+    ctx.fillStyle='#222';ctx.fillRect(sb.sx-10,by,20,4);
+    ctx.fillStyle=sb.col;ctx.fillRect(sb.sx-10,by,20*(sb.life/sb.maxLife),4);
+    ctx.fillStyle='#FFD700';ctx.font='bold 8px sans-serif';ctx.textAlign='center';
+    ctx.fillText('+XP',sb.sx,by-2);
+  }
+  ctx.globalAlpha=1;ctx.restore();
+}
+
+// ========== SIMS 4 — COOPERATION SPEECH BUBBLE ==========
+function drawCoopBubbles(){
+  const cooperating=WS.agents.filter(a=>a._animType==='collab'&&a._state==='working');
+  const paired=new Set();
+  for(const ag of cooperating){
+    if(paired.has(ag.id)) continue;
+    const partner=WS.agents.find(b=>b.id!==ag.id&&b._animType==='collab'&&b._state==='working'&&!paired.has(b.id));
+    if(!partner) continue;
+    paired.add(ag.id); paired.add(partner.id);
+    const pa=tileToScreen(ag.tx,ag.tz);
+    const pb=tileToScreen(partner.tx,partner.tz);
+    const mx=(pa.x+pb.x)/2, my=(pa.y+pb.y)/2-36;
+    const stage=Math.floor(clock/2)%3; // cycle every 2s
+    const domIcon={finance:'💰',devops:'⚙',healthcare:'🏥',legal:'⚖',general:'🔍'};
+    const ia=domIcon[ag.domain]||'🔍', ib=domIcon[partner.domain]||'🔍';
+    const stages=['thinking…',ia+'→'+ib,'✓ done!'];
+    const label=stages[stage]||'…';
+    const bw=60,bh=20;
+    ctx.save();
+    // Bubble background
+    ctx.shadowBlur=4;ctx.shadowColor='#AFA9EC';
+    ctx.fillStyle='rgba(30,25,60,0.92)';ctx.strokeStyle='#AFA9EC';ctx.lineWidth=1;
+    ctx.beginPath();ctx.roundRect(mx-bw/2,my-bh/2,bw,bh,5);ctx.fill();ctx.stroke();
+    ctx.shadowBlur=0;
+    // Bubble tail pointing toward midpoint of agents
+    const tailY=my+bh/2;
+    ctx.fillStyle='rgba(30,25,60,0.92)';
+    ctx.beginPath();ctx.moveTo(mx-5,tailY);ctx.lineTo(mx,tailY+7);ctx.lineTo(mx+5,tailY);ctx.closePath();ctx.fill();
+    ctx.strokeStyle='#AFA9EC';ctx.lineWidth=1;
+    ctx.beginPath();ctx.moveTo(mx-5,tailY);ctx.lineTo(mx,tailY+7);ctx.lineTo(mx+5,tailY);ctx.stroke();
+    // Text
+    ctx.fillStyle='#AFA9EC';ctx.font='7px sans-serif';ctx.textAlign='center';
+    ctx.fillText(label,mx,my+3);
+    ctx.restore();
+  }
+}
+
+// ========== MC1 — TASK TOKENS ==========
+const _taskTokens=[];
+function spawnTaskToken(ti,tj,icon,col){
+  const {x,y}=tileToScreen(ti,tj);
+  _taskTokens.push({ti,tj,sx:x,sy:y,icon,col,life:1,collected:false,collectAnim:0});
+}
+function updateTaskTokens(dt){
+  for(let i=_taskTokens.length-1;i>=0;i--){
+    const t=_taskTokens[i];
+    if(t.collected){
+      t.collectAnim+=dt*4;
+      if(t.collectAnim>=1) _taskTokens.splice(i,1);
+      continue;
+    }
+    // Check if any agent is near the token
+    for(const ag of WS.agents){
+      if(ag._state!=='working'&&ag._state!=='walking') continue;
+      const dist=Math.hypot(ag.tx-t.ti,ag.tz-t.tj);
+      if(dist<1.2){
+        t.collected=true;
+        spawnParticles(t.sx,t.sy,'complete',t.col);
+        break;
+      }
+    }
+  }
+}
+function drawTaskTokens(){
+  ctx.save();
+  for(const t of _taskTokens){
+    if(t.collected){
+      const scale=1-t.collectAnim;
+      const alpha=1-t.collectAnim;
+      ctx.globalAlpha=alpha;
+      ctx.save();ctx.translate(t.sx,t.sy-12);ctx.scale(scale,scale);
+      ctx.shadowBlur=16*scale;ctx.shadowColor=t.col;
+      ctx.fillStyle=t.col+'55';ctx.beginPath();ctx.arc(0,0,12,0,Math.PI*2);ctx.fill();
+      ctx.strokeStyle=t.col;ctx.lineWidth=1.5;ctx.beginPath();ctx.arc(0,0,12,0,Math.PI*2);ctx.stroke();
+      ctx.shadowBlur=0;ctx.font='10px sans-serif';ctx.textAlign='center';ctx.fillText(t.icon,0,4);
+      ctx.restore();
+      ctx.globalAlpha=1;
+    } else {
+      const bob=Math.sin(clock*2)*3;
+      const rot=clock*0.5;
+      ctx.save();ctx.translate(t.sx,t.sy-12+bob);ctx.rotate(rot);
+      ctx.shadowBlur=12;ctx.shadowColor=t.col;
+      ctx.fillStyle=t.col+'44';ctx.beginPath();ctx.arc(0,0,12,0,Math.PI*2);ctx.fill();
+      ctx.strokeStyle=t.col;ctx.lineWidth=1.5;ctx.beginPath();ctx.arc(0,0,12,0,Math.PI*2);ctx.stroke();
+      ctx.shadowBlur=0;ctx.restore();
+      ctx.save();ctx.translate(t.sx,t.sy-12+bob);
+      ctx.font='10px sans-serif';ctx.textAlign='center';ctx.fillText(t.icon,0,4);
+      ctx.restore();
+    }
+  }
+  ctx.restore();
+}
+
+// ========== MC2 — TILE SUB-SQUARE TRANSFORMATION ==========
+// Per-zone tile transformation state: tracks progressive visual change
+const _tileSubState={finance:0,devops:0,healthcare:0,legal:0,general:0};
+const _tileFadeTimers={finance:0,devops:0,healthcare:0,legal:0,general:0};
+function updateTileSubState(dt){
+  for(const zone of Object.keys(_tileSubState)){
+    const target=Math.floor(_zoneWorkProgress[zone]*4)/4; // steps: 0, 0.25, 0.5, 0.75, 1.0
+    if(_tileSubState[zone]<target){
+      _tileFadeTimers[zone]+=dt;
+      if(_tileFadeTimers[zone]>=0.2){
+        _tileSubState[zone]=Math.min(target,_tileSubState[zone]+0.25);
+        _tileFadeTimers[zone]=0;
+      }
+    } else if(_tileSubState[zone]>target){
+      _tileSubState[zone]=Math.max(target,_tileSubState[zone]-0.25*dt);
+    }
+  }
+}
+function drawTileSubTransform(ti,tj,cx2,cy2){
+  if(isPath(ti,tj)||isCenter(ti,tj)||isWater(ti,tj)) return;
+  const zk=ti<7&&tj<7?'finance':ti>=9&&tj<7?'devops':ti<7&&tj>=9?'healthcare':ti>=9&&tj>=9?'legal':'general';
+  const steps=Math.round(_tileSubState[zk]*4); // 0-4
+  if(steps<=0) return;
+  // Sub-square colours for each zone (dirty → clean)
+  const cleanCols={
+    finance:'rgba(200,160,40,0.35)',
+    devops:'rgba(40,100,200,0.35)',
+    healthcare:'rgba(40,180,100,0.35)',
+    legal:'rgba(120,80,220,0.35)',
+    general:'rgba(175,169,236,0.35)',
+  };
+  const col=cleanCols[zk]||cleanCols.general;
+  // 2×2 sub-grid in isometric diamond
+  const qw=TW/4, qh=TH/4;
+  const subSquares=[
+    {ox:-qw/2,oy:-qh/2},{ox:qw/2,oy:-qh/2},
+    {ox:-qw/2,oy:qh/2},{ox:qw/2,oy:qh/2},
+  ];
+  ctx.save();
+  for(let s=0;s<Math.min(steps,4);s++){
+    const sq=subSquares[s];
+    ctx.globalAlpha=0.5+0.2*Math.sin(clock*2+s);
+    ctx.fillStyle=col;
+    ctx.fillRect(cx2+sq.ox-qw/2,cy2+sq.oy-qh/2,qw,qh);
+  }
+  ctx.globalAlpha=1;ctx.restore();
+}
+
+// ========== MC3 — ITEM ARC ON TASK_HANDOFF ==========
+const _itemArcs=[];
+function spawnItemArc(fromX,fromY,toX,toY,icon){
+  _itemArcs.push({fromX,fromY,toX,toY,icon,t:0,duration:0.6,done:false});
+}
+function updateItemArcs(dt){
+  for(let i=_itemArcs.length-1;i>=0;i--){
+    const arc=_itemArcs[i];
+    arc.t+=dt/arc.duration;
+    if(arc.t>=1){
+      arc.t=1;arc.done=true;
+      spawnParticles(arc.toX,arc.toY,'complete','#FFD700');
+      _itemArcs.splice(i,1);
+    }
+  }
+}
+function drawItemArcs(){
+  ctx.save();
+  for(const arc of _itemArcs){
+    const t=arc.t;
+    // Ease-in-out
+    const ease=t<0.5?2*t*t:1-Math.pow(-2*t+2,2)/2;
+    const x=arc.fromX+(arc.toX-arc.fromX)*ease;
+    const arcHeight=40;
+    const y=arc.fromY+(arc.toY-arc.fromY)*ease - Math.sin(Math.PI*ease)*arcHeight;
+    ctx.font='12px sans-serif';ctx.textAlign='center';
+    ctx.shadowBlur=8;ctx.shadowColor='#FFD700';
+    ctx.fillText(arc.icon,x,y);
+    ctx.shadowBlur=0;
+  }
+  ctx.restore();
+}
+
+// ========== MC4 — BLOCK PARTICLES ==========
+const _blockParticles=[];
+function _spawnBlockParticles(sx,sy,col){
+  for(let b=0;b<3;b++){
+    _blockParticles.push({
+      x:sx+(Math.random()-.5)*12,
+      y:sy+(Math.random()-.5)*6,
+      vy:-(30+Math.random()*20),
+      life:0.8,maxLife:0.8,col,size:2+Math.random()*2,
+    });
+  }
+}
+function updateBlockParticles(dt){
+  for(let i=_blockParticles.length-1;i>=0;i--){
+    const p=_blockParticles[i];
+    p.y+=p.vy*dt; p.vy*=0.9; p.life-=dt;
+    if(p.life<=0) _blockParticles.splice(i,1);
+  }
+}
+function drawBlockParticles(){
+  ctx.save();
+  for(const p of _blockParticles){
+    ctx.globalAlpha=p.life/p.maxLife;
+    ctx.fillStyle=p.col;
+    ctx.fillRect(p.x-p.size/2,p.y-p.size/2,p.size,p.size);
+  }
+  ctx.globalAlpha=1;ctx.restore();
+}
+
 // ========== AGENTS ==========
 function initAgent(ag){
   if(ag._init) return; ag._init=true;
@@ -986,6 +1216,22 @@ function updateAgents(dt){
   for(const ag of WS.agents){
     initAgent(ag);
     if(ag._paused) continue;
+    // Decay skill flash timer
+    if(ag._skillFlash&&ag._skillFlash>0) ag._skillFlash=Math.max(0,ag._skillFlash-dt);
+    // Minecraft block particles while working
+    if(ag._state==='working'){
+      ag._blockParticleTimer=(ag._blockParticleTimer||0)-dt;
+      if(ag._blockParticleTimer<=0){
+        ag._blockParticleTimer=0.5;
+        const pos2=tileToScreen(ag.tx,ag.tz);
+        const zk=_agentZoneKey(ag.domain);
+        const zoneCols2={finance:'#c87820',devops:'#185FA5',healthcare:'#0F6E56',legal:'#534AB7',general:'#AFA9EC'};
+        const bcol=zoneCols2[zk]||'#AFA9EC';
+        _spawnBlockParticles(pos2.x,pos2.y,bcol);
+      }
+    } else {
+      ag._blockParticleTimer=0;
+    }
     ag._blinkTimer+=dt; if(ag._blinkTimer>5) ag._blinkTimer-=5;
     const pos=tileToScreen(ag.tx,ag.tz);
     const moving=ag._state==='walking'||ag._state==='returning';
@@ -1016,11 +1262,15 @@ function updateAgents(dt){
       else{const spd=.8*dt; ag.tx+=(dx/dist)*spd; ag.tz+=(dz/dist)*spd;}
     } else if(ag._state==='working'){
       if(!ag._task){ag._state='idle';continue;}
+      const prevProg=ag._progress;
       ag._progress+=.035*dt; ag._task.progress=ag._progress;
       if(ag._progress>=1){
         ag._state='complete'; ag._timer=2;
         spawnParticles(pos.x,pos.y,'complete',ag.col);
         spawnFloat(pos.x,pos.y-30,'+50 XP','#FFD700');
+        spawnFloat(pos.x,pos.y-42,'+XP','#FFD700');
+        ag._skillFlash=2.0; // start 2-second ATS skill bar flash
+        _spawnSkillBar(ag,pos.x,pos.y);
         ag._task=null; ag._progress=0;
       }
     } else if(ag._state==='complete'){
@@ -1135,6 +1385,80 @@ function drawAgent(ag){
     ctx.beginPath();ctx.arc(sx,sy-16,12+(1-ag._govPulse)*8,0,Math.PI*2);ctx.stroke();
     ctx.restore();
     ag._govPulse=Math.max(0,ag._govPulse-.02);
+  }
+  // ── SIMS 2 — Moodlet status strip (⚙ ♥ ⛓) under name badge ───────────
+  {
+    const ats=ag.health||ag.ats||0.8;
+    const cooperating=ag._animType==='collab';
+    const moodlets=[
+      {icon:'⚙',col:working?'#1D9E75':'#555'},
+      {icon:'♥',col:ats>0.7?'#1D9E75':ats>0.4?'#c87820':'#E24B4A'},
+      {icon:'⛓',col:cooperating?'#AFA9EC':'transparent'},
+    ];
+    ctx.save();ctx.font='6px sans-serif';ctx.textAlign='center';
+    for(let m=0;m<3;m++){
+      const mx=sx-6+m*6, my=sy-24;
+      if(moodlets[m].col==='transparent'){continue;}
+      ctx.fillStyle=moodlets[m].col;
+      ctx.beginPath();ctx.arc(mx,my,3,0,Math.PI*2);ctx.fill();
+      ctx.fillStyle='#000';ctx.fillText(moodlets[m].icon,mx,my+2);
+    }
+    ctx.restore();
+  }
+  // ── SIMS 3 — ATS skill bar flash (triggered externally via ag._skillFlash) ─
+  if(ag._skillFlash&&ag._skillFlash>0){
+    const sf=ag._skillFlash; // 0→2 second countdown
+    ctx.save();ctx.globalAlpha=Math.min(1,sf);
+    // 20×4px skill bar
+    const bx=sx-10, by=sy-50;
+    ctx.fillStyle='#333';ctx.fillRect(bx,by,20,4);
+    ctx.fillStyle='#FFD700';ctx.fillRect(bx,by,20*(1-sf/2+0.5),4);
+    ctx.globalAlpha=Math.min(1,sf);ctx.restore();
+    ag._skillFlash-=0; // decrement handled in updateAgents
+  }
+  // ── SIMS 1 — Plumbob diamond above agent (bobs, colour-codes state) ───────
+  {
+    const bobY=Math.sin(clock*((2*Math.PI)/0.3))*3;
+    const diamondY=sy-50+bobY;
+    const dSize=8;
+    const cooperating=ag._animType==='collab';
+    let dCol=ag.col;
+    let dAlpha=1.0;
+    if(ag._state==='idle'){dCol='#888';dAlpha=0.4;}
+    else if(ag._state==='working'&&cooperating){dCol='#AFA9EC';}
+    else if(ag._state==='complete'||ag._state==='returning'){dCol='#1D9E75';}
+    // Blocked/error check
+    const isBlocked=(ag._govPulse>0&&!ag._govPermitted);
+    if(isBlocked){dCol='#E24B4A';dAlpha=0.9;}
+    // Cooperating: purple pulse
+    if(cooperating){
+      const pulse=0.7+0.3*Math.sin(clock*4);
+      dAlpha=pulse;
+    }
+    ctx.save();ctx.globalAlpha=dAlpha;
+    ctx.shadowBlur=6;ctx.shadowColor=dCol;ctx.fillStyle=dCol;
+    ctx.beginPath();
+    ctx.moveTo(sx,diamondY-dSize);
+    ctx.lineTo(sx+dSize*0.6,diamondY);
+    ctx.lineTo(sx,diamondY+dSize);
+    ctx.lineTo(sx-dSize*0.6,diamondY);
+    ctx.closePath();ctx.fill();
+    ctx.shadowBlur=0;
+    // Task icon inside diamond
+    const domIcon={finance:'💰',devops:'⚙',healthcare:'🏥',legal:'⚖',general:'🔍'}[ag.domain]||'🔍';
+    const plumbobIcon=ag._state==='idle'?'💤':ag._state==='working'?domIcon:ag._state==='complete'?'✅':'🏠';
+    ctx.globalAlpha=1;ctx.font='6px sans-serif';ctx.textAlign='center';
+    ctx.fillText(plumbobIcon,sx,diamondY+2);
+    // Handoff flash — white pulse on plumbob diamond
+    if(ag._plumbobFlash&&ag._plumbobFlash>0){
+      ctx.globalAlpha=ag._plumbobFlash;ctx.fillStyle='white';
+      ctx.beginPath();
+      ctx.moveTo(sx,diamondY-dSize);ctx.lineTo(sx+dSize*0.6,diamondY);
+      ctx.lineTo(sx,diamondY+dSize);ctx.lineTo(sx-dSize*0.6,diamondY);
+      ctx.closePath();ctx.fill();
+      ag._plumbobFlash=Math.max(0,ag._plumbobFlash-0.03);
+    }
+    ctx.restore();
   }
   ctx.restore();
 }
@@ -1630,6 +1954,12 @@ async function submitZoneDeploy(){
       const data=await res.json();
       showToast('Task deployed!','#1D9E75');
       if(data.vcg_result) showVCGToast(data.vcg_result);
+      // MC1: spawn physical task token at zone centre
+      const zoneCentre={finance:{ti:3,tj:3},devops:{ti:12,tj:3},healthcare:{ti:3,tj:12},legal:{ti:12,tj:12},general:{ti:7,tj:7}};
+      const zc=zoneCentre[dom]||zoneCentre.general;
+      const domIcons={finance:'💰',devops:'⚙️',healthcare:'🏥',legal:'⚖️',general:'🔍'};
+      const domColsMap={finance:'#c87820',devops:'#185FA5',healthcare:'#0F6E56',legal:'#534AB7',general:'#AFA9EC'};
+      spawnTaskToken(zc.ti,zc.tj,domIcons[dom]||'🔍',domColsMap[dom]||'#AFA9EC');
       const ag=WS.agents.find(a=>a.domain===dom&&a._state==='idle');
       if(ag) spawnTaskPillar(ag);
     } else throw new Error();
@@ -1811,9 +2141,19 @@ function handleWSMsg(msg){
       if(ag) ag._animType=msg.animation_type||'idle';
     }
   }
-  // task_handoff — show toast
+  // task_handoff — show toast + spawn item arc between agents
   if(msg.event==='task_handoff'){
     showToast('⚡ Handoff: '+msg.from_agent+' → '+msg.to_agent+(msg.zone?' ('+msg.zone+')':''),'#AFA9EC');
+    // Find the two agents and spawn an arc between them
+    const fromAg=WS.agents.find(a=>a.id===msg.from_agent);
+    const toAg=WS.agents.find(a=>a.id===msg.to_agent);
+    if(fromAg&&toAg){
+      const fp=tileToScreen(fromAg.tx,fromAg.tz);
+      const tp=tileToScreen(toAg.tx,toAg.tz);
+      spawnItemArc(fp.x,fp.y-16,tp.x,tp.y-16,'📦');
+      // Flash to_agent plumbob
+      if(toAg) toAg._plumbobFlash=0.5;
+    }
   }
 }
 setInterval(async()=>{
@@ -1869,6 +2209,11 @@ function gameLoop(ts){
   updatePillars(dt);
   updateParticles(dt);
   updateResources(dt);
+  updateSkillBars(dt);
+  updateTaskTokens(dt);
+  updateItemArcs(dt);
+  updateBlockParticles(dt);
+  updateTileSubState(dt);
   // Check building upgrades
   for(const b of Object.values(WS.buildings)){
     if(b.upgrade_end&&Date.now()>=b.upgrade_end){b.level++;b.upgrade_end=null;saveState();showToast('Building upgraded!','#1D9E75');}
@@ -1882,7 +2227,12 @@ function gameLoop(ts){
   drawBuildings();
   drawCrystals();
   drawPillars();
+  drawTaskTokens();
   drawAgents();
+  drawCoopBubbles();
+  drawSkillBars();
+  drawItemArcs();
+  drawBlockParticles();
   drawParticlesAndFloats();
   drawDragUI();
   updateHUD();
