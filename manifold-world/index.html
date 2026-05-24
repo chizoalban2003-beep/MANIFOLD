@@ -378,14 +378,20 @@ function drawTerrain(){
       const zc=zoneCols(ti,tj); drawDiamond(cx,cy,zc.base,zc.bevel);
       // Zone work-progress colour blend — tiles lighten/tint as agents work
       if(!isPath(ti,tj)&&!isCenter(ti,tj)){
-        const zk=ti<7&&tj<7?'finance':ti>=9&&tj<7?'devops':ti<7&&tj>=9?'healthcare':ti>=9&&tj>=9?'legal':'general';
+        const zk=_agentZoneKey(ti<7&&tj<7?'finance':ti>=9&&tj<7?'devops':ti<7&&tj>=9?'healthcare':ti>=9&&tj>=9?'legal':'general');
         const wp=_zoneWorkProgress[zk]||0;
         if(wp>0.01){
-          // finance→lighter warm, devops→blue tint, healthcare→green tint, legal→purple tint
-          const tintCols={finance:'rgba(200,120,32,',devops:'rgba(24,95,165,',healthcare:'rgba(15,110,86,',legal:'rgba(83,74,183,',general:'rgba(175,169,236,'};
+          // finance→warm, devops→blue, healthcare→green, legal→purple, general→lavender
+          const tintCols={
+            finance:'rgba(200,120,32,0.22)',
+            devops:'rgba(24,95,165,0.22)',
+            healthcare:'rgba(15,110,86,0.22)',
+            legal:'rgba(83,74,183,0.22)',
+            general:'rgba(175,169,236,0.22)',
+          };
           const tc=tintCols[zk]||tintCols.general;
-          ctx.save();ctx.globalAlpha=wp*0.22;
-          ctx.fillStyle=tc+'1)';
+          ctx.save();ctx.globalAlpha=wp;
+          ctx.fillStyle=tc;
           ctx.beginPath();ctx.moveTo(cx,cy-TH/2);ctx.lineTo(cx+TW/2,cy);ctx.lineTo(cx,cy+TH/2);ctx.lineTo(cx-TW/2,cy);ctx.closePath();ctx.fill();
           ctx.globalAlpha=1;ctx.restore();
         }
@@ -815,7 +821,7 @@ function _drawTaskAnim(ag,sx,sy){
   const anim=_agentAnimState[ag.id];
   const type=anim?anim.type:ag._animType||'idle';
   const prog=anim?anim.progress:(ag._progress||0);
-  if(type==='idle'||!ag||ag._state!=='working') return;
+  if(type==='idle'||ag._state!=='working') return;
   ctx.save();
   if(type==='sweep'){
     // Rotating brush arc below agent body + dust motes + clean trail

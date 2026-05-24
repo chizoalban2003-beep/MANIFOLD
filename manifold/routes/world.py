@@ -138,10 +138,10 @@ def handle_ws_upgrade(self: "ManifoldHandler") -> None:
     def _task_handoff_payloads() -> list[bytes]:
         """Return task_handoff frames for cooperative sub-task pairs in the same parallel group."""
         frames = []
-        seen: set = set()
+        seen: set[tuple[str, int, int]] = set()
         for plan in s._TASK_ROUTER.all_plans():
             # Group assigned sub-tasks by parallel_group
-            groups: dict = {}
+            groups: dict[int, list] = {}
             for st in plan.sub_tasks:
                 if st.status in ("assigned", "running") and st.assigned_to and st.execution_mode == "parallel":
                     groups.setdefault(st.parallel_group, []).append(st)
