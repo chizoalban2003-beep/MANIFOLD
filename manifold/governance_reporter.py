@@ -6,8 +6,56 @@ natural language reports for managers.  Zero external dependencies.
 
 from __future__ import annotations
 
+import json
 from datetime import date
 from typing import Any
+
+
+# ---------------------------------------------------------------------------
+# Industry vocabulary mapping (domain, action) → human description per type
+# ---------------------------------------------------------------------------
+
+INDUSTRY_VOCAB: dict[tuple[str, str], dict[str, str]] = {
+    # Healthcare / medical
+    ("healthcare", "dispense_meds"): {
+        "developer": "dispense_meds",
+        "doctor": "dispense medication (standing order required)",
+        "executive": "medication dispensing",
+        "non_technical": "give out medicine",
+    },
+    ("healthcare", "update_record"): {
+        "developer": "update_patient_record",
+        "doctor": "update clinical record",
+        "executive": "patient record update",
+        "non_technical": "update patient info",
+    },
+    # Legal
+    ("legal", "process_docs"): {
+        "developer": "process_docs",
+        "lawyer": "document review",
+        "executive": "document processing",
+        "non_technical": "review documents",
+    },
+    ("legal", "file_motion"): {
+        "developer": "file_motion",
+        "lawyer": "file motion with court",
+        "executive": "legal filing",
+        "non_technical": "submit legal paperwork",
+    },
+    # Finance
+    ("finance", "execute_trade"): {
+        "developer": "execute_trade",
+        "trader": "trade execution",
+        "executive": "trade authorisation",
+        "non_technical": "make a trade",
+    },
+    ("finance", "transfer_funds"): {
+        "developer": "transfer_funds",
+        "trader": "fund transfer",
+        "executive": "fund transfer approval",
+        "non_technical": "move money",
+    },
+}
 
 
 class GovernanceReporter:
@@ -290,4 +338,133 @@ class GovernanceReporter:
             "Governance looks healthy.  "
             "Consider running 'POST /rules/preset' with a compliance preset "
             "to codify regulatory obligations."
+        )
+
+    # ------------------------------------------------------------------
+    # Progressive disclosure — generate_escalation_message
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _risk_level(risk_score: float) -> str:
+        if risk_score >= 0.75:
+            return "high"
+        if risk_score >= 0.45:
+            return "medium"
+        return "low"
+
+    @staticmethod
+    def _vocab(domain: str, action: str, user_type: str) -> str:
+        """Look up the human-friendly description for (domain, action, user_type)."""
+        entry = INDUSTRY_VOCAB.get((domain.lower(), action.lower()))
+        if entry:
+            return entry.get(user_type, entry.get("executive", action))
+        return action
+
+    def generate_escalation_message(
+        self,
+        escalation: dict,
+        user_type: str,
+    ) -> str:
+        """Generate a message tailored to the recipient's user type.
+
+        Parameters
+        ----------
+        escalation:
+            Dict with keys: action, domain, risk_score, agent_id, agent_name
+            (optional), vault_id (optional), crna_values (optional),
+            policy_rule_id (optional).
+        user_type:
+            One of: "developer" | "executive" | "doctor" | "lawyer" |
+            "trader" | "non_technical"
+
+        Returns
+        -------
+        str
+            A formatted message appropriate for the user type.
+        """
+        action = str(escalation.get("action", "unknown"))
+        domain = str(escalation.get("domain", "general"))
+        risk_score = float(escalation.get("risk_score", 0.5))
+        agent_id = str(escalation.get("agent_id", "an agent"))
+        agent_name = str(escalation.get("agent_name", agent_id))
+        vault_id = str(escalation.get("vault_id", ""))
+        crna_values = escalation.get("crna_values", {})
+        policy_rule_id = str(escalation.get("policy_rule_id", ""))
+        risk_label = self._risk_level(risk_score)
+
+        # ---- Developer ----
+        if user_type == "developer":
+            payload: dict[str, Any] = {
+                "risk_score": round(risk_score, 4),
+                "agent_id": agent_id,
+                "action": action,
+                "domain": domain,
+            }
+            if vault_id:
+                payload["vault_id"] = vault_id
+            if crna_values:
+                payload["crna_values"] = crna_values
+            if policy_rule_id:
+                payload["policy_rule_id"] = policy_rule_id
+            return json.dumps(payload, indent=2)
+
+        # ---- Executive ----
+        if user_type == "executive":
+            human_action = self._vocab(domain, action, "executive")
+            return (
+                f"Agent '{agent_name}' is requesting authorisation to perform "
+                f"'{human_action}' in the {domain} domain. "
+                f"Risk level: {risk_label}. Please Approve or Deny."
+            )
+
+        # ---- Doctor ----
+        if user_type == "doctor":
+            human_action = self._vocab(domain, action, "doctor")
+            patient_room = escalation.get("patient_room", "unknown room")
+            medication = escalation.get("medication", "prescribed medication")
+            dose = escalation.get("dose", "standard dose")
+            standing_order = escalation.get("standing_order", "SO-PENDING")
+            return (
+                f"Clinical action required: pharmacy robot '{agent_name}' "
+                f"requests to {human_action} ({medication}, {dose}) "
+                f"for patient in {patient_room}. "
+                f"Standing order reference: {standing_order}. "
+                f"Risk level: {risk_label}. Approve or Deny."
+            )
+
+        # ---- Lawyer ----
+        if user_type == "lawyer":
+            human_action = self._vocab(domain, action, "lawyer")
+            matter_number = escalation.get("matter_number", "MATTER-UNKNOWN")
+            privilege_flag = escalation.get("privilege_flag", False)
+            review_stage = escalation.get("review_stage", "initial review")
+            priv_text = "⚠ Privileged document" if privilege_flag else "Non-privileged"
+            return (
+                f"Legal workflow: agent '{agent_name}' requests to perform "
+                f"'{human_action}' ({review_stage}). "
+                f"Matter: {matter_number}. {priv_text}. "
+                f"Risk level: {risk_label}. Approve or Deny."
+            )
+
+        # ---- Trader ----
+        if user_type == "trader":
+            human_action = self._vocab(domain, action, "trader")
+            instrument = escalation.get("instrument", "unspecified instrument")
+            notional = escalation.get("notional_value", "N/A")
+            desk = escalation.get("desk", "trading desk")
+            reg_flag = escalation.get("regulatory_flag", False)
+            risk_pct = f"{risk_score * 100:.0f}th percentile"
+            reg_text = " ⚠ Regulatory review required." if reg_flag else ""
+            return (
+                f"Trade authorisation: '{agent_name}' requests {human_action} "
+                f"for {instrument} (notional: {notional}) on {desk}. "
+                f"Risk: {risk_pct}.{reg_text} Approve or Deny."
+            )
+
+        # ---- Non-technical ----
+        # Maximum 2 short sentences, zero jargon, emoji
+        human_action_simple = self._vocab(domain, action, "non_technical") or action.replace("_", " ")
+        return (
+            f"Your {agent_name} wants to {human_action_simple}. "
+            f"Is that OK? 👍 Yes  👎 No"
         )

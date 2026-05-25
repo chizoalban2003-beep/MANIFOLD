@@ -353,6 +353,77 @@ See `manifold-ts/README.md` for full TypeScript documentation.
 
 ---
 
+## CEO→Manager Communication
+
+MANIFOLD v2.9.0 adds a complete CEO-to-Manager intelligence layer that learns from decisions, adapts vocabulary per audience, routes escalations automatically, and reaches the right person on the right channel.
+
+### Input Channels
+- **Voice** — audio ingestion via POST /ingest/audio
+- **Text / LLM chat** — POST /llm/chat (natural language delegation and channel setup)
+- **Document** — POST /ingest/document
+- **Image** — POST /ingest/image
+- **Mobile push** — POST /remote/alert via MobileAlertGateway
+- **Email** — CommHub EMAIL channel (MANIFOLD_SMTP_HOST env var)
+- **Slack** — CommHub SLACK channel (webhook URL)
+
+### The Learning Loop
+1. Every human approve/deny/delegate decision is stored in **EscalationMemory**
+2. After **3 consistent decisions** for the same context (agent type + domain + action category), MANIFOLD auto-decides without asking
+3. After **3 decisions at ≥ 90% confidence**, **PolicyLearner** promotes the pattern to a formal `PolicyRule`
+4. `GET /escalations/memory` shows the weekly summary: decisions saved, auto-decided count, promoted rules
+
+### User Types — Progressive Disclosure
+| User type | Message style |
+|---|---|
+| `developer` | Full JSON payload: risk_score, crna_values, policy_rule_id, vault_id |
+| `executive` | 2-sentence plain English + risk level: high/medium/low |
+| `doctor` | Clinical vocabulary: medication, dose, patient room, standing order |
+| `lawyer` | Legal vocabulary: matter number, privilege flag, review stage |
+| `trader` | Financial vocabulary: instrument, notional, desk, risk percentile |
+| `non_technical` | Max 2 short sentences + emoji: "Your agent wants to X. 👍 Yes 👎 No" |
+
+Use `GET /escalations/message?id=X&user_type=Y` to retrieve the right message per audience.
+
+### Delegation — "Away? Route to Sarah"
+```
+POST /delegation
+{
+  "delegate_id": "sarah",
+  "delegate_contact": "sarah@example.com",
+  "domains": ["maintenance", "finance"],
+  "risk_max": 0.7,
+  "valid_until": 1234567890
+}
+```
+Or via natural language: `POST /llm/chat` → "While I'm travelling, route all maintenance approvals to Sarah"
+
+Use `GET /delegation` to view active profiles, `DELETE /delegation/{delegate_id}` to remove.
+
+### Multi-Channel CommHub
+Register channels per risk window:
+```
+POST /comms/channels
+{"channel": "sms", "address": "+447700900123", "min_risk": 0.8, "user_type": "non_technical"}
+```
+Channels: `push` | `email` | `slack` | `sms` | `webhook` | `world_dashboard`
+
+Test all channels: `POST /comms/test`
+
+### New Endpoints (v2.9.0)
+| Method | Path | Description |
+|---|---|---|
+| GET | /escalations/memory | Learned patterns + weekly summary |
+| GET | /escalations/message?id=X&user_type=Y | Right message per audience |
+| POST | /delegation | Create delegation profile |
+| GET | /delegation | List active delegation profiles |
+| DELETE | /delegation/{delegate_id} | Remove delegation profile |
+| POST | /comms/channels | Register a comm channel |
+| GET | /comms/channels | List registered channels |
+| DELETE | /comms/channels/{channel} | Remove a channel |
+| POST | /comms/test | Send test message to all channels |
+
+---
+
 ## Research Agenda — Open Theoretical Gaps
 
 These five gaps are documented for future contributors.

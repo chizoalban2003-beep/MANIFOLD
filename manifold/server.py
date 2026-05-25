@@ -112,6 +112,10 @@ from .health_monitor import DigitalHealthMonitor as _DigitalHealthMonitor
 from .planner import CRNAPlanner as _CRNAPlanner, MPCPlanner as _MPCPlanner
 from .nervatura_world import NERVATURAWorld as _NERVATURAWorld
 from .remote import MobileAlertGateway as _MobileAlertGateway
+from .escalation_memory import EscalationMemory as _EscalationMemory
+from .policy_learner import PolicyLearner as _PolicyLearner
+from .delegation import DelegationManager as _DelegationManager, DelegationProfile as _DelegationProfile
+from .comms_hub import CommHub as _CommHub, CommChannel as _CommChannel, ChannelConfig as _ChannelConfig
 
 
 # ---------------------------------------------------------------------------
@@ -352,6 +356,12 @@ _SWARM_ROUTER = SwarmRouter()
 
 # Phase 58: Mobile Alert Gateway (remote push / webhook)
 _MOBILE_GATEWAY = _MobileAlertGateway()
+
+# CEO-Manager Intelligence singletons
+_ESCALATION_MEMORY = _EscalationMemory()
+_POLICY_LEARNER = _PolicyLearner(_ESCALATION_MEMORY, _RULE_ENGINE)
+_DELEGATION = _DelegationManager()
+_COMMS_HUB = _CommHub()
 
 # Phase 34: Threat Intelligence Feed Streamer
 _THREAT_STREAMER = ThreatFeedStreamer()
@@ -802,6 +812,26 @@ class ManifoldHandler(BaseHTTPRequestHandler):
                 self._handle_get_vectors_stats()
                 return
 
+            # GET /escalations/memory  (CEO-Manager — learned patterns + weekly summary)
+            if path == "/escalations/memory":
+                self._handle_get_escalations_memory()
+                return
+
+            # GET /escalations/message  (CEO-Manager — progressive disclosure message)
+            if path.startswith("/escalations/message"):
+                self._handle_get_escalations_message()
+                return
+
+            # GET /delegation  (CEO-Manager — active delegation profiles)
+            if path == "/delegation":
+                self._handle_get_delegation()
+                return
+
+            # GET /comms/channels  (CEO-Manager — registered comm channels)
+            if path == "/comms/channels":
+                self._handle_get_comms_channels()
+                return
+
             _send_error(self, 404, f"No route for GET {self.path}")
         except Exception as exc:  # noqa: BLE001
             _send_error(self, 500, str(exc))
@@ -951,6 +981,15 @@ class ManifoldHandler(BaseHTTPRequestHandler):
                 self._handle_post_vectors_search(body)
             elif path == "/swarm/route":
                 self._handle_post_swarm_route(body)
+            elif path == "/delegation":
+                self._handle_post_delegation(body)
+            elif path.startswith("/comms/channels"):
+                if path == "/comms/channels":
+                    self._handle_post_comms_channels(body)
+                else:
+                    _send_error(self, 404, f"No route for POST {self.path}")
+            elif path == "/comms/test":
+                self._handle_post_comms_test(body)
             else:
                 _send_error(self, 404, f"No route for POST {self.path}")
         except Exception as exc:  # noqa: BLE001
@@ -969,6 +1008,12 @@ class ManifoldHandler(BaseHTTPRequestHandler):
             if re.match(r"^/rules/[^/]+$", path):
                 rule_id = path.split("/")[2]
                 self._handle_delete_rule(rule_id)
+            elif re.match(r"^/delegation/[\w@.+-]+$", path):
+                delegate_id = path.split("/")[2]
+                self._handle_delete_delegation(delegate_id)
+            elif re.match(r"^/comms/channels/[\w@.+-]+$", path):
+                channel_name = path.split("/")[3]
+                self._handle_delete_comms_channel(channel_name)
             else:
                 _send_error(self, 404, f"No route for DELETE {self.path}")
         except Exception as exc:  # noqa: BLE001
@@ -4608,6 +4653,196 @@ def _handle_post_swarm_route(self: "ManifoldHandler", body: dict) -> None:
 
 
 ManifoldHandler._handle_post_swarm_route = _handle_post_swarm_route  # type: ignore[attr-defined]
+
+
+# ---------------------------------------------------------------------------
+# CEO-Manager Intelligence — v2.9.0 handlers
+# ---------------------------------------------------------------------------
+
+
+def _handle_get_escalations_memory(self: "ManifoldHandler") -> None:
+    """GET /escalations/memory — weekly_summary + recent auto-decisions."""
+    summary = _ESCALATION_MEMORY.weekly_summary()
+    recent_auto = [
+        {
+            "escalation_id": r.escalation_id,
+            "agent_id": r.agent_id,
+            "domain": r.domain,
+            "action": r.action,
+            "human_decision": r.human_decision,
+            "timestamp": r.timestamp,
+        }
+        for r in _ESCALATION_MEMORY._all[-20:]
+        if r.auto_decided
+    ]
+    _send_json(self, 200, {**summary, "recent_auto_decisions": recent_auto})
+
+
+def _handle_get_escalations_message(self: "ManifoldHandler") -> None:
+    """GET /escalations/message?id=X&user_type=Y — right message per audience."""
+    from urllib.parse import urlparse, parse_qs  # noqa: PLC0415
+    from manifold.governance_reporter import GovernanceReporter  # noqa: PLC0415
+    qs = parse_qs(urlparse(self.path).query)
+    escalation_id = (qs.get("id") or [""])[0]
+    user_type = (qs.get("user_type") or ["executive"])[0]
+    # Try to find the escalation record
+    record = next(
+        (r for r in reversed(_ESCALATION_MEMORY._all) if r.escalation_id == escalation_id),
+        None,
+    )
+    if record is None:
+        _send_error(self, 404, f"Escalation '{escalation_id}' not found")
+        return
+    escalation_dict = {
+        "action": record.action,
+        "domain": record.domain,
+        "risk_score": record.risk_score,
+        "agent_id": record.agent_id,
+    }
+    reporter = GovernanceReporter()
+    msg = reporter.generate_escalation_message(escalation_dict, user_type)
+    _send_json(self, 200, {"message": msg, "user_type": user_type, "escalation_id": escalation_id})
+
+
+def _handle_get_delegation(self: "ManifoldHandler") -> None:
+    """GET /delegation — active profiles for current owner (caller)."""
+    _authed, caller = _check_auth(self, "/delegation")
+    if not _authed:
+        return
+    owner_id = caller or "default"
+    profiles = _DELEGATION.active_profiles(owner_id)
+    _send_json(self, 200, {
+        "owner_id": owner_id,
+        "profiles": [p.to_dict() for p in profiles],
+    })
+
+
+def _handle_post_delegation(self: "ManifoldHandler", body: dict) -> None:
+    """POST /delegation — create a delegation profile for the current owner."""
+    _authed, caller = _check_auth(self, "/delegation")
+    if not _authed:
+        return
+    import time as _time  # noqa: PLC0415
+    owner_id = caller or str(body.get("owner_id", "default"))
+    delegate_id = str(body.get("delegate_id", "")).strip()
+    if not delegate_id:
+        _send_error(self, 400, "delegate_id required")
+        return
+    domains = body.get("domains", ["*"])
+    if not isinstance(domains, list):
+        domains = [str(domains)]
+    risk_max = float(body.get("risk_max", 0.75))
+    valid_until = float(body.get("valid_until", 0.0))
+    delegate_contact = str(body.get("delegate_contact", ""))
+    profile = _DelegationProfile(
+        owner_id=owner_id,
+        delegate_id=delegate_id,
+        delegate_contact=delegate_contact,
+        domains=domains,
+        risk_max=risk_max,
+        valid_from=_time.time(),
+        valid_until=valid_until,
+    )
+    _DELEGATION.add_profile(profile)
+    _send_json(self, 201, profile.to_dict())
+
+
+def _handle_delete_delegation(self: "ManifoldHandler", delegate_id: str) -> None:
+    """DELETE /delegation/{delegate_id} — remove a delegation profile."""
+    _authed, caller = _check_auth(self, "/delegation")
+    if not _authed:
+        return
+    owner_id = caller or "default"
+    removed = _DELEGATION.remove_profile(owner_id, delegate_id)
+    _send_json(self, 200, {"removed": removed, "delegate_id": delegate_id})
+
+
+def _handle_get_comms_channels(self: "ManifoldHandler") -> None:
+    """GET /comms/channels — all registered channels for the current owner."""
+    _authed, caller = _check_auth(self, "/comms/channels")
+    if not _authed:
+        return
+    owner_id = caller or "default"
+    channels = _COMMS_HUB.channels_for(owner_id)
+    _send_json(self, 200, {
+        "owner_id": owner_id,
+        "channels": [c.to_dict() for c in channels],
+    })
+
+
+def _handle_post_comms_channels(self: "ManifoldHandler", body: dict) -> None:
+    """POST /comms/channels — register a communication channel."""
+    _authed, caller = _check_auth(self, "/comms/channels")
+    if not _authed:
+        return
+    owner_id = caller or str(body.get("owner_id", "default"))
+    channel_name = str(body.get("channel", "push")).lower()
+    try:
+        channel = _CommChannel(channel_name)
+    except ValueError:
+        valid = [c.value for c in _CommChannel]
+        _send_error(self, 400, f"Invalid channel. Must be one of: {valid}")
+        return
+    address = str(body.get("address", ""))
+    min_risk = float(body.get("min_risk", 0.0))
+    max_risk = float(body.get("max_risk", 1.0))
+    user_type = str(body.get("user_type", "executive"))
+    config = _ChannelConfig(
+        channel=channel,
+        address=address,
+        min_risk=min_risk,
+        max_risk=max_risk,
+        user_type=user_type,
+    )
+    _COMMS_HUB.register_channel(owner_id, config)
+    _send_json(self, 201, config.to_dict())
+
+
+def _handle_delete_comms_channel(self: "ManifoldHandler", channel_name: str) -> None:
+    """DELETE /comms/channels/{channel} — remove a channel for current owner."""
+    _authed, caller = _check_auth(self, "/comms/channels")
+    if not _authed:
+        return
+    owner_id = caller or "default"
+    try:
+        channel = _CommChannel(channel_name.lower())
+    except ValueError:
+        _send_error(self, 400, f"Unknown channel: {channel_name}")
+        return
+    removed = _COMMS_HUB.remove_channel(owner_id, channel)
+    _send_json(self, 200, {"removed": removed, "channel": channel_name})
+
+
+def _handle_post_comms_test(self: "ManifoldHandler", body: dict) -> None:
+    """POST /comms/test — send a test message to all registered channels."""
+    _authed, caller = _check_auth(self, "/comms/channels")
+    if not _authed:
+        return
+    owner_id = caller or str(body.get("owner_id", "default"))
+    test_escalation = {
+        "action": "test",
+        "domain": "general",
+        "risk_score": 0.5,
+        "agent_id": "test-agent",
+        "agent_name": "Test Agent",
+    }
+    dispatched = _COMMS_HUB.dispatch(owner_id, test_escalation)
+    _send_json(self, 200, {
+        "dispatched": dispatched,
+        "owner_id": owner_id,
+        "test": True,
+    })
+
+
+ManifoldHandler._handle_get_escalations_memory = _handle_get_escalations_memory  # type: ignore[attr-defined]
+ManifoldHandler._handle_get_escalations_message = _handle_get_escalations_message  # type: ignore[attr-defined]
+ManifoldHandler._handle_get_delegation = _handle_get_delegation  # type: ignore[attr-defined]
+ManifoldHandler._handle_post_delegation = _handle_post_delegation  # type: ignore[attr-defined]
+ManifoldHandler._handle_delete_delegation = _handle_delete_delegation  # type: ignore[attr-defined]
+ManifoldHandler._handle_get_comms_channels = _handle_get_comms_channels  # type: ignore[attr-defined]
+ManifoldHandler._handle_post_comms_channels = _handle_post_comms_channels  # type: ignore[attr-defined]
+ManifoldHandler._handle_delete_comms_channel = _handle_delete_comms_channel  # type: ignore[attr-defined]
+ManifoldHandler._handle_post_comms_test = _handle_post_comms_test  # type: ignore[attr-defined]
 
 
 def run_server(port: int = 8080, *, host: str = "0.0.0.0") -> None:
