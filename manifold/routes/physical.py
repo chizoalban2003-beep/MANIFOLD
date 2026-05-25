@@ -118,16 +118,20 @@ def handle_post_nervatura_world_init(self: "ManifoldHandler", body: dict) -> Non
         s._send_json(self, 500, {"error": str(exc)})
 
 
-def handle_get_nervatura_zone_crna(self: "ManifoldHandler") -> None:
-    """GET /nervatura/zone-crna — CRNA summary per named zone (averaged cells).
+# Zone → cell coordinate ranges (all at z=0).
+# kitchen = x 0-2, y 0-2 | devops = x 7-9, y 0-2
+# finance = x 7-9, y 7-9 | legal  = x 0-2, y 7-9 | center = x 4-5, y 4-5
+_ZONE_CELL_RANGES: dict[str, list[tuple[int, int]]] = {
+    "kitchen": [(x, y) for x in range(3) for y in range(3)],
+    "devops":  [(x, y) for x in range(7, 10) for y in range(3)],
+    "finance": [(x, y) for x in range(7, 10) for y in range(7, 10)],
+    "legal":   [(x, y) for x in range(3) for y in range(7, 10)],
+    "center":  [(x, y) for x in range(4, 6) for y in range(4, 6)],
+}
 
-    Zone cell ranges (all at z=0):
-      kitchen = x 0-2, y 0-2
-      devops  = x 7-9, y 0-2
-      finance = x 7-9, y 7-9
-      legal   = x 0-2, y 7-9
-      center  = x 4-5, y 4-5
-    """
+
+def handle_get_nervatura_zone_crna(self: "ManifoldHandler") -> None:
+    """GET /nervatura/zone-crna — CRNA summary per named zone (averaged cells)."""
     import time as _time  # noqa: PLC0415
     s = _srv()
     if s._NERVATURA is None:
@@ -138,15 +142,8 @@ def handle_get_nervatura_zone_crna(self: "ManifoldHandler") -> None:
         return
     try:
         world = s._NERVATURA
-        zone_ranges = {
-            "kitchen": [(x, y) for x in range(3) for y in range(3)],
-            "devops":  [(x, y) for x in range(7, 10) for y in range(3)],
-            "finance": [(x, y) for x in range(7, 10) for y in range(7, 10)],
-            "legal":   [(x, y) for x in range(3) for y in range(7, 10)],
-            "center":  [(x, y) for x in range(4, 6) for y in range(4, 6)],
-        }
         result: dict = {}
-        for zone_name, coords in zone_ranges.items():
+        for zone_name, coords in _ZONE_CELL_RANGES.items():
             cells = [world.cell(x, y, 0) for x, y in coords]
             cells = [c for c in cells if c is not None]
             if cells:

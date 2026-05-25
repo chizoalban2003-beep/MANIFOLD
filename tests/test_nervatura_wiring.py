@@ -98,8 +98,11 @@ def test_complete_sub_task_fires_cell_update_bus():
         assert result is True
         assert st.status == "complete"
 
+        # Wait for bus background threads to deliver (with timeout)
         import time
-        time.sleep(0.05)  # give bus threads a moment
+        deadline = time.time() + 2.0
+        while time.time() < deadline and len(received) == 0:
+            time.sleep(0.02)
 
         assert st.has_nervatura_effect is True
         assert plan.nervatura_effects_fired >= 1
@@ -138,9 +141,6 @@ def test_scout_task_complete_reduces_cell_n():
 
         router.complete_sub_task(plan.task_id, plan.sub_tasks[0].index)
 
-        import time
-        time.sleep(0.05)
-
         n_after = world.cell(2, 2, 0).n
         # Scout profile has n_delta=-0.22, so n should decrease
         assert n_after < n_before
@@ -174,9 +174,6 @@ def test_builder_task_complete_reduces_cell_c():
         c_before = world.cell(1, 1, 0).c
 
         router.complete_sub_task(plan.task_id, plan.sub_tasks[0].index)
-
-        import time
-        time.sleep(0.05)
 
         c_after = world.cell(1, 1, 0).c
         # Builder profile has c_delta=-0.12 (terraform), so c should decrease

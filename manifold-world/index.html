@@ -835,7 +835,11 @@ const _ZONE_DECAY=0.05; // rate of decay per second when no agent working
 // null means no data yet (cosmetic fallback active).
 let _zoneCRNAData=null;
 
-// Map server zone names → UI tile zone key (for _tileZoneKey lookup)
+// Map server zone names → UI tile zone key (for _tileZoneKey lookup).
+// The server uses physical/layout zone names (kitchen=top-left, etc.)
+// while the UI uses legacy domain names for the same quadrants.
+// kitchen→finance (top-left), devops→devops (top-right),
+// finance→legal (bottom-right), legal→healthcare (bottom-left).
 const _crnaZoneToTileZone={kitchen:'finance',devops:'devops',finance:'legal',legal:'healthcare',center:'general'};
 
 async function _pollZoneCRNA(){
@@ -845,7 +849,7 @@ async function _pollZoneCRNA(){
       const data=await resp.json();
       if(data&&data.kitchen){_zoneCRNAData=data;}
     }
-  }catch(_){}
+  }catch(err){console.debug('[MANIFOLD] zone-crna poll failed:',err);}
 }
 
 // Get CRNA values for a UI tile zone key (returns null if no real data)
