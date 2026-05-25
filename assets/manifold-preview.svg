@@ -397,14 +397,14 @@
 
 <!-- Title -->
 <text x="678" y="36" text-anchor="middle" fill="#ffd700" font-size="14" font-family="monospace" font-weight="bold" letter-spacing="1">MANIFOLD</text>
-<text x="678" y="50" text-anchor="middle" fill="#667788" font-size="8.5" font-family="monospace">v2.5.0  ·  Governance OS</text>
+<text x="678" y="50" text-anchor="middle" fill="#667788" font-size="8.5" font-family="monospace">v2.8.0  ·  Governance OS</text>
 <line x1="576" y1="57" x2="780" y2="57" stroke="#1e2e50" stroke-width="1"/>
 
 <!-- Metrics block -->
 <text x="580" y="71" fill="#4488ff" font-size="9" font-family="monospace">&#x25B8; METRICS</text>
 <rect x="576" y="75" width="206" height="82" rx="4" fill="#0a0e1a" stroke="#1a2a4a" stroke-width="0.8"/>
 <text x="588" y="90"  fill="#556677" font-size="8" font-family="monospace">Tests passing</text>
-<text x="774" y="90"  text-anchor="end" fill="#00e676" font-size="8" font-family="monospace">2,596 &#x2713;</text>
+<text x="774" y="90"  text-anchor="end" fill="#00e676" font-size="8" font-family="monospace">2,629 &#x2713;</text>
 <text x="588" y="103" fill="#556677" font-size="8" font-family="monospace">Python modules</text>
 <text x="774" y="103" text-anchor="end" fill="#00d4ff" font-size="8" font-family="monospace">133</text>
 <text x="588" y="116" fill="#556677" font-size="8" font-family="monospace">Lines of code</text>
