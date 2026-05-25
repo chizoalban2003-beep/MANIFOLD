@@ -15,6 +15,76 @@ AgentStatus = Literal["active", "idle", "paused", "stale", "unregistered"]
 
 
 # ---------------------------------------------------------------------------
+# NERVATURA agent wiring — AgentCRNAProfile
+# ---------------------------------------------------------------------------
+
+@dataclass
+class AgentCRNAProfile:
+    """Per-agent NERVATURA CRNA mutation profile.
+
+    Describes how a completed task by this agent type mutates the
+    NERVATURAWorld cell the agent was operating in.
+    """
+    archetype: str          # "scout"|"miner"|"builder"|"trader"|"multi"
+    n_delta: float = 0.0    # N change per completed task (negative = reduces)
+    c_delta: float = 0.0    # C change per completed task (negative = reduces)
+    a_delta: float = 0.0    # A change per completed task (positive = increases)
+    r_delta: float = 0.0    # R change per completed task (negative = reduces)
+    effective_zones: list = field(default_factory=list)  # domains most effective in
+
+
+# Module-level dict mapping agent layer strings to AgentCRNAProfile instances.
+NERVATURA_PROFILES: dict[str, AgentCRNAProfile] = {
+    "physical/floor": AgentCRNAProfile(
+        archetype="builder",
+        c_delta=-0.12,
+        r_delta=-0.08,
+        effective_zones=["kitchen", "hallway", "physical"],
+    ),
+    "physical/aerial": AgentCRNAProfile(
+        archetype="scout",
+        n_delta=-0.22,
+        effective_zones=["devops", "aerial", "any"],
+    ),
+    "digital/llm": AgentCRNAProfile(
+        archetype="multi",
+        a_delta=0.08,
+        n_delta=-0.10,
+        effective_zones=["finance", "legal", "general", "any"],
+    ),
+    "digital/finance": AgentCRNAProfile(
+        archetype="miner",
+        a_delta=0.15,
+        effective_zones=["finance", "billing"],
+    ),
+    "digital/legal": AgentCRNAProfile(
+        archetype="trader",
+        a_delta=0.10,
+        c_delta=-0.06,
+        effective_zones=["legal", "compliance"],
+    ),
+    "digital/devops": AgentCRNAProfile(
+        archetype="miner",
+        a_delta=0.12,
+        c_delta=-0.08,
+        effective_zones=["devops", "infrastructure"],
+    ),
+    "digital/framework": AgentCRNAProfile(
+        archetype="multi",
+        a_delta=0.07,
+        n_delta=-0.08,
+        effective_zones=["any"],
+    ),
+    "physical/device": AgentCRNAProfile(
+        archetype="builder",
+        r_delta=-0.05,
+        c_delta=-0.05,
+        effective_zones=["any"],
+    ),
+}
+
+
+# ---------------------------------------------------------------------------
 # EXP7 — Episode dataclass for per-agent episodic memory
 # ---------------------------------------------------------------------------
 
@@ -48,6 +118,11 @@ class AgentRecord:
     _command_queue: list = field(default_factory=list)
     episode_history: list = field(default_factory=list)  # list[Episode]
     max_episodes: int = 100
+    layer: str = "digital/llm"
+    crna_profile: AgentCRNAProfile = field(
+        default_factory=lambda: NERVATURA_PROFILES["digital/llm"]
+    )
+    position: tuple = field(default_factory=lambda: (0, 0, 0))  # (x, y, z) world position
 
     def is_stale(self, timeout_seconds: int = 120) -> bool:
         return time.time() - self.last_heartbeat > timeout_seconds
@@ -71,6 +146,7 @@ class AgentRecord:
             "error_count": self.error_count,
             "health_score": round(self.health_score(), 4),
             "is_stale": self.is_stale(),
+            "layer": self.layer,
         }
 
 
@@ -94,6 +170,7 @@ class AgentRegistry:
         endpoint_url: str = "",
         domain: str = "general",
         notes: str = "",
+        layer: str = "digital/llm",
     ) -> AgentRecord:
         with self._lock:
             record = AgentRecord(
@@ -104,6 +181,8 @@ class AgentRegistry:
                 endpoint_url=endpoint_url,
                 domain=domain,
                 notes=notes,
+                layer=layer,
+                crna_profile=NERVATURA_PROFILES.get(layer, NERVATURA_PROFILES["digital/llm"]),
             )
             self._agents[agent_id] = record
             return record

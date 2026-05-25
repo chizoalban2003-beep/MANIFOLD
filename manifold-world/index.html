@@ -376,7 +376,7 @@ function drawTerrain(){
       ctx.restore();
     } else {
       const zc=zoneCols(ti,tj); drawDiamond(cx,cy,zc.base,zc.bevel);
-      // Zone work-progress colour blend — tiles lighten/tint as agents work
+      // Zone work-progress colour blend — tiles lighten/tint as agents work (cosmetic fallback)
       if(!isPath(ti,tj)&&!isCenter(ti,tj)){
         const zk=_tileZoneKey(ti,tj); // MC2 + zone work tint lookup
         const wp=_zoneWorkProgress[zk]||0;
@@ -393,6 +393,28 @@ function drawTerrain(){
           ctx.save();ctx.globalAlpha=wp;
           ctx.fillStyle=tc;
           ctx.beginPath();ctx.moveTo(cx,cy-TH/2);ctx.lineTo(cx+TW/2,cy);ctx.lineTo(cx,cy+TH/2);ctx.lineTo(cx-TW/2,cy);ctx.closePath();ctx.fill();
+          ctx.globalAlpha=1;ctx.restore();
+        }
+        // Real NERVATURA CRNA overlay — takes precedence when server data is available
+        const crna=_tileZoneCRNA(zk);
+        if(crna){
+          ctx.save();
+          if(crna.r>0.7){
+            // dangerous zone: red tint
+            ctx.globalAlpha=Math.min(0.45,(crna.r-0.7)*1.5);
+            ctx.fillStyle='rgba(226,75,74,1)';
+            ctx.beginPath();ctx.moveTo(cx,cy-TH/2);ctx.lineTo(cx+TW/2,cy);ctx.lineTo(cx,cy+TH/2);ctx.lineTo(cx-TW/2,cy);ctx.closePath();ctx.fill();
+          } else if(crna.n>0.6){
+            // unmapped zone: grey-foggy tint
+            ctx.globalAlpha=Math.min(0.40,(crna.n-0.6)*1.0);
+            ctx.fillStyle='rgba(150,150,160,1)';
+            ctx.beginPath();ctx.moveTo(cx,cy-TH/2);ctx.lineTo(cx+TW/2,cy);ctx.lineTo(cx,cy+TH/2);ctx.lineTo(cx-TW/2,cy);ctx.closePath();ctx.fill();
+          } else if(crna.a>0.6){
+            // high-value zone: gold shimmer tint
+            ctx.globalAlpha=Math.min(0.40,(crna.a-0.6)*1.0);
+            ctx.fillStyle='rgba(212,175,55,1)';
+            ctx.beginPath();ctx.moveTo(cx,cy-TH/2);ctx.lineTo(cx+TW/2,cy);ctx.lineTo(cx,cy+TH/2);ctx.lineTo(cx-TW/2,cy);ctx.closePath();ctx.fill();
+          }
           ctx.globalAlpha=1;ctx.restore();
         }
         // MC2 — tile sub-square block-by-block transformation
@@ -806,6 +828,43 @@ function drawParticlesAndFloats(){
 // per-zone 0–1 progress — drives tile colour blend as agents work
 const _zoneWorkProgress={finance:0,devops:0,healthcare:0,legal:0,general:0};
 const _ZONE_DECAY=0.05; // rate of decay per second when no agent working
+
+// ========== REAL NERVATURA ZONE CRNA DATA ==========
+// Polled from GET /nervatura/zone-crna every 8 seconds.
+// Keys match zone names returned by the server: kitchen/devops/finance/legal/center.
+// null means no data yet (cosmetic fallback active).
+let _zoneCRNAData=null;
+
+// Map server zone names → UI tile zone key (for _tileZoneKey lookup).
+// The server uses physical/layout zone names (kitchen=top-left, etc.)
+// while the UI uses legacy domain names for the same quadrants.
+// kitchen→finance (top-left), devops→devops (top-right),
+// finance→legal (bottom-right), legal→healthcare (bottom-left).
+const _crnaZoneToTileZone={kitchen:'finance',devops:'devops',finance:'legal',legal:'healthcare',center:'general'};
+
+async function _pollZoneCRNA(){
+  try{
+    const resp=await fetch('/nervatura/zone-crna',{signal:AbortSignal.timeout(4000)});
+    if(resp.ok){
+      const data=await resp.json();
+      if(data&&data.kitchen){_zoneCRNAData=data;}
+    }
+  }catch(err){console.debug('[MANIFOLD] zone-crna poll failed:',err);}
+}
+
+// Get CRNA values for a UI tile zone key (returns null if no real data)
+function _tileZoneCRNA(tileZoneKey){
+  if(!_zoneCRNAData) return null;
+  // reverse-map tileZoneKey → server zone name
+  for(const[szone,tzk] of Object.entries(_crnaZoneToTileZone)){
+    if(tzk===tileZoneKey) return _zoneCRNAData[szone]||null;
+  }
+  return null;
+}
+
+// Start polling immediately and repeat every 8 seconds
+_pollZoneCRNA();
+setInterval(_pollZoneCRNA,8000);
 
 function _agentZoneKey(domain){
   if(domain==='finance') return 'finance';

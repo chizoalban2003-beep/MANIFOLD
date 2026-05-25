@@ -34,6 +34,7 @@ class SubTask:
     delay_seconds: int = 0  # ToM stagger: seconds to wait before dispatching (0 = no delay)
     progress: float = 0.0  # 0.0–1.0 execution progress (updated externally or via simulation)
     animation_type: str = "idle"  # world animation hint: idle|sweep|scan|stream|write|deploy|collab
+    has_nervatura_effect: bool = False  # True when a CellUpdate was fired for this sub-task
 
 
 # ---------------------------------------------------------------------------
@@ -181,6 +182,7 @@ class TaskPlan:
     parallel_groups: list = field(default_factory=list)    # list of task-id groups
     has_ordering: bool = False
     has_tom_stagger: bool = False  # True if ToM stagger was applied to any sub-task
+    nervatura_effects_fired: int = 0  # number of sub-tasks that produced real NERVATURA grid mutations
 
     def to_dict(self) -> dict:
         return {
@@ -203,6 +205,7 @@ class TaskPlan:
                     "delay_seconds": s.delay_seconds,
                     "progress": round(s.progress, 4),
                     "animation_type": s.animation_type,
+                    "has_nervatura_effect": s.has_nervatura_effect,
                 }
                 for s in self.sub_tasks
             ],
@@ -213,6 +216,7 @@ class TaskPlan:
             "parallel_groups": self.parallel_groups,
             "has_ordering": self.has_ordering,
             "has_tom_stagger": self.has_tom_stagger,
+            "nervatura_effects_fired": self.nervatura_effects_fired,
         }
 
 class TaskRouter:
@@ -563,6 +567,97 @@ class TaskRouter:
                         "execution_mode": st.execution_mode,
                     })
         return result
+
+    def complete_sub_task(self, task_id: str, sub_task_index: int) -> bool:
+        """Mark a sub-task as complete and fire NERVATURA grid mutations.
+
+        After marking the sub-task complete, retrieves the assigned agent's
+        CRNA profile and fires a CellUpdate on the CellUpdateBus.  If a
+        NERVATURAWorld is active (via nervatura_world.get_world()), the
+        cell methods (reduce_neutrality / terraform / harvest / sync_n) are
+        also called directly so the grid reflects the real task outcome.
+
+        Parameters
+        ----------
+        task_id:
+            The plan's task_id string.
+        sub_task_index:
+            The integer index of the sub-task to complete.
+
+        Returns
+        -------
+        bool
+            True if the sub-task was found and marked complete, False otherwise.
+        """
+        plan = self._plans.get(task_id)
+        if plan is None:
+            return False
+
+        sub_task: SubTask | None = None
+        for st in plan.sub_tasks:
+            if st.index == sub_task_index:
+                sub_task = st
+                break
+        if sub_task is None:
+            return False
+
+        sub_task.status = "complete"
+        sub_task.progress = 1.0
+
+        # Only fire NERVATURA effects when the sub-task was assigned to an agent
+        agent_id = sub_task.assigned_to
+        if not agent_id:
+            return True
+
+        agent = self._registry.get(agent_id)
+        profile = agent.crna_profile if agent is not None else None
+        if profile is None:
+            return True
+
+        # Determine agent world position
+        pos = (0, 0, 0)
+        if agent is not None:
+            try:
+                pos = tuple(agent.position)[:3]  # type: ignore[arg-type]
+            except Exception:  # noqa: BLE001
+                pos = (0, 0, 0)
+
+        # Fire CellUpdate on the bus
+        try:
+            from manifold.cell_update_bus import CellCoord, CellUpdate, get_bus  # noqa: PLC0415
+            bus = get_bus()
+            bus.publish(CellUpdate(
+                coord=CellCoord(x=int(pos[0]), y=int(pos[1]), z=int(pos[2])),
+                r_delta=profile.r_delta,
+                n_delta=profile.n_delta,
+                a_delta=profile.a_delta,
+                c_delta=profile.c_delta,
+                source=f"agent:{agent_id}",
+                ttl=300,
+            ))
+            sub_task.has_nervatura_effect = True
+            plan.nervatura_effects_fired += 1
+        except Exception:  # noqa: BLE001
+            pass
+
+        # Also mutate the NERVATURAWorld cell directly if a world is active
+        try:
+            from manifold.nervatura_world import get_world  # noqa: PLC0415
+            world = get_world()
+            if world is not None:
+                cell = world.cell(int(pos[0]), int(pos[1]), int(pos[2]))
+                if cell is not None:
+                    if profile.n_delta < 0:
+                        cell.reduce_neutrality(abs(profile.n_delta))
+                    if profile.c_delta < 0:
+                        cell.terraform(abs(profile.c_delta))
+                    if profile.a_delta > 0:
+                        cell.harvest(profile.a_delta)
+                    cell.sync_n()
+        except Exception:  # noqa: BLE001
+            pass
+
+        return True
 
 
 # ---------------------------------------------------------------------------

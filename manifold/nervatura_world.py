@@ -279,3 +279,22 @@ class NERVATURAWorld:
             cell.last_visited = cd.get("last_visited", 0.0)
             cell.domain = cd.get("domain", "general")
         return world
+
+
+# ---------------------------------------------------------------------------
+# Module-level world singleton (mirrors server._NERVATURA for use in
+# task_router and other non-server modules that need NERVATURAWorld access).
+# ---------------------------------------------------------------------------
+
+_WORLD: "NERVATURAWorld | None" = None
+
+
+def get_world() -> "NERVATURAWorld | None":
+    """Return the active NERVATURAWorld singleton, or None if not initialised."""
+    return _WORLD
+
+
+def set_world(world: "NERVATURAWorld | None") -> None:
+    """Set (or clear) the module-level NERVATURAWorld singleton."""
+    global _WORLD  # noqa: PLW0603
+    _WORLD = world

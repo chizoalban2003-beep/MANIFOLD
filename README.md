@@ -12,15 +12,15 @@
 > Built on **NERVATURA** — the governed intelligence framework.
 
 [![CI](https://github.com/chizoalban2003-beep/MANIFOLD/actions/workflows/manifold-ci.yml/badge.svg)](https://github.com/chizoalban2003-beep/MANIFOLD/actions/workflows/manifold-ci.yml)
-[![Tests](https://img.shields.io/badge/tests-2629%2B-brightgreen)]()
-[![Version](https://img.shields.io/badge/version-2.8.0-blue)]()
+[![Tests](https://img.shields.io/badge/tests-2657%2B-brightgreen)]()
+[![Version](https://img.shields.io/badge/version-2.9.0-blue)]()
 [![Python](https://img.shields.io/badge/python-3.12%2B-blue)]()
 [![Zero deps](https://img.shields.io/badge/external%20deps-pandas%2C%20pydantic-success)]()
 [![License](https://img.shields.io/badge/license-MIT-lightgrey)]()
 
 <p align="center">
   <img src="assets/manifold-preview.svg" width="800"
-       alt="MANIFOLD v2.8.0 — isometric governance world showing 6 agent types (Roomba, Drone, LLM agents), MANIFOLD Town Hall, Sims plumbob task indicators, Minecraft item tokens and fog of war, and cooperation arcs. All 2,629 tests passing."/>
+       alt="MANIFOLD v2.9.0 — isometric governance world showing 6 agent types (Roomba, Drone, LLM agents), MANIFOLD Town Hall, Sims plumbob task indicators, Minecraft item tokens and fog of war, and cooperation arcs. All 2,657 tests passing."/>
 </p>
 
 ---
@@ -116,7 +116,7 @@ heroku create && git push heroku main                 # Heroku
 
 ---
 
-## What is Built at v2.8.0
+## What is Built at v2.9.0
 
 | Core Engine | Agentic and Real-Time | Physical and World |
 |---|---|---|
@@ -347,9 +347,81 @@ See `manifold-ts/README.md` for full TypeScript documentation.
 | **v2.6.0** | ✅ Done | Agent onboarding — `agent_profiles.py` (12 profiles), CLI `agent add`, world ➕ Add Agent modal; Research Agenda (5 theoretical gaps) |
 | **v2.7.0** | ✅ Done | Living world — Town Hall identity (gold TH badge, orb colour, agent-count dots), per-agent task animations (sweep/scan/stream/write/deploy/collab), zone environment response; `SubTask.progress`/`animation_type`; WebSocket `task_progress`/`task_handoff` events; `GET /tasks/active` |
 | **v2.8.0** | ✅ Done | Sims+Minecraft world — Plumbob diamond above each agent (bobs, colour-codes state), moodlet strip (⚙♥⛓), ATS skill bar flash on completion, cooperation speech bubble; MC item tokens (physical task objects), tile block-by-block sub-square transformation, item arc on handoff (600ms arc+sparkles), block particles while agents work |
+| **v2.9.0** | ✅ Done | NERVATURA-native agents (AgentCRNAProfile, 8 archetypes, task completion fires real grid mutations, `GET /nervatura/zone-crna`) + CEO-Manager intelligence (EscalationMemory, PolicyLearner, progressive disclosure 6 user types, DelegationManager, CommHub multi-channel dispatcher) — 2,657 tests |
 | **Phase 1** | 🔄 In progress | Deploy to Railway/Fly/Heroku, onboard pilot orgs, real governance data collection, manifold-world as installable PWA on phone |
 | **Phase 2** | 📋 Roadmap | MANIFOLD Physical v0.1 — Roomba bridge with real hardware, MQTT IoT connector, camera-based obstacle detection pipeline |
 | **Phase 3** | 🔭 Vision | NERVATURA platform — digital + physical governance OS, brand restructure, commercial partnerships, managed cloud offering |
+
+---
+
+## CEO→Manager Communication
+
+MANIFOLD v2.9.0 adds a complete CEO-to-Manager intelligence layer that learns from decisions, adapts vocabulary per audience, routes escalations automatically, and reaches the right person on the right channel.
+
+### Input Channels
+- **Voice** — audio ingestion via POST /ingest/audio
+- **Text / LLM chat** — POST /llm/chat (natural language delegation and channel setup)
+- **Document** — POST /ingest/document
+- **Image** — POST /ingest/image
+- **Mobile push** — POST /remote/alert via MobileAlertGateway
+- **Email** — CommHub EMAIL channel (MANIFOLD_SMTP_HOST env var)
+- **Slack** — CommHub SLACK channel (webhook URL)
+
+### The Learning Loop
+1. Every human approve/deny/delegate decision is stored in **EscalationMemory**
+2. After **3 consistent decisions** for the same context (agent type + domain + action category), MANIFOLD auto-decides without asking
+3. After **3 decisions at ≥ 90% confidence**, **PolicyLearner** promotes the pattern to a formal `PolicyRule`
+4. `GET /escalations/memory` shows the weekly summary: decisions saved, auto-decided count, promoted rules
+
+### User Types — Progressive Disclosure
+| User type | Message style |
+|---|---|
+| `developer` | Full JSON payload: risk_score, crna_values, policy_rule_id, vault_id |
+| `executive` | 2-sentence plain English + risk level: high/medium/low |
+| `doctor` | Clinical vocabulary: medication, dose, patient room, standing order |
+| `lawyer` | Legal vocabulary: matter number, privilege flag, review stage |
+| `trader` | Financial vocabulary: instrument, notional, desk, risk percentile |
+| `non_technical` | Max 2 short sentences + emoji: "Your agent wants to X. 👍 Yes 👎 No" |
+
+Use `GET /escalations/message?id=X&user_type=Y` to retrieve the right message per audience.
+
+### Delegation — "Away? Route to Sarah"
+```
+POST /delegation
+{
+  "delegate_id": "sarah",
+  "delegate_contact": "sarah@example.com",
+  "domains": ["maintenance", "finance"],
+  "risk_max": 0.7,
+  "valid_until": 1234567890
+}
+```
+Or via natural language: `POST /llm/chat` → "While I'm travelling, route all maintenance approvals to Sarah"
+
+Use `GET /delegation` to view active profiles, `DELETE /delegation/{delegate_id}` to remove.
+
+### Multi-Channel CommHub
+Register channels per risk window:
+```
+POST /comms/channels
+{"channel": "sms", "address": "+447700900123", "min_risk": 0.8, "user_type": "non_technical"}
+```
+Channels: `push` | `email` | `slack` | `sms` | `webhook` | `world_dashboard`
+
+Test all channels: `POST /comms/test`
+
+### New Endpoints (v2.9.0)
+| Method | Path | Description |
+|---|---|---|
+| GET | /escalations/memory | Learned patterns + weekly summary |
+| GET | /escalations/message?id=X&user_type=Y | Right message per audience |
+| POST | /delegation | Create delegation profile |
+| GET | /delegation | List active delegation profiles |
+| DELETE | /delegation/{delegate_id} | Remove delegation profile |
+| POST | /comms/channels | Register a comm channel |
+| GET | /comms/channels | List registered channels |
+| DELETE | /comms/channels/{channel} | Remove a channel |
+| POST | /comms/test | Send test message to all channels |
 
 ---
 
@@ -461,7 +533,7 @@ provides the empirical baseline all theoretical work should improve upon.
 
 ---
 
-## MANIFOLD World (v2.8.0)
+## MANIFOLD World (v2.9.0)
 
 MANIFOLD World (`/world`) is an isometric real-time governance game built on the MANIFOLD API — a Clash of Clans/Sims/Minecraft-style command interface for your agent fleet.
 
@@ -510,9 +582,9 @@ MANIFOLD World (`/world`) is an isometric real-time governance game built on the
 
 | Metric | Value |
 |---|---|
-| Tests | 2629 / 2629 ✅ |
-| Python modules | 133 |
-| API endpoints | 81 |
+| Tests | 2657 / 2657 ✅ |
+| Python modules | 150 |
+| API endpoints | 90+ |
 | Domain packs | 7 |
 | Brain actions | 13 |
 | Agent types | Unlimited |

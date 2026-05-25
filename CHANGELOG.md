@@ -2,6 +2,42 @@
 
 ## Unreleased
 
+## [2.9.0] — NERVATURA-Native Agents + CEO-Manager Intelligence
+
+### Added — NERVATURA Agent Wiring
+- **AgentCRNAProfile** dataclass + `NERVATURA_PROFILES` dict (8 archetypes: scout/miner/builder/trader/multi)
+- `AgentRecord.layer` + `AgentRecord.crna_profile`; `AgentRegistry.register(layer=)` wires profile automatically
+- `TaskRouter.complete_sub_task()` fires `CellUpdateBus` + direct `NERVATURAWorld` grid mutations on task completion
+- `SubTask.has_nervatura_effect` flag; `TaskPlan.nervatura_effects_fired` counter
+- `GET /nervatura/zone-crna` — real CRNA averages per named zone (kitchen/devops/finance/legal/center)
+- MANIFOLD World polls `/nervatura/zone-crna` every 8 s; r>0.7→red, n>0.6→grey, a>0.6→gold tile tints
+
+### Added — CEO-Manager Intelligence
+- **EscalationMemory** (`escalation_memory.py`) — stores human decisions; auto-decides after 3 consistent choices
+- **PolicyLearner** (`policy_learner.py`) — promotes patterns to `PolicyRule` at ≥90% confidence
+- **Progressive disclosure** — `GovernanceReporter.generate_escalation_message()` + `INDUSTRY_VOCAB` for 6 user types (developer/executive/doctor/lawyer/trader/non_technical)
+- **DelegationManager** (`delegation.py`) — delegate escalations by domain, risk ceiling, and time window
+- **CommHub** (`comms_hub.py`) — dispatch to push/email/Slack/SMS/webhook/world_dashboard by risk threshold
+
+### Endpoints
+- `GET /escalations/memory` — learned patterns + weekly summary
+- `GET /escalations/message?id=X&user_type=Y` — right message per audience
+- `POST /delegation` — create delegation profile
+- `GET /delegation` — list active profiles
+- `DELETE /delegation/{delegate_id}` — remove profile
+- `POST /comms/channels` — register comm channel
+- `GET /comms/channels` — list channels
+- `DELETE /comms/channels/{channel}` — remove channel
+- `POST /comms/test` — test all channels
+
+### Tests
+- 6 tests in `tests/test_nervatura_wiring.py`
+- 6 tests in `tests/test_escalation_memory.py`
+- 6 tests in `tests/test_progressive_disclosure.py`
+- 5 tests in `tests/test_delegation.py`
+- 5 tests in `tests/test_comms_hub.py`
+- **2657 total tests pass, zero pyflakes warnings**
+
 ## [2.8.0] — Sims + Minecraft Living World
 
 ### Added — World (Sims + Minecraft parity)
