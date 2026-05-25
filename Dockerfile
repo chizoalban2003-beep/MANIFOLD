@@ -7,6 +7,7 @@ WORKDIR /app
 COPY pyproject.toml requirements.txt ./
 COPY manifold/ ./manifold/
 COPY manifold_physical/ ./manifold_physical/
+COPY manifold-world/ ./manifold-world/
 COPY manifold-ts/ ./manifold-ts/
 COPY app.py deploy_shadow.py ./
 COPY scripts/ ./scripts/

@@ -2,7 +2,6 @@ core.Microsoft*
 core.mongo*
 core.python*
 env.py
-__pycache__/
 *.py[cod]
 node_modules/
 cloudinary_python.txt
@@ -15,6 +14,7 @@ dist/
 build/
 __pycache__/
 *.pyc
+*.pyo
 .eggs/
 .env
 
@@ -24,7 +24,6 @@ __pycache__/
 *.db-wal
 
 # Additional build / test artefacts
-*.pyo
 .DS_Store
 *.log
 .pytest_cache/

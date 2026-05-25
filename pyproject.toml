@@ -24,8 +24,11 @@ dependencies = [
 ]
 
 [tool.setuptools]
-packages = ["manifold", "manifold.ingestion", "manifold_physical", "manifold_physical.bridges"]
 py-modules = ["deploy_shadow"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["manifold*", "manifold_physical*"]
 
 [project.optional-dependencies]
 ui = ["streamlit>=1.40"]
