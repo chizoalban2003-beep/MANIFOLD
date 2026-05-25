@@ -99,6 +99,9 @@ def handle_post_nervatura_world_init(self: "ManifoldHandler", body: dict) -> Non
         height = int(body.get("height", 5))
         domain = str(body.get("domain", "general"))
         s._NERVATURA = s._NERVATURAWorld(width=width, depth=depth, height=height)
+        # Sync the module-level singleton so task_router can access the world
+        from manifold.nervatura_world import set_world  # noqa: PLC0415
+        set_world(s._NERVATURA)
         # PROMPT 6: start ConvergenceMonitor now that world is initialised
         try:
             from manifold.convergence_monitor import ConvergenceMonitor  # noqa: PLC0415
@@ -111,5 +114,52 @@ def handle_post_nervatura_world_init(self: "ManifoldHandler", body: dict) -> Non
             "domain": domain,
             **s._NERVATURA.summary(),
         })
+    except Exception as exc:  # noqa: BLE001
+        s._send_json(self, 500, {"error": str(exc)})
+
+
+def handle_get_nervatura_zone_crna(self: "ManifoldHandler") -> None:
+    """GET /nervatura/zone-crna — CRNA summary per named zone (averaged cells).
+
+    Zone cell ranges (all at z=0):
+      kitchen = x 0-2, y 0-2
+      devops  = x 7-9, y 0-2
+      finance = x 7-9, y 7-9
+      legal   = x 0-2, y 7-9
+      center  = x 4-5, y 4-5
+    """
+    import time as _time  # noqa: PLC0415
+    s = _srv()
+    if s._NERVATURA is None:
+        s._send_json(self, 200, {
+            "status": "not_initialised",
+            "hint": "POST /nervatura/world/init to create a world",
+        })
+        return
+    try:
+        world = s._NERVATURA
+        zone_ranges = {
+            "kitchen": [(x, y) for x in range(3) for y in range(3)],
+            "devops":  [(x, y) for x in range(7, 10) for y in range(3)],
+            "finance": [(x, y) for x in range(7, 10) for y in range(7, 10)],
+            "legal":   [(x, y) for x in range(3) for y in range(7, 10)],
+            "center":  [(x, y) for x in range(4, 6) for y in range(4, 6)],
+        }
+        result: dict = {}
+        for zone_name, coords in zone_ranges.items():
+            cells = [world.cell(x, y, 0) for x, y in coords]
+            cells = [c for c in cells if c is not None]
+            if cells:
+                n = len(cells)
+                result[zone_name] = {
+                    "c": round(sum(c.c for c in cells) / n, 4),
+                    "r": round(sum(c.r for c in cells) / n, 4),
+                    "n": round(sum(c.n for c in cells) / n, 4),
+                    "a": round(sum(c.a for c in cells) / n, 4),
+                }
+            else:
+                result[zone_name] = {"c": 0.5, "r": 0.5, "n": 1.0, "a": 0.0}
+        result["timestamp"] = _time.time()
+        s._send_json(self, 200, result)
     except Exception as exc:  # noqa: BLE001
         s._send_json(self, 500, {"error": str(exc)})

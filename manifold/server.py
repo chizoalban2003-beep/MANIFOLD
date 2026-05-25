@@ -706,6 +706,11 @@ class ManifoldHandler(BaseHTTPRequestHandler):
                 self._handle_get_nervatura_world()
                 return
 
+            # GET /nervatura/zone-crna  (real CRNA per named zone)
+            if path == "/nervatura/zone-crna":
+                self._handle_get_nervatura_zone_crna()
+                return
+
             # GET /physical/cameras  (camera registry status)
             if path == "/physical/cameras":
                 self._handle_get_physical_cameras()
@@ -4012,6 +4017,12 @@ def _handle_get_nervatura_world(self: "ManifoldHandler") -> None:
     return handle_get_nervatura_world(self)
 
 
+def _handle_get_nervatura_zone_crna(self: "ManifoldHandler") -> None:
+    """GET /nervatura/zone-crna — real CRNA per named zone."""
+    from manifold.routes.physical import handle_get_nervatura_zone_crna  # noqa: PLC0415
+    return handle_get_nervatura_zone_crna(self)
+
+
 def _handle_post_nervatura_world_init(self: "ManifoldHandler", body: dict) -> None:
     """POST /nervatura/world/init — initialise NERVATURAWorld singleton."""
     from manifold.routes.physical import handle_post_nervatura_world_init  # noqa: PLC0415
@@ -4022,6 +4033,7 @@ ManifoldHandler._handle_get_realtime_status = _handle_get_realtime_status  # typ
 ManifoldHandler._handle_get_health_tools = _handle_get_health_tools  # type: ignore[attr-defined]
 ManifoldHandler._handle_get_plan = _handle_get_plan  # type: ignore[attr-defined]
 ManifoldHandler._handle_get_nervatura_world = _handle_get_nervatura_world  # type: ignore[attr-defined]
+ManifoldHandler._handle_get_nervatura_zone_crna = _handle_get_nervatura_zone_crna  # type: ignore[attr-defined]
 ManifoldHandler._handle_post_nervatura_world_init = _handle_post_nervatura_world_init  # type: ignore[attr-defined]
 
 
