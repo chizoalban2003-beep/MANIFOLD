@@ -103,10 +103,10 @@ class SensorBridge:
         Converts float coordinates to grid cell integers (floor).
         """
         try:
-            from manifold.agent_registry import AgentRegistry as _AR  # noqa: F401
             _cell = (int(math.floor(x)), int(math.floor(y)), int(math.floor(z)))
+            logging.debug("handle_robot_position: agent %s at cell %s", agent_id, _cell)
         except Exception as exc:  # noqa: BLE001
-            logging.debug("handle_robot_position: registry update failed: %s", exc)
+            logging.debug("handle_robot_position: position update failed: %s", exc)
 
 
 class RoombaBridge:

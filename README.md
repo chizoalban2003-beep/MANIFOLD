@@ -12,11 +12,16 @@
 > Built on **NERVATURA** — the governed intelligence framework.
 
 [![CI](https://github.com/chizoalban2003-beep/MANIFOLD/actions/workflows/manifold-ci.yml/badge.svg)](https://github.com/chizoalban2003-beep/MANIFOLD/actions/workflows/manifold-ci.yml)
-[![Tests](https://img.shields.io/badge/tests-2596%2B-brightgreen)]()
-[![Version](https://img.shields.io/badge/version-2.5.0-blue)]()
+[![Tests](https://img.shields.io/badge/tests-2629%2B-brightgreen)]()
+[![Version](https://img.shields.io/badge/version-2.8.0-blue)]()
 [![Python](https://img.shields.io/badge/python-3.12%2B-blue)]()
 [![Zero deps](https://img.shields.io/badge/external%20deps-pandas%2C%20pydantic-success)]()
 [![License](https://img.shields.io/badge/license-MIT-lightgrey)]()
+
+<p align="center">
+  <img src="assets/manifold-preview.svg" width="800"
+       alt="MANIFOLD v2.8.0 — isometric governance world showing 6 agent types (Roomba, Drone, LLM agents), MANIFOLD Town Hall, Sims plumbob task indicators, Minecraft item tokens and fog of war, and cooperation arcs. All 2,629 tests passing."/>
+</p>
 
 ---
 
@@ -111,7 +116,7 @@ heroku create && git push heroku main                 # Heroku
 
 ---
 
-## What is Built at v1.7.0
+## What is Built at v2.8.0
 
 | Core Engine | Agentic and Real-Time | Physical and World |
 |---|---|---|
@@ -505,9 +510,9 @@ MANIFOLD World (`/world`) is an isometric real-time governance game built on the
 
 | Metric | Value |
 |---|---|
-| Tests | 2596 / 2596 ✅ |
-| Python modules | 90+ |
-| API endpoints | 55+ |
+| Tests | 2629 / 2629 ✅ |
+| Python modules | 133 |
+| API endpoints | 81 |
 | Domain packs | 7 |
 | Brain actions | 13 |
 | Agent types | Unlimited |

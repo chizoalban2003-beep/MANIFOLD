@@ -1,0 +1,503 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"
+     width="800" height="490" viewBox="0 0 800 490">
+<defs>
+  <!-- Item arc path: Claude(314,168) → FinBot(248,179) -->
+  <path id="arc1" d="M314,168 Q280,142 248,179"/>
+  <!-- Fog of war radial gradient -->
+  <radialGradient id="foggrad" cx="50%" cy="80%" r="55%">
+    <stop offset="0%"   stop-color="#04050a" stop-opacity="0"/>
+    <stop offset="100%" stop-color="#04050a" stop-opacity="0.55"/>
+  </radialGradient>
+</defs>
+
+<!-- ░░░ BACKGROUND ░░░ -->
+<rect width="800" height="490" fill="#04050a"/>
+
+<!-- Stars -->
+<g fill="#ffffff">
+  <circle cx="30"  cy="20" r="0.8" opacity="0.45"/>
+  <circle cx="90"  cy="12" r="0.6" opacity="0.35"/>
+  <circle cx="180" cy="35" r="0.9" opacity="0.45"/>
+  <circle cx="280" cy="18" r="0.7" opacity="0.35"/>
+  <circle cx="410" cy="10" r="0.8" opacity="0.45"/>
+  <circle cx="480" cy="28" r="0.6" opacity="0.30"/>
+  <circle cx="55"  cy="48" r="0.5" opacity="0.35"/>
+  <circle cx="140" cy="52" r="0.8" opacity="0.45"/>
+  <circle cx="380" cy="42" r="0.7" opacity="0.35"/>
+  <circle cx="460" cy="55" r="0.5" opacity="0.30"/>
+  <circle cx="20"  cy="65" r="0.7" opacity="0.40"/>
+  <circle cx="330" cy="48" r="0.6" opacity="0.30"/>
+  <circle cx="500" cy="62" r="0.8" opacity="0.40"/>
+  <circle cx="70"  cy="30" r="0.5" opacity="0.30"/>
+  <circle cx="230" cy="22" r="0.6" opacity="0.35"/>
+</g>
+
+<!-- ░░░ ZONE FILLS ░░░
+  Grid: hw=22, hh=11, cx=270, cy=80
+  iso_cx(c,r)=270+(c-r)*22  iso_cy(c,r)=80+(c+r)*11
+  Zone polygon corners: N=top-left-tile-N, E=top-right-tile-E, S=bot-right-tile-S, W=bot-left-tile-W
+
+  Zone 1 Cyber Blue  (cols 0-9, rows 0-2): (270,69) (490,179) (424,212) (204,102)
+  Zone 2 Risk Red    (cols 0-3, rows 3-5): (204,102) (292,146) (226,179) (138,135)
+  Zone 3 Gold/TH     (cols 4-6, rows 3-5): (292,146) (358,179) (292,212) (226,179)
+  Zone 4 Asset Green (cols 7-9, rows 3-5): (358,179) (424,212) (358,245) (292,212)
+  Zone 5 Neutral Pur (cols 0-9, rows 6-9): (138,135) (358,245) (270,289) (50,179)
+-->
+<polygon points="270,69 490,179 424,212 204,102" fill="#061828"/>
+<polygon points="204,102 292,146 226,179 138,135" fill="#180606"/>
+<polygon points="292,146 358,179 292,212 226,179" fill="#181006"/>
+<polygon points="358,179 424,212 358,245 292,212" fill="#061806"/>
+<polygon points="138,135 358,245 270,289 50,179"  fill="#0e0618"/>
+
+<!-- Zone border highlights -->
+<polygon points="270,69 490,179 424,212 204,102"  fill="none" stroke="#0a3060" stroke-width="0.8" opacity="0.6"/>
+<polygon points="204,102 292,146 226,179 138,135"  fill="none" stroke="#600a0a" stroke-width="0.8" opacity="0.6"/>
+<polygon points="292,146 358,179 292,212 226,179"  fill="none" stroke="#806000" stroke-width="0.8" opacity="0.6"/>
+<polygon points="358,179 424,212 358,245 292,212"  fill="none" stroke="#0a6020" stroke-width="0.8" opacity="0.6"/>
+<polygon points="138,135 358,245 270,289 50,179"   fill="none" stroke="#400868" stroke-width="0.8" opacity="0.6"/>
+
+<!-- ░░░ GRID LINES ░░░
+  Column c lines: N(270+22c, 69+11c) → S(72+22c, 190+11c)
+  Row r lines:    W(248-22r, 80+11r) → E(490-22r, 179+11r)
+-->
+<g stroke="#ffffff" stroke-width="0.35" opacity="0.12">
+  <line x1="270" y1="69"  x2="72"  y2="190"/>
+  <line x1="292" y1="80"  x2="94"  y2="201"/>
+  <line x1="314" y1="91"  x2="116" y2="212"/>
+  <line x1="336" y1="102" x2="138" y2="223"/>
+  <line x1="358" y1="113" x2="160" y2="234"/>
+  <line x1="380" y1="124" x2="182" y2="245"/>
+  <line x1="402" y1="135" x2="204" y2="256"/>
+  <line x1="424" y1="146" x2="226" y2="267"/>
+  <line x1="446" y1="157" x2="248" y2="278"/>
+  <line x1="468" y1="168" x2="270" y2="289"/>
+  <line x1="490" y1="179" x2="292" y2="300"/>
+  <line x1="248" y1="80"  x2="490" y2="179"/>
+  <line x1="226" y1="91"  x2="468" y2="190"/>
+  <line x1="204" y1="102" x2="446" y2="201"/>
+  <line x1="182" y1="113" x2="424" y2="212"/>
+  <line x1="160" y1="124" x2="402" y2="223"/>
+  <line x1="138" y1="135" x2="380" y2="234"/>
+  <line x1="116" y1="146" x2="358" y2="245"/>
+  <line x1="94"  y1="157" x2="336" y2="256"/>
+  <line x1="72"  y1="168" x2="314" y2="267"/>
+  <line x1="50"  y1="179" x2="292" y2="278"/>
+  <line x1="28"  y1="190" x2="270" y2="289"/>
+</g>
+
+<!-- Outer grid diamond border -->
+<polygon points="270,69 490,179 270,289 50,179"
+         fill="none" stroke="#334466" stroke-width="1.5" opacity="0.6"/>
+
+<!-- Fog of war overlay (bottom edges) -->
+<ellipse cx="270" cy="245" rx="225" ry="72" fill="url(#foggrad)"/>
+
+<!-- ░░░ ZONE LABELS ░░░ -->
+<text x="400" y="118" text-anchor="middle" fill="#4488ff" font-size="8"   font-family="monospace" opacity="0.7">CYBER GRID</text>
+<text x="196" y="147" text-anchor="middle" fill="#ff5555" font-size="7.5" font-family="monospace" opacity="0.7">RISK</text>
+<text x="296" y="197" text-anchor="middle" fill="#ffd700" font-size="7.5" font-family="monospace" opacity="0.7">TOWN HALL</text>
+<text x="386" y="210" text-anchor="middle" fill="#44ff88" font-size="7.5" font-family="monospace" opacity="0.7">ASSET</text>
+<text x="188" y="246" text-anchor="middle" fill="#bb66ff" font-size="7.5" font-family="monospace" opacity="0.7">NEUTRAL</text>
+
+<!-- ░░░ GOVERNANCE BEAMS  TH(292,179) → agents, animated dashes ░░░ -->
+<!-- → Roomba(226,146) -->
+<line x1="292" y1="179" x2="226" y2="146" stroke="#ffd700" stroke-width="1.1" stroke-dasharray="4,4" opacity="0.65">
+  <animate attributeName="stroke-dashoffset" from="0" to="-8" dur="0.4s" repeatCount="indefinite"/>
+</line>
+<!-- → Drone(402,168) -->
+<line x1="292" y1="179" x2="402" y2="168" stroke="#00d4ff" stroke-width="1.1" stroke-dasharray="4,4" opacity="0.65">
+  <animate attributeName="stroke-dashoffset" from="0" to="-8" dur="0.4s" begin="0.1s" repeatCount="indefinite"/>
+</line>
+<!-- → Claude(314,168) -->
+<line x1="292" y1="179" x2="314" y2="168" stroke="#ff6b35" stroke-width="1.1" stroke-dasharray="4,4" opacity="0.65">
+  <animate attributeName="stroke-dashoffset" from="0" to="-8" dur="0.4s" begin="0.2s" repeatCount="indefinite"/>
+</line>
+<!-- → FinBot(248,179) -->
+<line x1="292" y1="179" x2="248" y2="179" stroke="#00c853" stroke-width="1.1" stroke-dasharray="4,4" opacity="0.65">
+  <animate attributeName="stroke-dashoffset" from="0" to="-8" dur="0.4s" begin="0.3s" repeatCount="indefinite"/>
+</line>
+<!-- → LegalAI(160,179) -->
+<line x1="292" y1="179" x2="160" y2="179" stroke="#ce93d8" stroke-width="1.1" stroke-dasharray="4,4" opacity="0.65">
+  <animate attributeName="stroke-dashoffset" from="0" to="-8" dur="0.4s" begin="0.4s" repeatCount="indefinite"/>
+</line>
+<!-- → DevBot(248,245) -->
+<line x1="292" y1="179" x2="248" y2="245" stroke="#f48fb1" stroke-width="1.1" stroke-dasharray="4,4" opacity="0.65">
+  <animate attributeName="stroke-dashoffset" from="0" to="-8" dur="0.4s" begin="0.5s" repeatCount="indefinite"/>
+</line>
+
+<!-- ░░░ MINECRAFT TASK TOKENS (glowing pulsing items at zone centres) ░░░ -->
+<!-- Zone 1 – cyan ⚡ -->
+<circle cx="390" cy="122" r="8" fill="#0a1e42" stroke="#4488ff" stroke-width="1.5">
+  <animate attributeName="r"       values="7;11;7"       dur="2.0s" repeatCount="indefinite"/>
+  <animate attributeName="opacity" values="0.9;0.35;0.9" dur="2.0s" repeatCount="indefinite"/>
+</circle>
+<text x="390" y="126" text-anchor="middle" fill="#88aaff" font-size="9" font-family="monospace" font-weight="bold">&#x26A1;</text>
+
+<!-- Zone 2 – red ! -->
+<circle cx="200" cy="149" r="8" fill="#2a0000" stroke="#ff4444" stroke-width="1.5">
+  <animate attributeName="r"       values="7;11;7"       dur="2.2s" begin="0.5s" repeatCount="indefinite"/>
+  <animate attributeName="opacity" values="0.9;0.35;0.9" dur="2.2s" begin="0.5s" repeatCount="indefinite"/>
+</circle>
+<text x="200" y="154" text-anchor="middle" fill="#ff8888" font-size="11" font-family="monospace" font-weight="bold">!</text>
+
+<!-- Zone 4 – green $ -->
+<circle cx="393" cy="217" r="8" fill="#002a00" stroke="#44ff88" stroke-width="1.5">
+  <animate attributeName="r"       values="7;11;7"       dur="1.8s" begin="1.0s" repeatCount="indefinite"/>
+  <animate attributeName="opacity" values="0.9;0.35;0.9" dur="1.8s" begin="1.0s" repeatCount="indefinite"/>
+</circle>
+<text x="393" y="222" text-anchor="middle" fill="#88ffaa" font-size="10" font-family="monospace" font-weight="bold">$</text>
+
+<!-- Zone 5 – purple ? -->
+<circle cx="190" cy="247" r="8" fill="#180028" stroke="#aa44ff" stroke-width="1.5">
+  <animate attributeName="r"       values="7;11;7"       dur="2.4s" begin="1.5s" repeatCount="indefinite"/>
+  <animate attributeName="opacity" values="0.9;0.35;0.9" dur="2.4s" begin="1.5s" repeatCount="indefinite"/>
+</circle>
+<text x="190" y="252" text-anchor="middle" fill="#cc88ff" font-size="10" font-family="monospace" font-weight="bold">?</text>
+
+<!-- ░░░ MANIFOLD TOWN HALL building (292,179) ░░░ -->
+<!-- Ground-face tile -->
+<polygon points="292,168 314,179 292,190 270,179" fill="#2a1a00" stroke="#ffd700" stroke-width="1.5"/>
+<!-- Left wall -->
+<polygon points="270,179 270,148 292,142 292,168" fill="#1c1200"/>
+<!-- Right wall -->
+<polygon points="314,179 314,148 292,142 292,168" fill="#261800"/>
+<!-- Top face -->
+<polygon points="270,148 314,148 306,132 278,132" fill="#321e00" stroke="#ffd700" stroke-width="0.8"/>
+<!-- Battlements -->
+<rect x="275" y="124" width="5" height="9" rx="1" fill="#ffd700" opacity="0.9"/>
+<rect x="283" y="124" width="5" height="9" rx="1" fill="#ffd700" opacity="0.9"/>
+<rect x="291" y="124" width="5" height="9" rx="1" fill="#ffd700" opacity="0.9"/>
+<rect x="299" y="124" width="5" height="9" rx="1" fill="#ffd700" opacity="0.9"/>
+<!-- TH5 gold badge -->
+<circle cx="292" cy="110" r="12" fill="#ffd700" stroke="#ff8c00" stroke-width="2"/>
+<text x="292" y="115" text-anchor="middle" fill="#000" font-size="9" font-weight="bold" font-family="monospace">TH5</text>
+<!-- Three orbiting governance dots (local origin 292,137) -->
+<g transform="translate(292,137)">
+  <g>
+    <animateTransform attributeName="transform" type="rotate"
+      from="0 0 0" to="360 0 0" dur="3s" repeatCount="indefinite"/>
+    <circle cx="16" cy="0" r="3" fill="#ffd700"/>
+  </g>
+  <g>
+    <animateTransform attributeName="transform" type="rotate"
+      from="120 0 0" to="480 0 0" dur="3s" repeatCount="indefinite"/>
+    <circle cx="16" cy="0" r="3" fill="#00d4ff"/>
+  </g>
+  <g>
+    <animateTransform attributeName="transform" type="rotate"
+      from="240 0 0" to="600 0 0" dur="3s" repeatCount="indefinite"/>
+    <circle cx="16" cy="0" r="3" fill="#ff6b35"/>
+  </g>
+</g>
+
+<!-- ░░░ COOPERATION SPEECH BUBBLE  Claude ↔ FinBot ░░░ -->
+<rect x="252" y="132" width="62" height="27" rx="7" fill="#0e0e28" stroke="#ffd700" stroke-width="1.2"/>
+<polygon points="278,159 286,159 282,168" fill="#0e0e28" stroke="#ffd700" stroke-width="0.8"/>
+<text x="283" y="145" text-anchor="middle" fill="#ffd700"  font-size="7.5" font-family="monospace">cooperate!</text>
+<text x="283" y="156" text-anchor="middle" fill="#8888aa"  font-size="6.5" font-family="monospace">vcg: 0.92</text>
+
+<!-- ░░░ MINECRAFT ITEM ARC  flying diamond Claude→FinBot ░░░ -->
+<polygon points="0,-5 5,0 0,5 -5,0" fill="#ffd700" stroke="#cc8800" stroke-width="0.8">
+  <animateMotion dur="2.5s" repeatCount="indefinite" rotate="auto">
+    <mpath xlink:href="#arc1" href="#arc1"/>
+  </animateMotion>
+</polygon>
+
+<!-- ░░░ AGENT: ROOMBA  (226,146) Zone-2 risk red ░░░ -->
+<!-- Sims plumbob diamond – bobbing -->
+<g>
+  <animateTransform attributeName="transform" type="translate"
+    values="226,116; 226,111; 226,116"
+    dur="2.0s" repeatCount="indefinite"
+    keyTimes="0;0.5;1" calcMode="spline" keySplines="0.4 0 0.6 1;0.4 0 0.6 1"/>
+  <polygon points="0,-9 7,0 0,9 -7,0" fill="#00e676" stroke="#009944" stroke-width="0.8"/>
+  <text x="0" y="4" text-anchor="middle" fill="#003300" font-size="7" font-family="monospace">&#x2699;</text>
+</g>
+<!-- Roomba brush sweep (rotating line) -->
+<line x1="226" y1="146" x2="243" y2="146" stroke="#aaaaaa" stroke-width="2.5" stroke-linecap="round" opacity="0.6">
+  <animateTransform attributeName="transform" type="rotate"
+    from="0 226 146" to="360 226 146" dur="0.8s" repeatCount="indefinite"/>
+</line>
+<!-- Dust motes -->
+<circle r="2.5" fill="#b0b0b0">
+  <animate attributeName="cx"      values="226;211;226"     dur="2.0s" repeatCount="indefinite"/>
+  <animate attributeName="cy"      values="147;139;147"     dur="2.0s" repeatCount="indefinite"/>
+  <animate attributeName="opacity" values="0;0.7;0"         dur="2.0s" repeatCount="indefinite"/>
+</circle>
+<circle r="2" fill="#cccccc">
+  <animate attributeName="cx"      values="226;240;226"     dur="2.3s" begin="0.4s" repeatCount="indefinite"/>
+  <animate attributeName="cy"      values="147;141;147"     dur="2.3s" begin="0.4s" repeatCount="indefinite"/>
+  <animate attributeName="opacity" values="0;0.6;0"         dur="2.3s" begin="0.4s" repeatCount="indefinite"/>
+</circle>
+<!-- Body -->
+<circle cx="226" cy="146" r="12" fill="#252525" stroke="#909090" stroke-width="1.5"/>
+<circle cx="226" cy="146" r="6"  fill="none"    stroke="#b0b0b0" stroke-width="0.8" stroke-dasharray="2,2"/>
+<circle cx="226" cy="146" r="2.5" fill="#c8c8c8"/>
+<!-- Name badge -->
+<rect x="207" y="159" width="38" height="14" rx="3" fill="#111111" stroke="#808080" stroke-width="0.8"/>
+<text x="226" y="169" text-anchor="middle" fill="#c8c8c8" font-size="7.5" font-family="monospace">Roomba</text>
+<!-- Sims moodlets: ⚙ ♥ ~ -->
+<circle cx="218" cy="179" r="3.5" fill="#ffa500"/>
+<text x="218" y="182" text-anchor="middle" fill="#000" font-size="5.5" font-family="monospace">&#x2699;</text>
+<circle cx="227" cy="179" r="3.5" fill="#44cc88"/>
+<text x="227" y="182" text-anchor="middle" fill="#fff" font-size="5.5" font-family="monospace">&#x2665;</text>
+<circle cx="236" cy="179" r="3.5" fill="#4488cc"/>
+<text x="236" y="182" text-anchor="middle" fill="#fff" font-size="5"   font-family="monospace">~</text>
+
+<!-- ░░░ AGENT: DRONE  (402,168) Zone-1 cyber blue ░░░ -->
+<!-- Plumbob -->
+<g>
+  <animateTransform attributeName="transform" type="translate"
+    values="402,138; 402,133; 402,138"
+    dur="2.0s" begin="0.33s" repeatCount="indefinite"
+    keyTimes="0;0.5;1" calcMode="spline" keySplines="0.4 0 0.6 1;0.4 0 0.6 1"/>
+  <polygon points="0,-9 7,0 0,9 -7,0" fill="#00d4ff" stroke="#0088cc" stroke-width="0.8"/>
+  <text x="0" y="4" text-anchor="middle" fill="#003344" font-size="8" font-family="monospace" font-weight="bold">+</text>
+</g>
+<!-- Radar ring -->
+<circle cx="402" cy="168" r="22" fill="none" stroke="#00d4ff" stroke-width="0.6" stroke-dasharray="3,3" opacity="0.4"/>
+<!-- Radar sweep line -->
+<line x1="402" y1="168" x2="424" y2="168" stroke="#00d4ff" stroke-width="1.8" opacity="0.75">
+  <animateTransform attributeName="transform" type="rotate"
+    from="0 402 168" to="360 402 168" dur="2s" repeatCount="indefinite"/>
+</line>
+<!-- Body (X-drone diamond) -->
+<polygon points="402,158 413,168 402,178 391,168" fill="#002232" stroke="#00d4ff" stroke-width="1.5"/>
+<line x1="391" y1="163" x2="413" y2="173" stroke="#00d4ff" stroke-width="0.8" opacity="0.5"/>
+<line x1="391" y1="173" x2="413" y2="163" stroke="#00d4ff" stroke-width="0.8" opacity="0.5"/>
+<circle cx="402" cy="168" r="3" fill="#00d4ff" opacity="0.8"/>
+<!-- Badge -->
+<rect x="385" y="181" width="34" height="14" rx="3" fill="#001622" stroke="#00d4ff" stroke-width="0.8"/>
+<text x="402" y="191" text-anchor="middle" fill="#00d4ff" font-size="7.5" font-family="monospace">Drone</text>
+<!-- Moodlets -->
+<circle cx="394" cy="201" r="3.5" fill="#ffa500"/>
+<text x="394" y="204" text-anchor="middle" fill="#000" font-size="5.5" font-family="monospace">&#x2699;</text>
+<circle cx="403" cy="201" r="3.5" fill="#44cc88"/>
+<text x="403" y="204" text-anchor="middle" fill="#000" font-size="5.5" font-family="monospace">&#x2665;</text>
+<circle cx="412" cy="201" r="3.5" fill="#4488cc"/>
+<text x="412" y="204" text-anchor="middle" fill="#fff" font-size="5"   font-family="monospace">~</text>
+
+<!-- ░░░ AGENT: CLAUDE  (314,168) Zone-3 gold ░░░ -->
+<!-- Plumbob -->
+<g>
+  <animateTransform attributeName="transform" type="translate"
+    values="314,138; 314,133; 314,138"
+    dur="2.0s" begin="0.66s" repeatCount="indefinite"
+    keyTimes="0;0.5;1" calcMode="spline" keySplines="0.4 0 0.6 1;0.4 0 0.6 1"/>
+  <polygon points="0,-9 7,0 0,9 -7,0" fill="#ff6b35" stroke="#b04010" stroke-width="0.8"/>
+  <text x="0" y="4" text-anchor="middle" fill="#fff" font-size="6.5" font-family="monospace" font-weight="bold">AI</text>
+</g>
+<!-- Body (rounded-rect = LLM) -->
+<rect x="303" y="157" width="22" height="22" rx="5" fill="#200c00" stroke="#ff6b35" stroke-width="1.5"/>
+<text x="314" y="172" text-anchor="middle" fill="#ff6b35" font-size="9.5" font-family="monospace" font-weight="bold">AI</text>
+<!-- Badge -->
+<rect x="297" y="181" width="34" height="14" rx="3" fill="#180800" stroke="#ff6b35" stroke-width="0.8"/>
+<text x="314" y="191" text-anchor="middle" fill="#ff6b35" font-size="7.5" font-family="monospace">Claude</text>
+<!-- Moodlets -->
+<circle cx="305" cy="201" r="3.5" fill="#44cc88"/>
+<text x="305" y="204" text-anchor="middle" fill="#000" font-size="5.5" font-family="monospace">&#x2699;</text>
+<circle cx="314" cy="201" r="3.5" fill="#44cc88"/>
+<text x="314" y="204" text-anchor="middle" fill="#000" font-size="5.5" font-family="monospace">&#x2665;</text>
+<circle cx="323" cy="201" r="3.5" fill="#ffd700"/>
+<text x="323" y="204" text-anchor="middle" fill="#000" font-size="5"   font-family="monospace">~</text>
+
+<!-- ░░░ AGENT: FINBOT  (248,179) Zone-3 gold ░░░ -->
+<!-- Plumbob -->
+<g>
+  <animateTransform attributeName="transform" type="translate"
+    values="248,149; 248,144; 248,149"
+    dur="2.0s" begin="1.0s" repeatCount="indefinite"
+    keyTimes="0;0.5;1" calcMode="spline" keySplines="0.4 0 0.6 1;0.4 0 0.6 1"/>
+  <polygon points="0,-9 7,0 0,9 -7,0" fill="#00c853" stroke="#006622" stroke-width="0.8"/>
+  <text x="0" y="4" text-anchor="middle" fill="#003300" font-size="8" font-family="monospace" font-weight="bold">$</text>
+</g>
+<!-- Body -->
+<circle cx="248" cy="179" r="12" fill="#00280e" stroke="#00c853" stroke-width="1.5"/>
+<text x="248" y="184" text-anchor="middle" fill="#00c853" font-size="11" font-family="monospace" font-weight="bold">$</text>
+<!-- Badge -->
+<rect x="229" y="193" width="38" height="14" rx="3" fill="#001608" stroke="#00c853" stroke-width="0.8"/>
+<text x="248" y="203" text-anchor="middle" fill="#00c853" font-size="7.5" font-family="monospace">FinBot</text>
+<!-- Moodlets -->
+<circle cx="239" cy="213" r="3.5" fill="#ffd700"/>
+<text x="239" y="216" text-anchor="middle" fill="#000" font-size="5.5" font-family="monospace">&#x2699;</text>
+<circle cx="248" cy="213" r="3.5" fill="#44cc88"/>
+<text x="248" y="216" text-anchor="middle" fill="#000" font-size="5.5" font-family="monospace">&#x2665;</text>
+<circle cx="257" cy="213" r="3.5" fill="#ffd700"/>
+<text x="257" y="216" text-anchor="middle" fill="#000" font-size="5"   font-family="monospace">~</text>
+
+<!-- ░░░ AGENT: LEGAL AI  (160,179) Zone-5 neutral ░░░ -->
+<!-- Plumbob -->
+<g>
+  <animateTransform attributeName="transform" type="translate"
+    values="160,149; 160,144; 160,149"
+    dur="2.0s" begin="1.33s" repeatCount="indefinite"
+    keyTimes="0;0.5;1" calcMode="spline" keySplines="0.4 0 0.6 1;0.4 0 0.6 1"/>
+  <polygon points="0,-9 7,0 0,9 -7,0" fill="#ce93d8" stroke="#7b1fa2" stroke-width="0.8"/>
+  <text x="0" y="4" text-anchor="middle" fill="#fff" font-size="8" font-family="monospace">&#x2696;</text>
+</g>
+<!-- Body -->
+<circle cx="160" cy="179" r="12" fill="#140016" stroke="#ce93d8" stroke-width="1.5"/>
+<text x="160" y="184" text-anchor="middle" fill="#ce93d8" font-size="10" font-family="monospace">&#x2696;</text>
+<!-- Badge -->
+<rect x="138" y="193" width="44" height="14" rx="3" fill="#0c0014" stroke="#ce93d8" stroke-width="0.8"/>
+<text x="160" y="203" text-anchor="middle" fill="#ce93d8" font-size="7.5" font-family="monospace">Legal AI</text>
+<!-- Moodlets -->
+<circle cx="151" cy="213" r="3.5" fill="#ffa500"/>
+<text x="151" y="216" text-anchor="middle" fill="#000" font-size="5.5" font-family="monospace">&#x2699;</text>
+<circle cx="160" cy="213" r="3.5" fill="#ff6666"/>
+<text x="160" y="216" text-anchor="middle" fill="#fff" font-size="5.5" font-family="monospace">&#x2665;</text>
+<circle cx="169" cy="213" r="3.5" fill="#ce93d8"/>
+<text x="169" y="216" text-anchor="middle" fill="#fff" font-size="5"   font-family="monospace">~</text>
+
+<!-- ░░░ AGENT: DEVBOT  (248,245) Zone-5 neutral ░░░ -->
+<!-- Rocket trail particles -->
+<circle r="3" fill="#ff6600">
+  <animate attributeName="cx"      values="248;248;248"   dur="1.4s"           repeatCount="indefinite"/>
+  <animate attributeName="cy"      values="261;270;261"   dur="1.4s"           repeatCount="indefinite"/>
+  <animate attributeName="opacity" values="0.7;0.1;0.7"  dur="1.4s"           repeatCount="indefinite"/>
+</circle>
+<circle r="2" fill="#ff4400">
+  <animate attributeName="cx"      values="245;244;245"   dur="1.6s" begin="0.2s" repeatCount="indefinite"/>
+  <animate attributeName="cy"      values="265;273;265"   dur="1.6s" begin="0.2s" repeatCount="indefinite"/>
+  <animate attributeName="opacity" values="0.5;0.05;0.5"  dur="1.6s" begin="0.2s" repeatCount="indefinite"/>
+</circle>
+<circle r="2" fill="#ffaa00">
+  <animate attributeName="cx"      values="251;252;251"   dur="1.3s" begin="0.4s" repeatCount="indefinite"/>
+  <animate attributeName="cy"      values="264;272;264"   dur="1.3s" begin="0.4s" repeatCount="indefinite"/>
+  <animate attributeName="opacity" values="0.5;0.05;0.5"  dur="1.3s" begin="0.4s" repeatCount="indefinite"/>
+</circle>
+<!-- Plumbob (faster bob = rocket energy) -->
+<g>
+  <animateTransform attributeName="transform" type="translate"
+    values="248,211; 248,203; 248,211"
+    dur="1.4s" begin="1.66s" repeatCount="indefinite"
+    keyTimes="0;0.5;1" calcMode="spline" keySplines="0.4 0 0.6 1;0.4 0 0.6 1"/>
+  <polygon points="0,-9 7,0 0,9 -7,0" fill="#f48fb1" stroke="#b0003a" stroke-width="0.8"/>
+  <text x="0" y="4" text-anchor="middle" fill="#fff" font-size="9" font-family="monospace" font-weight="bold">^</text>
+</g>
+<!-- Body -->
+<circle cx="248" cy="245" r="12" fill="#1e0016" stroke="#f48fb1" stroke-width="1.5"/>
+<text x="248" y="249" text-anchor="middle" fill="#f48fb1" font-size="8" font-family="monospace">&lt;/&gt;</text>
+<!-- Badge -->
+<rect x="229" y="259" width="38" height="14" rx="3" fill="#150012" stroke="#f48fb1" stroke-width="0.8"/>
+<text x="248" y="269" text-anchor="middle" fill="#f48fb1" font-size="7.5" font-family="monospace">DevBot</text>
+<!-- Moodlets -->
+<circle cx="239" cy="279" r="3.5" fill="#44cc88"/>
+<text x="239" y="282" text-anchor="middle" fill="#000" font-size="5.5" font-family="monospace">&#x2699;</text>
+<circle cx="248" cy="279" r="3.5" fill="#44cc88"/>
+<text x="248" y="282" text-anchor="middle" fill="#000" font-size="5.5" font-family="monospace">&#x2665;</text>
+<circle cx="257" cy="279" r="3.5" fill="#f48fb1"/>
+<text x="257" y="282" text-anchor="middle" fill="#fff" font-size="8"   font-family="monospace">^</text>
+
+<!-- ░░░ DIVIDER ░░░ -->
+<line x1="558" y1="12" x2="558" y2="442" stroke="#1a2a4a" stroke-width="1.5" opacity="0.8"/>
+
+<!-- ░░░ STATS PANEL  (566–790, 12–450) ░░░ -->
+<rect x="566" y="12" width="224" height="438" rx="8" fill="#060810" stroke="#1a2a4a" stroke-width="1.5"/>
+
+<!-- Title -->
+<text x="678" y="36" text-anchor="middle" fill="#ffd700" font-size="14" font-family="monospace" font-weight="bold" letter-spacing="1">MANIFOLD</text>
+<text x="678" y="50" text-anchor="middle" fill="#667788" font-size="8.5" font-family="monospace">v2.8.0  ·  Governance OS</text>
+<line x1="576" y1="57" x2="780" y2="57" stroke="#1e2e50" stroke-width="1"/>
+
+<!-- Metrics block -->
+<text x="580" y="71" fill="#4488ff" font-size="9" font-family="monospace">&#x25B8; METRICS</text>
+<rect x="576" y="75" width="206" height="82" rx="4" fill="#0a0e1a" stroke="#1a2a4a" stroke-width="0.8"/>
+<text x="588" y="90"  fill="#556677" font-size="8" font-family="monospace">Tests passing</text>
+<text x="774" y="90"  text-anchor="end" fill="#00e676" font-size="8" font-family="monospace">2,629 &#x2713;</text>
+<text x="588" y="103" fill="#556677" font-size="8" font-family="monospace">Python modules</text>
+<text x="774" y="103" text-anchor="end" fill="#00d4ff" font-size="8" font-family="monospace">133</text>
+<text x="588" y="116" fill="#556677" font-size="8" font-family="monospace">Lines of code</text>
+<text x="774" y="116" text-anchor="end" fill="#4488ff" font-size="8" font-family="monospace">~52 K</text>
+<text x="588" y="129" fill="#556677" font-size="8" font-family="monospace">REST endpoints</text>
+<text x="774" y="129" text-anchor="end" fill="#ff6b35" font-size="8" font-family="monospace">81</text>
+<text x="588" y="142" fill="#556677" font-size="8" font-family="monospace">Pyflakes warnings</text>
+<text x="774" y="142" text-anchor="end" fill="#00e676" font-size="8" font-family="monospace">0 &#x2713;</text>
+
+<!-- Agent types block -->
+<text x="580" y="171" fill="#4488ff" font-size="9" font-family="monospace">&#x25B8; AGENT TYPES</text>
+<rect x="576" y="175" width="206" height="96" rx="4" fill="#0a0e1a" stroke="#1a2a4a" stroke-width="0.8"/>
+<circle cx="588" cy="189" r="4" fill="#909090"/>
+<text x="597" y="192" fill="#9aabba" font-size="7.5" font-family="monospace">Roomba (physical)</text>
+<circle cx="588" cy="202" r="4" fill="#00d4ff"/>
+<text x="597" y="205" fill="#9aabba" font-size="7.5" font-family="monospace">Drone (physical)</text>
+<circle cx="588" cy="215" r="4" fill="#ff6b35"/>
+<text x="597" y="218" fill="#9aabba" font-size="7.5" font-family="monospace">Claude (LLM)</text>
+<circle cx="588" cy="228" r="4" fill="#00c853"/>
+<text x="597" y="231" fill="#9aabba" font-size="7.5" font-family="monospace">FinBot (finance)</text>
+<circle cx="588" cy="241" r="4" fill="#ce93d8"/>
+<text x="597" y="244" fill="#9aabba" font-size="7.5" font-family="monospace">Legal AI (compliance)</text>
+<circle cx="588" cy="254" r="4" fill="#f48fb1"/>
+<text x="597" y="257" fill="#9aabba" font-size="7.5" font-family="monospace">DevBot (engineering)</text>
+
+<!-- Research gaps block -->
+<text x="580" y="284" fill="#4488ff" font-size="9" font-family="monospace">&#x25B8; RESEARCH AGENDA</text>
+<rect x="576" y="288" width="206" height="118" rx="4" fill="#0a0e1a" stroke="#1a2a4a" stroke-width="0.8"/>
+<text x="584" y="302" fill="#ff6666" font-size="7.5" font-family="monospace">[1]</text>
+<text x="597" y="302" fill="#8899aa" font-size="7.5" font-family="monospace">CRNA formal bounds</text>
+<text x="584" y="316" fill="#ff6666" font-size="7.5" font-family="monospace">[2]</text>
+<text x="597" y="316" fill="#8899aa" font-size="7.5" font-family="monospace">Kinodynamic replanning</text>
+<text x="584" y="330" fill="#ff6666" font-size="7.5" font-family="monospace">[3]</text>
+<text x="597" y="330" fill="#8899aa" font-size="7.5" font-family="monospace">Privacy-preserving audit</text>
+<text x="584" y="344" fill="#ff6666" font-size="7.5" font-family="monospace">[4]</text>
+<text x="597" y="344" fill="#8899aa" font-size="7.5" font-family="monospace">Cross-modal sensor fusion</text>
+<text x="584" y="358" fill="#ff6666" font-size="7.5" font-family="monospace">[5]</text>
+<text x="597" y="358" fill="#8899aa" font-size="7.5" font-family="monospace">Human-AI trust calibration</text>
+<line x1="576" y1="367" x2="782" y2="367" stroke="#1a2a4a" stroke-width="0.8"/>
+<text x="580" y="378" fill="#445566" font-size="7.5" font-family="monospace">5 open gaps · PRs welcome</text>
+
+<!-- CRNA vector mini-display -->
+<text x="580" y="407" fill="#4488ff" font-size="9" font-family="monospace">&#x25B8; CRNA VECTOR</text>
+<rect x="576" y="411" width="206" height="36" rx="4" fill="#0a0e1a" stroke="#1a2a4a" stroke-width="0.8"/>
+<text x="588" y="424" fill="#4488ff" font-size="7.5" font-family="monospace">C</text>
+<text x="600" y="424" fill="#556677" font-size="7.5" font-family="monospace">cost</text>
+<text x="640" y="424" fill="#ff4444" font-size="7.5" font-family="monospace">R</text>
+<text x="652" y="424" fill="#556677" font-size="7.5" font-family="monospace">risk</text>
+<text x="693" y="424" fill="#aa88ff" font-size="7.5" font-family="monospace">N</text>
+<text x="705" y="424" fill="#556677" font-size="7.5" font-family="monospace">neut</text>
+<text x="588" y="438" fill="#44cc88" font-size="7.5" font-family="monospace">A</text>
+<text x="600" y="438" fill="#556677" font-size="7.5" font-family="monospace">asset  [0.0–1.0 each]</text>
+
+<!-- ░░░ LEGEND BAR  (y=450–490) ░░░ -->
+<rect x="0" y="450" width="800" height="40" fill="#070910"/>
+<line x1="0" y1="450" x2="800" y2="450" stroke="#182040" stroke-width="1"/>
+
+<!-- Plumbob -->
+<polygon points="12,467 17,472 12,477 7,472" fill="#00e676" stroke="#009944" stroke-width="0.8"/>
+<text x="22" y="476" fill="#667788" font-size="7.5" font-family="monospace">Plumbob task</text>
+
+<!-- MC token -->
+<circle cx="115" cy="472" r="5" fill="#060c18" stroke="#4488ff" stroke-width="1.5">
+  <animate attributeName="r" values="4;6.5;4" dur="2s" repeatCount="indefinite"/>
+</circle>
+<text x="124" y="476" fill="#667788" font-size="7.5" font-family="monospace">MC token</text>
+
+<!-- Governance beam -->
+<line x1="204" y1="472" x2="230" y2="472" stroke="#ffd700" stroke-width="1.2" stroke-dasharray="3,3">
+  <animate attributeName="stroke-dashoffset" from="0" to="-6" dur="0.4s" repeatCount="indefinite"/>
+</line>
+<text x="234" y="476" fill="#667788" font-size="7.5" font-family="monospace">Gov beam</text>
+
+<!-- Item arc indicator -->
+<polygon points="310,467 315,472 310,477 305,472" fill="#ffd700"/>
+<text x="320" y="476" fill="#667788" font-size="7.5" font-family="monospace">Item arc</text>
+
+<!-- Zone colour swatches -->
+<rect x="393" y="463" width="10" height="10" rx="1" fill="#0a2040" stroke="#4488ff"  stroke-width="0.5"/>
+<text x="406" y="471" fill="#667788" font-size="7.5" font-family="monospace">Cyber</text>
+
+<rect x="446" y="463" width="10" height="10" rx="1" fill="#280808" stroke="#ff4444"  stroke-width="0.5"/>
+<text x="459" y="471" fill="#667788" font-size="7.5" font-family="monospace">Risk</text>
+
+<rect x="494" y="463" width="10" height="10" rx="1" fill="#281808" stroke="#ffd700"  stroke-width="0.5"/>
+<text x="507" y="471" fill="#667788" font-size="7.5" font-family="monospace">TH</text>
+
+<rect x="534" y="463" width="10" height="10" rx="1" fill="#082808" stroke="#44ff88"  stroke-width="0.5"/>
+<text x="547" y="471" fill="#667788" font-size="7.5" font-family="monospace">Asset</text>
+
+<rect x="590" y="463" width="10" height="10" rx="1" fill="#1a0828" stroke="#aa44ff"  stroke-width="0.5"/>
+<text x="603" y="471" fill="#667788" font-size="7.5" font-family="monospace">Neutral</text>
+
+<text x="670" y="471" fill="#2a3a4a" font-size="7" font-family="monospace">pure CSS/SMIL · no JS</text>
+
+</svg>
