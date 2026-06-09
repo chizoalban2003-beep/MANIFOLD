@@ -578,11 +578,53 @@ MANIFOLD World (`/world`) is an isometric real-time governance game built on the
 
 ---
 
+## What's New in v2.9.1
+
+Six surgical fixes and four new experiments addressing the theoretical gaps identified in v2.9.0.
+
+### Fixes
+
+| ID | Component | Description |
+|---|---|---|
+| 8.1 | `multiagent.py` | **3-layer injection defense** — NFKC normalisation + homoglyph stripping + 33-pattern blocklist (was 7). Zero-width character removal. Cyrillic/Greek homoglyphs mapped to ASCII before matching. |
+| 8.2 | `experiments/mapf_cbs.py` | **Edge conflict detection** — CBS now detects swap conflicts (agent A→B while B→A in same timestep) as well as vertex collisions. Adds `Conflict.conflict_type` ("vertex"/"edge") and `Constraint.edge_from`. |
+| 8.3 | `experiments/convergence.py` | **Heterogeneous agent archetypes** — 4 archetypes (Explorer, Harvester, Terraformer, Defender) selected per cell from CRNA values. Resource replenishment and hazard spike dynamics per step. |
+| 8.4 | `experiments/calibrated_policy.py` | **Calibrated thresholds** — `ThresholdCalibrator` fits per-domain optimal thresholds via Youden's J from historical outcome data instead of hard-coding 0.7 for all domains. |
+| 8.5 | `policy_learner.py` | **Per-domain minimum decisions** — `DOMAIN_MIN_DECISIONS` sets domain-specific sample floors before auto-promotion fires. Healthcare/legal: 50. Finance: 15. DevOps/infrastructure: 5. Effective min = `max(global_min, domain_min)`. |
+| 8.6 | `llm_interface.py` | **Payload validation gate** — `_validate_action_payload()` checks action allowlist, clamps LLM rule priority to ≤10, enforces condition key allowlist (excludes `prompt_regex` to prevent ReDoS), validates numeric ranges, and enforces org isolation. |
+
+### New Experiments
+
+| Experiment | File | Research Question |
+|---|---|---|
+| **EXP-A** | `experiments/exp_a_bayesian_cbs.py` | Do CBS paths improve when the CRNA grid is well-observed (low entropy)? Compares 0 vs 200 sensor updates. |
+| **EXP-B** | `experiments/exp_b_adversarial_injection.py` | What fraction of adversarial injection attempts are caught by the 3-layer defence? Measures pattern/paraphrase/encoding catch rates and benign false-positive rate. |
+| **EXP-C** | `experiments/exp_c_policy_learner_convergence.py` | How quickly does PolicyLearner converge per domain? Measures escalations before promotion and post-promotion savings across 8 domains. |
+| **EXP-D** | `experiments/exp_d_threshold_ab_test.py` | Are calibrated thresholds worth it? Shadow A/B of calibrated vs fixed 0.7 threshold across 5 domains × 1,000 decisions. Reports precision gain and escalation reduction. |
+
+Run all experiments:
+
+```python
+from manifold.experiments import (
+    run_bayesian_cbs_benchmark,
+    run_adversarial_injection_benchmark,
+    run_policy_learner_convergence_benchmark,
+    run_threshold_ab_benchmark,
+)
+
+print(run_bayesian_cbs_benchmark())
+print(run_adversarial_injection_benchmark())
+print(run_policy_learner_convergence_benchmark())
+print(run_threshold_ab_benchmark())
+```
+
+---
+
 ## Numbers
 
 | Metric | Value |
 |---|---|
-| Tests | 2657 / 2657 ✅ |
+| Tests | 2657+ / 2657+ ✅ |
 | Python modules | 150 |
 | API endpoints | 90+ |
 | Domain packs | 7 |
