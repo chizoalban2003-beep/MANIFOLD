@@ -1,53 +1,61 @@
 [build-system]
-requires = ["setuptools>=69", "wheel"]
-build-backend = "setuptools.build_meta"
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.backends.legacy:build"
 
 [project]
-name = "manifold-ai"
-version = "2.9.0"
-description = "The Trust Operating System for AI agents — prices risk, delegates hierarchically, detects adversarial gaming, and writes its own legislation."
+name = "manifold"
+version = "2.9.1"
+description = "Universal Governance OS for Digital and Physical Intelligence"
+readme = "README.md"
+license = { text = "MIT" }
 requires-python = ">=3.12"
-license = "MIT"
-authors = [{name = "MANIFOLD Contributors"}]
-keywords = ["ai", "agents", "trust", "shadow-mode", "llm", "risk", "orchestration"]
+authors = [{ name = "Alban Chigozirim", email = "chizoalban2003@gmail.com" }]
+keywords = ["ai", "governance", "agents", "robotics", "policy", "crna"]
 classifiers = [
-    "Development Status :: 5 - Production/Stable",
-    "Intended Audience :: Developers",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.12",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
-    "Topic :: Software Development :: Libraries :: Python Modules",
 ]
 dependencies = [
-    "pandas>=2.1",
-    "pydantic>=2.0",
+    "pandas>=2.2",
+    "pydantic>=2.7",
 ]
 
-[tool.setuptools]
-py-modules = ["deploy_shadow"]
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
+    "pyflakes>=3.2",
+]
+db = [
+    "sqlalchemy>=2.0",
+]
+ui = [
+    "fastapi>=0.111",
+    "uvicorn[standard]>=0.30",
+]
+research = [
+    "scipy>=1.13",
+    "matplotlib>=3.9",
+    "numpy>=1.26",
+]
+
+[project.urls]
+Homepage = "https://github.com/chizoalban2003-beep/MANIFOLD"
+Repository = "https://github.com/chizoalban2003-beep/MANIFOLD"
+Issues = "https://github.com/chizoalban2003-beep/MANIFOLD/issues"
 
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["manifold*", "manifold_physical*"]
 
-[project.optional-dependencies]
-ui = ["streamlit>=1.40"]
-dashboard = ["streamlit>=1.40"]
-dev = ["pytest>=9.0", "pytest-asyncio>=0.23", "aiosqlite>=0.19", "statsmodels>=0.14"]
-db = ["aiosqlite>=0.19"]
-db-pg = ["aiosqlite>=0.19", "asyncpg>=0.29"]
-embeddings = ["sentence-transformers>=2.7.0"]
-all = ["streamlit>=1.40", "pytest>=9.0", "pytest-asyncio>=0.23", "aiosqlite>=0.19"]
-
-[project.urls]
-Homepage = "https://github.com/chizoalban2003-beep/MANIFOLD"
-Repository = "https://github.com/chizoalban2003-beep/MANIFOLD"
-"Bug Tracker" = "https://github.com/chizoalban2003-beep/MANIFOLD/issues"
-
-[project.scripts]
-manifold = "manifold.cli:main"
-manifold-shadow = "deploy_shadow:main"
-
 [tool.pytest.ini_options]
-pythonpath = ["."]
 testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
+addopts = "-q --tb=short"
+
+[tool.pyflakes]
+exclude = ["__pycache__", ".git", "build", "dist"]
