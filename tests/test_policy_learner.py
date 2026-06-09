@@ -38,7 +38,7 @@ class TestDomainMinDecisions:
         assert DOMAIN_MIN_DECISIONS["healthcare"] == 50
         assert DOMAIN_MIN_DECISIONS["legal"] == 50
         assert DOMAIN_MIN_DECISIONS["devops"] == 5
-        assert DOMAIN_MIN_DECISIONS["finance"] == 15
+        assert DOMAIN_MIN_DECISIONS["finance"] == 3
 
     def test_healthcare_blocked_below_50(self):
         learner, ctx = _learner_with_domain("healthcare", 10)

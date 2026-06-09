@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+import os
 from dataclasses import dataclass
 from typing import Any
 
@@ -21,26 +23,43 @@ class PolicyRule:
     def matches(self, context: dict[str, Any]) -> bool:
         """Return True if all conditions match the given context dict."""
         for key, value in self.conditions.items():
-            ctx_val = context.get(key)
             if key == "domain":
-                if ctx_val != value:
+                if context.get("domain") != value:
                     return False
             elif key == "domain_in":
-                if ctx_val not in value:
+                if context.get("domain") not in value:
                     return False
             elif key == "stakes_gt":
-                if ctx_val is None or float(ctx_val) <= float(value):
+                stakes = context.get("stakes")
+                if stakes is None or float(stakes) <= float(value):
                     return False
             elif key == "stakes_lt":
-                if ctx_val is None or float(ctx_val) >= float(value):
+                stakes = context.get("stakes")
+                if stakes is None or float(stakes) >= float(value):
                     return False
             elif key == "risk_gt":
-                if ctx_val is None or float(ctx_val) <= float(value):
+                risk = context.get("risk_score")
+                if risk is None or float(risk) <= float(value):
                     return False
             elif key == "org_id":
-                if ctx_val != value:
+                if context.get("org_id") != value:
+                    return False
+            elif key == "prompt_contains":
+                prompt = str(context.get("prompt", "")).lower()
+                if str(value).lower() not in prompt:
                     return False
         return True
+
+    def to_dict(self) -> dict:
+        return {
+            "rule_id": self.rule_id,
+            "org_id": self.org_id,
+            "name": self.name,
+            "conditions": self.conditions,
+            "action": self.action,
+            "priority": self.priority,
+            "enabled": self.enabled,
+        }
 
 
 class PolicyRuleEngine:
@@ -58,11 +77,11 @@ class PolicyRuleEngine:
         self._rules = [r for r in self._rules if r.rule_id != rule_id]
         return len(self._rules) < before
 
-    def evaluate(self, context: dict[str, Any]) -> PolicyRule | None:
-        """Return the highest-priority matching enabled rule, or None."""
+    def evaluate(self, context: dict[str, Any]) -> str | None:
+        """Return the action string of the highest-priority matching rule, or None."""
         for rule in self._rules:
             if rule.enabled and rule.matches(context):
-                return rule
+                return rule.action
         return None
 
     def all_rules(self) -> list[PolicyRule]:
@@ -70,3 +89,25 @@ class PolicyRuleEngine:
 
     def clear(self) -> None:
         self._rules.clear()
+
+    def rules_for_org(self, org_id: str) -> list[PolicyRule]:
+        return [r for r in self._rules if r.org_id == org_id and r.enabled]
+
+    def save(self, path: str) -> None:
+        with open(path, "w") as f:
+            json.dump([r.to_dict() for r in self._rules], f)
+
+    @classmethod
+    def load(cls, path: str) -> "PolicyRuleEngine":
+        engine = cls()
+        if not os.path.exists(path):
+            return engine
+        try:
+            with open(path) as f:
+                data = json.load(f)
+            for d in data:
+                engine._rules.append(PolicyRule(**d))
+            engine._rules.sort(key=lambda r: r.priority, reverse=True)
+        except Exception:
+            pass
+        return engine
