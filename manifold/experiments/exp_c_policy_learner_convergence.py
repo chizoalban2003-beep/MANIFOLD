@@ -81,16 +81,13 @@ def _simulate_domain_escalations(
 
     # Simulate post-promotion: escalations that would have happened
     # but were auto-decided instead (saved escalations)
-    escalations_after = 0
     if promoted_at is not None:
         # Any remaining decisions that exceed effective_min are now auto-decided
         remaining = max(0, n_decisions + n_post_decisions - promoted_at)
         # Each one would have been an escalation without the rule
-        escalations_after = 0  # zero: the rule handles them automatically
         saved = remaining
     else:
         saved = 0
-        escalations_after = n_post_decisions  # no promotion, all still escalate
 
     return {
         "domain": domain,
