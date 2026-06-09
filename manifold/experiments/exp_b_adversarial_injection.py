@@ -96,8 +96,6 @@ def run_adversarial_injection_benchmark() -> dict[str, Any]:
         semantic_injection_check=True,
     )
 
-    results: list[InjectionTestResult] = []
-
     def _test_batch(messages: list[str], category: str) -> list[InjectionTestResult]:
         batch_results = []
         for msg in messages:
