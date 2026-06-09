@@ -30,8 +30,8 @@ DOMAIN_MIN_DECISIONS: dict[str, int] = {
     "supply_chain": 8,
     "trading": 10,
     # Medium-frequency, moderate stakes
-    "finance": 15,
-    "general": 10,
+    "finance": 3,
+    "general": 3,
     # Low-frequency, hard to reverse — high bar before trusting the pattern
     "legal": 50,
     "healthcare": 50,

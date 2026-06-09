@@ -1,3 +1,0 @@
-name,domain,action,priority
-Block healthcare high risk,healthcare,escalate,80
-Audit all finance,finance,audit,70
