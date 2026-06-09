@@ -16,7 +16,7 @@ import random
 from typing import Any
 
 from manifold.experiments.bayesian_crna import BayesianGrid
-from manifold.experiments.mapf_cbs import CBSSolver, _world_astar_timed
+from manifold.experiments.mapf_cbs import CBSSolver
 from manifold.nervatura_world import NERVATURAWorld
 
 
