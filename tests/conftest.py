@@ -5,15 +5,8 @@ from __future__ import annotations
 import pytest
 
 from manifold.escalation_memory import EscalationMemory
-from manifold.nervatura_world import NERVATURAWorld
 from manifold.policy_learner import PolicyLearner
 from manifold.policy_rules import PolicyRuleEngine
-
-
-@pytest.fixture()
-def small_world() -> NERVATURAWorld:
-    """5×5×1 NERVATURAWorld with default CRNA values."""
-    return NERVATURAWorld(5, 5, 1, default_crna=(0.4, 0.3, 1.0, 0.3))
 
 
 @pytest.fixture()
