@@ -3,6 +3,12 @@
 Scans EscalationMemory for high-confidence patterns and promotes them
 to formal PolicyRule entries so MANIFOLD never has to ask the same
 question again.
+
+Fix (8.5): Per-domain minimum decision thresholds. Low-frequency
+high-stakes domains (healthcare, legal) require significantly more
+confirmed decisions before auto-promotion than high-frequency domains
+(devops, finance).  The global confidence threshold is unchanged; only
+the minimum sample count is domain-specific.
 """
 from __future__ import annotations
 
@@ -12,6 +18,24 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from manifold.escalation_memory import EscalationMemory
     from manifold.policy_rules import PolicyRule, PolicyRuleEngine
+
+
+# Minimum number of consistent decisions required before promotion, keyed by
+# domain.  Calibrated to decision frequency and consequence severity.
+# Domains absent from this dict fall back to the instance default_min_decisions.
+DOMAIN_MIN_DECISIONS: dict[str, int] = {
+    # High-frequency, easily recoverable
+    "devops": 5,
+    "infrastructure": 5,
+    "supply_chain": 8,
+    "trading": 10,
+    # Medium-frequency, moderate stakes
+    "finance": 15,
+    "general": 10,
+    # Low-frequency, hard to reverse — high bar before trusting the pattern
+    "legal": 50,
+    "healthcare": 50,
+}
 
 
 class PolicyLearner:
@@ -27,6 +51,12 @@ class PolicyLearner:
     promote_threshold:
         Minimum approval-rate confidence to promote a rule.  Defaults to
         0.9 (stricter than the 0.85 auto-decide threshold).
+    default_min_decisions:
+        Fallback minimum decision count for domains not found in
+        ``DOMAIN_MIN_DECISIONS``.  Defaults to 10.
+    domain_min_decisions:
+        Optional caller-supplied overrides merged on top of the module-level
+        ``DOMAIN_MIN_DECISIONS`` defaults, keyed by domain string.
     """
 
     def __init__(
@@ -34,12 +64,23 @@ class PolicyLearner:
         memory: "EscalationMemory",
         registry: "PolicyRuleEngine",
         promote_threshold: float = 0.9,
+        default_min_decisions: int = 10,
+        domain_min_decisions: dict[str, int] | None = None,
     ) -> None:
         self._memory = memory
         self._registry = registry
         self._promote_threshold = promote_threshold
-        # Track which context hashes we have already promoted
+        self._default_min = default_min_decisions
+        self._domain_min: dict[str, int] = dict(DOMAIN_MIN_DECISIONS)
+        if domain_min_decisions:
+            self._domain_min.update(domain_min_decisions)
         self._promoted: set[str] = set()
+
+    # ------------------------------------------------------------------
+
+    def _min_for_domain(self, domain: str) -> int:
+        """Return the minimum decision count required for *domain*."""
+        return self._domain_min.get(domain.lower(), self._default_min)
 
     # ------------------------------------------------------------------
 
@@ -59,21 +100,24 @@ class PolicyLearner:
             return None
 
         n = len(bucket)
-        if n < self._memory._min:
+        sample = bucket[-1]
+        domain = sample.domain
+
+        # Domain-specific minimum takes precedence over the memory global min.
+        # Use the stricter of the two so neither can be bypassed by config.
+        effective_min = max(self._memory._min, self._min_for_domain(domain))
+
+        if n < effective_min:
             return None
 
         approvals = sum(1 for r in bucket if r.human_decision == "approve")
         approval_rate = approvals / n
 
-        # Use the most recent record for domain / action / risk metadata
-        sample = bucket[-1]
-        domain = sample.domain
-        agent_type = sample.agent_id  # stored verbatim; use as label
+        agent_type = sample.agent_id
         action = sample.action
         risk_score = sample.risk_score
 
         if approval_rate >= self._promote_threshold:
-            effect = "allow"
             rule = PolicyRule(
                 rule_id=str(uuid.uuid4()),
                 org_id=getattr(sample, "org_id", "default"),
@@ -82,16 +126,17 @@ class PolicyLearner:
                     "domain": domain,
                     "risk_gt": 0.0,
                 },
-                action=effect,
+                action="allow",
                 priority=5,
             )
-            # Store the stakes ceiling based on seen risk
             rule.conditions["risk_gt"] = 0.0
-            # Upper bound: only apply up to risk_score * 1.1
             rule.conditions["stakes_lt"] = min(risk_score * 1.1, 1.0) + 0.01
             self._registry.add_rule(rule)
             self._promoted.add(context_hash)
-            print(f"MANIFOLD learned: {rule.name} from {n} decisions")
+            print(
+                f"MANIFOLD learned: {rule.name} from {n} decisions "
+                f"(domain_min={effective_min})"
+            )
             return rule
 
         if approval_rate <= 1.0 - self._promote_threshold:
@@ -109,8 +154,8 @@ class PolicyLearner:
             self._registry.add_rule(rule)
             self._promoted.add(context_hash)
             print(
-                f"MANIFOLD learned: {rule.name} (auto_deny) from {n} decisions"
-                f" — agent_type={agent_type}"
+                f"MANIFOLD learned: {rule.name} (auto_deny) from {n} decisions "
+                f"(domain_min={effective_min}) — agent_type={agent_type}"
             )
             return rule
 
